@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Login | Transformación Cárnica</title>
+
+    <link
+        rel="stylesheet"
+        href="/static/css/styles.css"
+    >
+</head>
+
+<body>
+    <main id="loginPage" class="login-container">
+        <section class="login-card">
+            <h1>CAYAL</h1>
+            <h2>Módulo de Transformación Cárnica</h2>
+
+            <p>Ingresa tus credenciales para continuar</p>
+
+            <label for="usuario">Usuario</label>
+            <input
+                type="text"
+                id="usuario"
+                name="usuario"
+                placeholder="Usuario"
+                autocomplete="username"
+                required
+            >
+
+            <label for="password">Contraseña</label>
+            <input
+                type="password"
+                id="password"
+                name="password"
+                placeholder="Contraseña"
+                autocomplete="current-password"
+                required
+            >
+
+            <button
+                type="button"
+                onclick="iniciarSesion()"
+            >
+                Iniciar sesión
+            </button>
+
+            <p id="loginError" class="error"></p>
+        </section>
+    </main>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
