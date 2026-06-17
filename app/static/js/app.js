@@ -1330,6 +1330,19 @@ function obtenerProductosResultantes() {
 }
 
 
+function obtenerProductoBaseFormulaId() {
+    const productoBase = document.querySelector(
+        ".formula-base .producto-resultante-id"
+    );
+
+    if (!productoBase) {
+        return null;
+    }
+
+    return Number(productoBase.value) || null;
+}
+
+
 function textoProductoRegistro(producto) {
     if (!producto) {
         return "Producto no encontrado";
@@ -1340,6 +1353,13 @@ function textoProductoRegistro(producto) {
 
 
 function resumenProductosResultantes(registro) {
+    if (registro.producto_base_formula) {
+        return (
+            `${textoProductoRegistro(registro.producto_base_formula.producto)} ` +
+            `(${formatearKg(registro.producto_base_formula.cantidad)})`
+        );
+    }
+
     const productos = registro.productos_resultantes || [];
 
     if (productos.length === 0) {
@@ -1755,6 +1775,7 @@ async function registrarTransformacion() {
         producto_origen_id: Number(productoOrigenInput.value),
         cantidad_origen: cantidadOrigenInput.value,
         productos_resultantes: productosResultantes,
+        producto_base_formula_id: obtenerProductoBaseFormulaId(),
         usuario_id: sesionActual?.user_id || null,
         usuario_nombre: sesionActual?.usuario || null,
         tipo_transformacion: obtenerTipoTransformacionSeleccionado(),

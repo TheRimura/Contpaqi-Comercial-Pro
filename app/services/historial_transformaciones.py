@@ -12,6 +12,26 @@ def numero(valor):
     return valor
 
 
+def separar_detalle_formula(datos, productos_resultantes):
+    if not datos.producto_base_formula_id:
+        return None, [], productos_resultantes
+
+    producto_base = None
+    ingredientes = []
+
+    for producto in productos_resultantes:
+        producto_id = producto.get("producto", {}).get("id")
+
+        if producto_id == datos.producto_base_formula_id:
+            producto_base = producto
+        else:
+            ingredientes.append(producto)
+
+    visibles = [producto_base] if producto_base else []
+
+    return producto_base, ingredientes, visibles
+
+
 class HistorialTransformaciones:
     def __init__(self):
         self._registros = []
@@ -25,6 +45,11 @@ class HistorialTransformaciones:
         producto_origen,
         productos_resultantes,
     ):
+        (
+            producto_base_formula,
+            ingredientes_formula,
+            productos_visibles,
+        ) = separar_detalle_formula(datos, productos_resultantes)
         total_salida = sum(
             numero(producto["cantidad"])
             for producto in productos_resultantes
@@ -40,7 +65,9 @@ class HistorialTransformaciones:
                 "producto_ya_transformado": datos.producto_ya_transformado,
                 "producto_origen": producto_origen,
                 "cantidad_origen": numero(datos.cantidad_origen),
-                "productos_resultantes": productos_resultantes,
+                "producto_base_formula": producto_base_formula,
+                "ingredientes_formula": ingredientes_formula,
+                "productos_resultantes": productos_visibles,
                 "total_salida": total_salida,
                 "peso_merma": numero(rendimiento["peso_merma"]),
                 "porcentaje_merma_real": numero(

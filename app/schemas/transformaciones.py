@@ -13,6 +13,7 @@ class CrearTransformacion(BaseModel):
     producto_origen_id: int = Field(gt=0)
     cantidad_origen: Decimal = Field(gt=0)
     productos_resultantes: list[ProductoResultante] = Field(min_length=1)
+    producto_base_formula_id: int | None = Field(default=None, gt=0)
 
     usuario_id: int | None = Field(default=None, gt=0)
     usuario_nombre: str | None = Field(default=None, max_length=100)
