@@ -308,6 +308,15 @@ body {
     margin-top: -4px;
 }
 
+.help-card {
+    background: #f8fafc;
+    border: 1px solid var(--gris-borde);
+    border-radius: 10px;
+    color: var(--gris-texto);
+    min-height: 44px;
+    padding: 12px 14px;
+}
+
 .info-box,
 .panel {
     padding: 22px;
@@ -329,6 +338,11 @@ body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;
     margin-bottom: 18px;
+}
+
+.origen-grid {
+    grid-template-columns: 1fr;
+    margin-bottom: 0;
 }
 
 .form-row {
@@ -536,11 +550,12 @@ td {
 }
 
 .origen-card {
-    padding: 18px;
+    padding: 20px;
     background: #f8fafc;
     border: 1px solid var(--gris-borde);
-    border-left: 4px solid var(--azul);
+    border-left: 5px solid var(--azul);
     border-radius: 12px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
 }
 
 .origen-card-empty {
@@ -566,13 +581,17 @@ td {
 
 .origen-detalle {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px 14px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--gris-borde);
     color: var(--gris-texto);
     font-size: 13px;
 }
 
 .origen-detalle b {
+    display: block;
+    margin-top: 3px;
     color: var(--texto);
 }
 
@@ -615,6 +634,119 @@ td {
 .tabla-resultantes button:hover {
     background: #fee2e2;
     border-color: #fecaca;
+}
+
+.formula-resultantes {
+    display: grid;
+    gap: 12px;
+}
+
+.formula-resumen {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 16px;
+    background: #eef4ff;
+    border: 1px solid #c7d7ef;
+    border-radius: 12px;
+}
+
+.formula-resumen strong,
+.formula-resumen span {
+    display: block;
+}
+
+.formula-resumen strong {
+    color: var(--azul-oscuro);
+    margin-bottom: 3px;
+}
+
+.formula-resumen span {
+    color: var(--gris-texto);
+    font-size: 13px;
+}
+
+.formula-etiquetas {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.formula-etiquetas span {
+    padding: 6px 10px;
+    background: var(--blanco);
+    border: 1px solid #c7d7ef;
+    border-radius: 999px;
+    color: var(--azul-oscuro);
+    font-size: 12px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.formula-lista {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.formula-base {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 160px;
+    align-items: center;
+    gap: 16px;
+    margin: 0;
+    padding: 18px;
+    background: var(--blanco);
+    border: 1px solid #bcd0ef;
+    border-left: 5px solid var(--azul);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.formula-base .formula-info strong {
+    color: var(--azul-oscuro);
+    font-size: 15px;
+}
+
+.formula-base .formula-cantidad {
+    font-size: 16px;
+}
+
+.formula-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 140px;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+    padding: 14px;
+    background: var(--blanco);
+}
+
+.formula-info strong {
+    display: block;
+    color: var(--texto);
+    font-size: 14px;
+    line-height: 1.25;
+    margin-bottom: 4px;
+}
+
+.formula-info span {
+    color: var(--gris-texto);
+    font-size: 12px;
+}
+
+.formula-cantidad {
+    min-width: 0 !important;
+    width: 100%;
+    text-align: right;
+    font-weight: 800;
+}
+
+.formula-cantidad[readonly] {
+    background: #f8fafc;
+    color: var(--azul-oscuro);
+    cursor: default;
 }
 
 .aviso-producto-transformado {
@@ -664,12 +796,19 @@ td {
     display: flex;
     align-items: baseline;
     gap: 8px;
-    font-size: 24px;
+    font-size: 22px;
+    line-height: 1.15;
 }
 
 .summary-item small {
     color: var(--gris-texto);
     font-size: 13px;
+}
+
+.summary-note {
+    display: block;
+    margin-top: 8px;
+    font-weight: 700;
 }
 
 .summary-highlight {
@@ -790,6 +929,7 @@ td {
 
     .cards,
     .form-grid,
+    .formula-lista,
     .summary-strip,
     .balance-grid {
         grid-template-columns: 1fr;
@@ -797,5 +937,20 @@ td {
 
     .form-row {
         grid-template-columns: 1fr;
+    }
+
+    .origen-detalle {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .formula-base,
+    .formula-resumen,
+    .formula-item {
+        grid-template-columns: 1fr;
+    }
+
+    .formula-resumen {
+        align-items: flex-start;
+        flex-direction: column;
     }
 }

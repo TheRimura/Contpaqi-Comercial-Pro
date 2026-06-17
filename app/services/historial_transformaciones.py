@@ -36,6 +36,7 @@ class HistorialTransformaciones:
                 "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "usuario_id": datos.usuario_id,
                 "usuario": datos.usuario_nombre,
+                "tipo_transformacion": datos.tipo_transformacion,
                 "producto_ya_transformado": datos.producto_ya_transformado,
                 "producto_origen": producto_origen,
                 "cantidad_origen": numero(datos.cantidad_origen),

@@ -1,9 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from app.schemas.transformaciones import CrearTransformacion
 from app.services.historial_transformaciones import (
     obtener_historial_transformaciones,
 )
+from app.services.sesiones import requerir_sesion
 from app.utils.base_de_datos import obtener_base_datos
 
 
@@ -77,7 +78,7 @@ def consultar_productos_registro(datos: CrearTransformacion):
 
 
 @router.get("/")
-def listar_transformaciones():
+def listar_transformaciones(sesion: dict = Depends(requerir_sesion)):
     historial = obtener_historial_transformaciones()
     return {
         "registros": historial.listar(),
@@ -85,7 +86,14 @@ def listar_transformaciones():
 
 
 @router.post("/")
-def crear_transformacion(datos: CrearTransformacion):
+def crear_transformacion(
+    datos: CrearTransformacion,
+    sesion: dict = Depends(requerir_sesion),
+):
+    datos = datos.model_copy(update={
+        "usuario_id": sesion.get("user_id"),
+        "usuario_nombre": sesion.get("usuario"),
+    })
     historial = obtener_historial_transformaciones()
     rendimiento = calcular_rendimiento(datos)
     producto_origen, productos_resultantes = consultar_productos_registro(

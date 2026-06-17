@@ -20,6 +20,7 @@ async function iniciarSesion() {
     try {
         const respuesta = await fetch("/login/", {
             method: "POST",
+            credentials: "same-origin",
             headers: {
                 "Content-Type": "application/json"
             },
@@ -28,7 +29,7 @@ async function iniciarSesion() {
                 password
             })
         });
-
+         
         const datos = await respuesta.json();
 
         if (!respuesta.ok) {
@@ -43,19 +44,35 @@ async function iniciarSesion() {
             return;
         }
 
-        sessionStorage.setItem("usuario", datos.usuario);
-        sessionStorage.setItem("user_id", String(datos.user_id));
-        sessionStorage.setItem(
-            "user_group_id",
-            String(datos.user_group_id)
-        );
-
         window.location.href = "/dashboard";
     } catch (error) {
         mensajeError.textContent =
             "No se pudo conectar con el servidor";
         console.error(error);
     }
+}
+
+
+async function cargarSesionActual() {
+    const respuesta = await fetch("/login/sesion", {
+        credentials: "same-origin"
+    });
+
+    if (!respuesta.ok) {
+        window.location.href = "/";
+        return null;
+    }
+
+    const datos = await respuesta.json();
+    sesionActual = datos;
+
+    const usuarioActivo = document.getElementById("usuarioActivo");
+
+    if (usuarioActivo) {
+        usuarioActivo.textContent = datos.usuario || "Usuario";
+    }
+
+    return datos;
 }
 
 
@@ -76,19 +93,32 @@ function mostrarSeccion(idSeccion) {
 }
 
 
-function cerrarSesion() {
-    sessionStorage.clear();
+async function cerrarSesion() {
+    try {
+        await fetch("/login/logout", {
+            method: "POST",
+            credentials: "same-origin"
+        });
+    } catch (error) {
+        console.error(error);
+    }
+
     window.location.href = "/";
 }
 
 
 const PRODUCTOS_POR_PAGINA = 10;
-const CANTIDAD_ORIGEN_INICIAL = "1";
+const TIPO_RECETA_CONFIGURADA = "receta_configurada";
+const TIPO_PRODUCTO_FINAL = "producto_final";
+let sesionActual = null;
 let productosBusquedaActual = "";
 let productosPaginaActual = 1;
 let productoOrigenSeleccionado = null;
 let productosResultantesDisponibles = [];
+let productosRecetaDisponibles = [];
+let productoTieneRecetaConfigurada = false;
 let productoYaTransformadoSeleccionado = false;
+let tipoRelacionRecetaConfigurada = null;
 
 
 async function consultarProductos(
@@ -102,7 +132,9 @@ async function consultarProductos(
         limite: String(limite)
     });
 
-    const respuesta = await fetch(`/productos/?${parametros}`);
+    const respuesta = await fetch(`/productos/?${parametros}`, {
+        credentials: "same-origin"
+    });
     const datos = await respuesta.json();
 
     if (!respuesta.ok) {
@@ -262,6 +294,99 @@ function formatearCantidad(valor) {
 }
 
 
+function formatearCantidadCorta(valor) {
+    const numero = Number(valor || 0);
+
+    if (!Number.isFinite(numero)) {
+        return "0";
+    }
+
+    return new Intl.NumberFormat("es-ES", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+    }).format(numero);
+}
+
+
+function formatearKg(valor) {
+    return `${formatearCantidadCorta(valor)} kg`;
+}
+
+
+function formatearCantidadCaptura(valor) {
+    const numero = Number(valor || 0);
+
+    if (!Number.isFinite(numero) || numero <= 0) {
+        return "";
+    }
+
+    if (numero < 0.1) {
+        return `${formatearCantidadCorta(numero * 1000)} g`;
+    }
+
+    return formatearKg(numero);
+}
+
+
+function formatearCantidadFormula(valor) {
+    const numero = Number(valor || 0);
+
+    if (!Number.isFinite(numero)) {
+        return "";
+    }
+
+    if (numero === 0) {
+        return "0 kg";
+    }
+
+    return formatearCantidadCaptura(numero);
+}
+
+
+function leerCantidadKg(valor) {
+    if (typeof valor === "number") {
+        return Number.isFinite(valor) ? valor : 0;
+    }
+
+    const textoOriginal = String(valor || "")
+        .toLowerCase()
+        .trim();
+    const estaEnGramos =
+        /\bg\b/.test(textoOriginal) && !/\bkg\b/.test(textoOriginal);
+    const texto = textoOriginal
+        .replace("kg", "")
+        .replace("g", "")
+        .replace(",", ".")
+        .trim();
+    const numero = Number(texto);
+
+    if (!Number.isFinite(numero)) {
+        return 0;
+    }
+
+    return estaEnGramos ? numero / 1000 : numero;
+}
+
+
+function cantidadApi(valor) {
+    return leerCantidadKg(valor).toFixed(4);
+}
+
+
+function formatearPorcentajeCorto(valor) {
+    const numero = Number(valor || 0);
+
+    if (!Number.isFinite(numero)) {
+        return "0%";
+    }
+
+    return `${new Intl.NumberFormat("es-ES", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+    }).format(numero)}%`;
+}
+
+
 function formatearPorcentaje(valor) {
     const numero = Number(valor || 0);
 
@@ -270,6 +395,45 @@ function formatearPorcentaje(valor) {
     }
 
     return numero.toFixed(2);
+}
+
+
+function porcentajeMermaEstimadaProducto() {
+    return Number(
+        productoOrigenSeleccionado?.merma_estimada?.porcentaje || 0
+    );
+}
+
+
+function calcularEntradaEstimada(totalSalida, porcentajeMerma) {
+    const salida = Number(totalSalida || 0);
+    const porcentaje = Number(porcentajeMerma || 0);
+    const rendimiento = 1 - (porcentaje / 100);
+
+    if (salida <= 0) {
+        return 0;
+    }
+
+    if (rendimiento <= 0) {
+        return salida;
+    }
+
+    return salida / rendimiento;
+}
+
+
+function aplicarMermaEstimadaProducto(producto) {
+    const porcentajeMermaEsperado = document.getElementById(
+        "porcentajeMermaEsperado"
+    );
+
+    const porcentaje = Number(producto?.merma_estimada?.porcentaje || 0);
+
+    if (porcentajeMermaEsperado) {
+        porcentajeMermaEsperado.value = porcentaje
+            ? formatearPorcentaje(porcentaje)
+            : "";
+    }
 }
 
 
@@ -282,7 +446,7 @@ function obtenerProductoDisponible(productoId) {
 
 function cantidadOrigenActual() {
     const cantidadOrigenInput = document.getElementById("cantidadOrigen");
-    return Number(cantidadOrigenInput?.value || 0);
+    return leerCantidadKg(cantidadOrigenInput?.value || 0);
 }
 
 
@@ -299,27 +463,48 @@ function calcularCantidadSugerida(producto) {
 }
 
 
+function cantidadBaseProducto(producto) {
+    const cantidadFormula = Number(producto?.cantidad_formula || 0);
+
+    if (cantidadFormula > 0) {
+        return cantidadFormula;
+    }
+
+    return Number(producto?.cantidad_resultante || 0);
+}
+
+
+function esComponenteBaseFormula(producto) {
+    const categoria = String(producto?.categoria || "").trim().toUpperCase();
+
+    return producto?.participa_balance !== false && categoria !== "INSUMOS";
+}
+
+
 function actualizarTarjetaOrigen(producto) {
     const tarjeta = document.getElementById("tarjetaOrigen");
     const nombre = document.getElementById("origenNombre");
+    const productoNombre = document.getElementById("origenProducto");
     const clave = document.getElementById("origenClave");
-    const categoria = document.getElementById("origenCategoria");
     const unidad = document.getElementById("origenUnidad");
     const existencia = document.getElementById("origenExistencia");
     const unidadCantidad = document.getElementById("unidadCantidadOrigen");
 
-    if (!tarjeta || !nombre || !clave || !categoria || !unidad) {
+    if (!tarjeta || !nombre || !productoNombre || !clave || !unidad) {
         return;
     }
 
     tarjeta.classList.remove("origen-card-empty");
-    nombre.textContent = producto.nombre || "-";
+    nombre.textContent = producto.categoria || "-";
+    productoNombre.textContent = producto.nombre || "-";
     clave.textContent = producto.clave || "-";
-    categoria.textContent = producto.categoria || "-";
     unidad.textContent = producto.unidad || "-";
 
     if (existencia) {
-        existencia.textContent = formatearCantidad(producto.existencia);
+        const existenciaValor = Number(producto.existencia || 0);
+        existencia.textContent = existenciaValor > 0
+            ? formatearCantidadCorta(existenciaValor)
+            : "-";
     }
 
     if (unidadCantidad) {
@@ -330,8 +515,27 @@ function actualizarTarjetaOrigen(producto) {
 }
 
 
+function actualizarOrigenDesdeFormula(productoBase) {
+    const resultadoOrigen = document.getElementById("resultadoOrigen");
+
+    if (!productoBase) {
+        return;
+    }
+
+    actualizarTarjetaOrigen(productoBase);
+
+    if (resultadoOrigen) {
+        resultadoOrigen.className = "seleccion-origen";
+        resultadoOrigen.textContent =
+            `Categoria de origen: ${productoBase.categoria || "-"}`;
+    }
+}
+
+
 async function consultarProductosResultantes(productoId) {
-    const respuesta = await fetch(`/productos/${productoId}/resultantes`);
+    const respuesta = await fetch(`/productos/${productoId}/resultantes`, {
+        credentials: "same-origin"
+    });
     const datos = await respuesta.json();
 
     if (!respuesta.ok) {
@@ -352,39 +556,145 @@ async function cargarProductosResultantes(productoId) {
     }
 
     productoYaTransformadoSeleccionado = false;
+    productoTieneRecetaConfigurada = false;
+    tipoRelacionRecetaConfigurada = null;
     productosResultantesDisponibles = [];
+    productosRecetaDisponibles = [];
     contenedor.replaceChildren();
     contenedor.textContent = "Cargando productos resultantes...";
 
     try {
         const datos = await consultarProductosResultantes(productoId);
-        productosResultantesDisponibles = datos.productos || [];
-        contenedor.replaceChildren();
-
-        if (productosResultantesDisponibles.length === 0) {
-            productoYaTransformadoSeleccionado = true;
-            productosResultantesDisponibles = [
-                {
-                    ...productoOrigenSeleccionado,
-                    cantidad_origen: 1,
-                    cantidad_resultante: 1
-                }
-            ];
-
-            agregarProductoResultante();
-
-            const aviso = document.createElement("div");
-            aviso.className = "aviso-producto-transformado";
-            aviso.textContent =
-                "Este producto ya esta transformado; se registrara con salida igual a la entrada.";
-            contenedor.prepend(aviso);
-            return;
-        }
-
-        agregarProductoResultante();
+        productosRecetaDisponibles = datos.productos || [];
+        tipoRelacionRecetaConfigurada = datos.tipo_relacion || null;
+        productoTieneRecetaConfigurada =
+            productosRecetaDisponibles.length > 0;
+        configurarTipoTransformacion(productoTieneRecetaConfigurada);
+        renderizarProductosResultantes();
     } catch (error) {
         contenedor.textContent = error.message;
     }
+}
+
+
+function obtenerTipoTransformacionSeleccionado() {
+    const tipoTransformacion = document.getElementById("tipoTransformacion");
+
+    if (!tipoTransformacion) {
+        return TIPO_RECETA_CONFIGURADA;
+    }
+
+    return tipoTransformacion.value || TIPO_RECETA_CONFIGURADA;
+}
+
+
+function configurarTipoTransformacion(tieneReceta) {
+    const tipoTransformacion = document.getElementById("tipoTransformacion");
+    const ayuda = document.getElementById("ayudaTipoTransformacion");
+
+    if (!tipoTransformacion) {
+        return;
+    }
+
+    tipoTransformacion.disabled = false;
+
+    Array.from(tipoTransformacion.options).forEach(function (opcion) {
+        opcion.disabled =
+            opcion.value === TIPO_RECETA_CONFIGURADA && !tieneReceta;
+    });
+
+    tipoTransformacion.value = tieneReceta
+        ? TIPO_RECETA_CONFIGURADA
+        : TIPO_PRODUCTO_FINAL;
+
+    if (ayuda) {
+        if (!tieneReceta) {
+            ayuda.textContent =
+                "Este producto no tiene receta configurada; solo se puede registrar como producto final.";
+        } else if (
+            tipoRelacionRecetaConfigurada ===
+            "formula_lista_para_cocinar"
+        ) {
+            ayuda.textContent =
+                "Se cargaran los componentes en kilos de la formula configurada.";
+        } else {
+            ayuda.textContent =
+                "Puedes usar la receta configurada o registrarlo como producto final.";
+        }
+    }
+}
+
+
+function crearAvisoProductoFinal() {
+    const aviso = document.createElement("div");
+    aviso.className = "aviso-producto-transformado";
+    aviso.textContent =
+        "Se registrara como producto final: captura la salida y el sistema estimara entrada y merma.";
+
+    return aviso;
+}
+
+
+function renderizarProductosResultantes() {
+    const contenedor = document.getElementById("productosResultantes");
+    const tipoTransformacion = obtenerTipoTransformacionSeleccionado();
+
+    if (!contenedor || !productoOrigenSeleccionado) {
+        return;
+    }
+
+    contenedor.replaceChildren();
+    contenedor.classList.remove("formula-resultantes");
+    configurarEncabezadoResultantes("Productos resultantes", true);
+    productoYaTransformadoSeleccionado =
+        tipoTransformacion === TIPO_PRODUCTO_FINAL;
+
+    if (productoYaTransformadoSeleccionado) {
+        configurarEncabezadoResultantes("Producto final", false);
+        productosResultantesDisponibles = [
+            {
+                ...productoOrigenSeleccionado,
+                cantidad_origen: 1,
+                cantidad_resultante: 1
+            }
+        ];
+
+        agregarProductoResultante();
+        contenedor.prepend(crearAvisoProductoFinal());
+        actualizarBalance();
+        return;
+    }
+
+    productosResultantesDisponibles = productosRecetaDisponibles;
+
+    if (productosResultantesDisponibles.length === 0) {
+        mostrarMensajeResultantes(
+            "Este producto no tiene receta configurada."
+        );
+        actualizarBalance();
+        return;
+    }
+
+    if (tipoRelacionRecetaConfigurada === "formula_lista_para_cocinar") {
+        const productosParaBalance = productosResultantesDisponibles.filter(
+            function (producto) {
+                return producto.participa_balance !== false;
+            }
+        );
+        const productosExcluidos = productosResultantesDisponibles.filter(
+            function (producto) {
+                return producto.participa_balance === false;
+            }
+        );
+
+        configurarEncabezadoResultantes("Componentes de formula", false);
+        renderizarFormula(productosParaBalance, productosExcluidos);
+        actualizarBalance();
+        return;
+    }
+
+    agregarProductoResultante();
+    actualizarBalance();
 }
 
 
@@ -403,13 +713,14 @@ async function seleccionarProductoOrigen(producto) {
     busquedaInput.value = describirProducto(producto);
     busquedaInput.readOnly = true;
     busquedaInput.classList.add("input-bloqueado");
-    cantidadOrigenInput.value = CANTIDAD_ORIGEN_INICIAL;
+    cantidadOrigenInput.value = "0";
     actualizarTarjetaOrigen(producto);
+    aplicarMermaEstimadaProducto(producto);
 
     if (resultadoOrigen) {
         resultadoOrigen.className = "seleccion-origen";
         resultadoOrigen.textContent =
-            `Producto origen seleccionado: ${producto.nombre}`;
+            `Producto origen seleccionado: ${producto.categoria}`;
     }
 
     const resultadoTransformacion = document.getElementById(
@@ -499,6 +810,286 @@ function mostrarMensajeResultantes(mensaje) {
 }
 
 
+function configurarEncabezadoResultantes(titulo, mostrarBoton) {
+    const tituloSeccion = document.getElementById(
+        "tituloProductosResultantes"
+    );
+    const botonAgregar = document.getElementById("botonAgregarResultante");
+
+    if (tituloSeccion) {
+        tituloSeccion.textContent = titulo;
+    }
+
+    if (botonAgregar) {
+        botonAgregar.hidden = !mostrarBoton;
+    }
+}
+
+
+function crearResumenFormulaAnterior(productosBalance, productosExcluidos) {
+    const resumen = document.createElement("div");
+    const texto = document.createElement("div");
+    const etiquetas = document.createElement("div");
+
+    resumen.className = "formula-resumen";
+    texto.innerHTML = `
+        <strong>Formula configurada</strong>
+        <span>Componentes que participan en el balance de kilos.</span>
+    `;
+    etiquetas.className = "formula-etiquetas";
+
+    const etiquetaKilos = document.createElement("span");
+    etiquetaKilos.textContent = `${productosBalance.length} en kilos`;
+    etiquetas.appendChild(etiquetaKilos);
+
+    if (productosExcluidos.length > 0) {
+        const etiquetaExcluidos = document.createElement("span");
+        etiquetaExcluidos.textContent =
+            `${productosExcluidos.length} fuera del balance`;
+        etiquetas.appendChild(etiquetaExcluidos);
+    }
+
+    resumen.append(texto, etiquetas);
+    return resumen;
+}
+
+
+function agregarComponenteFormulaAnterior(producto) {
+    const lista = document.getElementById("listaFormula");
+
+    if (!lista) {
+        return;
+    }
+
+    const fila = document.createElement("div");
+    const productoId = document.createElement("input");
+    const info = document.createElement("div");
+    const cantidad = document.createElement("input");
+    const cantidadBase = cantidadBaseProducto(producto);
+
+    fila.className = "producto-resultante formula-item";
+    productoId.type = "hidden";
+    productoId.className = "producto-resultante-id";
+    productoId.value = String(producto.id);
+
+    info.className = "formula-info";
+    info.innerHTML = `
+        <strong>${producto.nombre}</strong>
+        <span>${producto.clave || "Sin clave"} · ${producto.categoria || "-"}</span>
+    `;
+
+    cantidad.type = "text";
+    cantidad.inputMode = "decimal";
+    cantidad.placeholder = "Cantidad";
+    cantidad.className = "producto-resultante-cantidad formula-cantidad";
+    cantidad.value = formatearCantidadCaptura(cantidadBase);
+
+    cantidad.addEventListener("input", actualizarBalance);
+
+    fila.append(productoId, info, cantidad);
+    lista.appendChild(fila);
+}
+
+
+function renderizarFormulaAnterior(productosBalance, productosExcluidos) {
+    const contenedor = document.getElementById("productosResultantes");
+    const lista = document.createElement("div");
+
+    if (!contenedor) {
+        return;
+    }
+
+    contenedor.replaceChildren();
+    contenedor.classList.add("formula-resultantes");
+    lista.id = "listaFormula";
+    lista.className = "formula-lista";
+
+    contenedor.append(
+        crearResumenFormula(productosBalance, productosExcluidos),
+        lista
+    );
+
+    productosBalance.forEach(function (producto) {
+        agregarComponenteFormula(producto);
+    });
+}
+
+
+function crearResumenFormula(productoBase, ingredientes, productosExcluidos) {
+    const resumen = document.createElement("div");
+    const texto = document.createElement("div");
+    const etiquetas = document.createElement("div");
+
+    resumen.className = "formula-resumen";
+    texto.innerHTML = `
+        <strong>Formula configurada</strong>
+        <span>Los ingredientes se ajustan con el peso del producto base.</span>
+    `;
+    etiquetas.className = "formula-etiquetas";
+
+    if (productoBase) {
+        const etiquetaBase = document.createElement("span");
+        etiquetaBase.textContent = "1 producto base";
+        etiquetas.appendChild(etiquetaBase);
+    }
+
+    const etiquetaIngredientes = document.createElement("span");
+    etiquetaIngredientes.textContent = `${ingredientes.length} ingredientes`;
+    etiquetas.appendChild(etiquetaIngredientes);
+
+    if (productosExcluidos.length > 0) {
+        const etiquetaExcluidos = document.createElement("span");
+        etiquetaExcluidos.textContent =
+            `${productosExcluidos.length} fuera del balance`;
+        etiquetas.appendChild(etiquetaExcluidos);
+    }
+
+    resumen.append(texto, etiquetas);
+    return resumen;
+}
+
+
+function crearCampoCantidadFormula(producto, esBase) {
+    const fila = document.createElement("div");
+    const productoId = document.createElement("input");
+    const info = document.createElement("div");
+    const cantidad = document.createElement("input");
+    const cantidadBase = cantidadBaseProducto(producto);
+
+    fila.className = esBase
+        ? "producto-resultante formula-base"
+        : "producto-resultante formula-item";
+    productoId.type = "hidden";
+    productoId.className = "producto-resultante-id";
+    productoId.value = String(producto.id);
+
+    info.className = "formula-info";
+    info.innerHTML = `
+        <strong>${producto.nombre}</strong>
+        <span>${producto.clave || "Sin clave"} - ${producto.categoria || "-"}</span>
+    `;
+
+    cantidad.type = "text";
+    cantidad.inputMode = "decimal";
+    cantidad.placeholder = "Cantidad";
+    cantidad.className = "producto-resultante-cantidad formula-cantidad";
+    cantidad.value = formatearCantidadCaptura(cantidadBase);
+    cantidad.dataset.cantidadBase = String(cantidadBase);
+
+    if (esBase) {
+        cantidad.id = "formulaProductoBaseCantidad";
+        cantidad.addEventListener("input", ajustarFormulaDesdeProductoBase);
+    } else {
+        cantidad.readOnly = true;
+        cantidad.tabIndex = -1;
+    }
+
+    fila.append(productoId, info, cantidad);
+    return fila;
+}
+
+
+function agregarComponenteFormula(producto) {
+    const lista = document.getElementById("listaFormula");
+
+    if (!lista) {
+        return;
+    }
+
+    lista.appendChild(crearCampoCantidadFormula(producto, false));
+}
+
+
+function ajustarFormulaDesdeProductoBase() {
+    const cantidadBaseInput = document.getElementById(
+        "formulaProductoBaseCantidad"
+    );
+
+    if (!cantidadBaseInput) {
+        return;
+    }
+
+    const cantidadActual = leerCantidadKg(cantidadBaseInput.value);
+    const cantidadOriginal = Number(
+        cantidadBaseInput.dataset.cantidadBase || 0
+    );
+
+    if (!Number.isFinite(cantidadActual) || cantidadOriginal <= 0) {
+        actualizarBalance();
+        return;
+    }
+
+    const factor = cantidadActual / cantidadOriginal;
+
+    document
+        .querySelectorAll(".formula-item .producto-resultante-cantidad")
+        .forEach(function (input) {
+            const cantidadBase = Number(input.dataset.cantidadBase || 0);
+
+            if (cantidadBase > 0) {
+                input.value = formatearCantidadFormula(
+                    cantidadBase * factor
+                );
+            }
+        });
+
+    actualizarBalance();
+}
+
+
+function separarFormula(productosBalance) {
+    const productoBase =
+        productosBalance.find(esComponenteBaseFormula) ||
+        productosBalance[0] ||
+        null;
+    const ingredientes = productosBalance.filter(function (producto) {
+        return !productoBase || producto.id !== productoBase.id;
+    });
+
+    return {
+        productoBase,
+        ingredientes,
+    };
+}
+
+
+function renderizarFormula(productosBalance, productosExcluidos) {
+    const contenedor = document.getElementById("productosResultantes");
+    const lista = document.createElement("div");
+    const formula = separarFormula(productosBalance);
+
+    if (!contenedor) {
+        return;
+    }
+
+    actualizarOrigenDesdeFormula(formula.productoBase);
+    contenedor.replaceChildren();
+    contenedor.classList.add("formula-resultantes");
+    lista.id = "listaFormula";
+    lista.className = "formula-lista";
+
+    contenedor.appendChild(
+        crearResumenFormula(
+            formula.productoBase,
+            formula.ingredientes,
+            productosExcluidos
+        )
+    );
+
+    if (formula.productoBase) {
+        contenedor.appendChild(
+            crearCampoCantidadFormula(formula.productoBase, true)
+        );
+    }
+
+    contenedor.appendChild(lista);
+
+    formula.ingredientes.forEach(function (producto) {
+        agregarComponenteFormula(producto);
+    });
+}
+
+
 function obtenerCuerpoTablaResultantes() {
     const contenedor = document.getElementById("productosResultantes");
 
@@ -522,8 +1113,7 @@ function obtenerCuerpoTablaResultantes() {
             <tr>
                 <th>Producto resultante</th>
                 <th>Unidad</th>
-                <th>Cantidad sugerida</th>
-                <th>Cantidad capturada</th>
+                <th>Cantidad</th>
                 <th></th>
             </tr>
         `;
@@ -562,33 +1152,7 @@ function actualizarOpcionesResultantes() {
 }
 
 
-function actualizarSugeridoFila(fila) {
-    const select = fila.querySelector(".producto-resultante-id");
-    const cantidad = fila.querySelector(".producto-resultante-cantidad");
-    const sugerida = fila.querySelector(".cantidad-sugerida");
-    const producto = obtenerProductoDisponible(select.value);
-    const cantidadSugerida = calcularCantidadSugerida(producto);
-
-    if (sugerida) {
-        sugerida.textContent = formatearCantidad(cantidadSugerida);
-    }
-
-    if (cantidad && cantidad.dataset.automatica === "1") {
-        cantidad.value = cantidadSugerida
-            ? formatearCantidad(cantidadSugerida)
-            : "";
-    }
-}
-
-
-function actualizarCantidadesSugeridas() {
-    document.querySelectorAll(".producto-resultante").forEach(
-        actualizarSugeridoFila
-    );
-}
-
-
-function agregarProductoResultante() {
+function agregarProductoResultante(productoPreseleccionado = null) {
     if (!productoOrigenSeleccionado) {
         mostrarMensajeResultantes(
             "Primero selecciona un producto desde la tabla de productos."
@@ -614,7 +1178,7 @@ function agregarProductoResultante() {
         if (resultadoTransformacion) {
             resultadoTransformacion.className = "result-container";
             resultadoTransformacion.textContent =
-                "Este producto ya se registra como transformado.";
+                "Este producto ya se registra como producto final.";
         }
 
         return;
@@ -639,20 +1203,17 @@ function agregarProductoResultante() {
 
     const celdaProducto = document.createElement("td");
     const celdaUnidad = document.createElement("td");
-    const celdaSugerida = document.createElement("td");
     const celdaCantidad = document.createElement("td");
     const celdaAcciones = document.createElement("td");
     const cantidad = document.createElement("input");
     const eliminar = document.createElement("button");
 
-    cantidad.type = "number";
-    cantidad.min = "0.001";
-    cantidad.step = "0.001";
+    cantidad.type = "text";
+    cantidad.inputMode = "decimal";
+    cantidad.placeholder = "Ej. 1,5 kg";
     cantidad.className = "producto-resultante-cantidad";
     cantidad.dataset.automatica = "1";
     celdaUnidad.textContent = "-";
-    celdaSugerida.className = "cantidad-sugerida";
-    celdaSugerida.textContent = "0.000";
 
     productosResultantesDisponibles.forEach(function (producto) {
         const opcion = document.createElement("option");
@@ -675,7 +1236,6 @@ function agregarProductoResultante() {
             fila.classList.add("fila-error");
             productoId.value = "";
             celdaUnidad.textContent = "-";
-            celdaSugerida.textContent = "0.000";
             cantidad.value = "";
 
             if (resultadoTransformacion) {
@@ -692,8 +1252,14 @@ function agregarProductoResultante() {
         const producto = obtenerProductoDisponible(productoId.value);
         fila.classList.remove("fila-error");
         celdaUnidad.textContent = producto?.unidad || "-";
-        cantidad.dataset.automatica = "1";
-        actualizarSugeridoFila(fila);
+
+        if (cantidad.dataset.automatica === "1") {
+            const cantidadBase = cantidadBaseProducto(producto);
+            cantidad.value = cantidadBase > 0
+                ? formatearCantidadCaptura(cantidadBase)
+                : "";
+        }
+
         actualizarOpcionesResultantes();
         actualizarBalance();
     });
@@ -716,22 +1282,29 @@ function agregarProductoResultante() {
     fila.append(
         celdaProducto,
         celdaUnidad,
-        celdaSugerida,
         celdaCantidad,
         celdaAcciones
     );
 
+    if (productoPreseleccionado) {
+        productoId.value = String(productoPreseleccionado.id);
+        celdaUnidad.textContent = productoPreseleccionado.unidad || "-";
+
+        const cantidadBase = cantidadBaseProducto(productoPreseleccionado);
+        cantidad.value = cantidadBase > 0
+            ? formatearCantidadCaptura(cantidadBase)
+            : "";
+    }
+
     if (productoYaTransformadoSeleccionado) {
         productoId.value = String(productoOrigenSeleccionado.id);
         productoId.disabled = true;
-        cantidad.readOnly = true;
         cantidad.dataset.automatica = "1";
         eliminar.disabled = true;
         eliminar.textContent = "Fijo";
 
         const producto = obtenerProductoDisponible(productoId.value);
         celdaUnidad.textContent = producto?.unidad || "-";
-        actualizarSugeridoFila(fila);
     }
 
     cuerpo.appendChild(fila);
@@ -743,13 +1316,15 @@ function obtenerProductosResultantes() {
     return Array.from(
         document.querySelectorAll(".producto-resultante")
     ).map(function (fila) {
+        const cantidad = fila.querySelector(
+            ".producto-resultante-cantidad"
+        ).value;
+
         return {
             producto_id: Number(
                 fila.querySelector(".producto-resultante-id").value
             ),
-            cantidad: fila.querySelector(
-                ".producto-resultante-cantidad"
-            ).value
+            cantidad: cantidadApi(cantidad)
         };
     });
 }
@@ -774,7 +1349,7 @@ function resumenProductosResultantes(registro) {
     return productos.map(function (item) {
         return (
             `${textoProductoRegistro(item.producto)} ` +
-            `(${formatearCantidad(item.cantidad)})`
+            `(${formatearKg(item.cantidad)})`
         );
     }).join(", ");
 }
@@ -804,16 +1379,16 @@ function crearTablaRegistros(registros) {
         const fila = document.createElement("tr");
         const valores = [
             registro.folio,
-            registro.producto_ya_transformado
-                ? "Ya transformado"
-                : "Proceso normal",
+            registro.tipo_transformacion === TIPO_PRODUCTO_FINAL
+                ? "Producto final"
+                : "Receta configurada",
             registro.fecha,
             registro.usuario || "-",
             textoProductoRegistro(registro.producto_origen),
-            formatearCantidad(registro.cantidad_origen),
-            formatearCantidad(registro.total_salida),
+            formatearKg(registro.cantidad_origen),
+            formatearKg(registro.total_salida),
             (
-                `${formatearCantidad(registro.peso_merma)} ` +
+                `${formatearKg(registro.peso_merma)} ` +
                 `(${formatearPorcentaje(registro.porcentaje_merma_real)}%)`
             ),
             resumenProductosResultantes(registro)
@@ -843,7 +1418,9 @@ async function cargarHistorialTransformaciones() {
     contenedor.textContent = "Cargando registros...";
 
     try {
-        const respuesta = await fetch("/transformaciones/");
+        const respuesta = await fetch("/transformaciones/", {
+            credentials: "same-origin"
+        });
         const datos = await respuesta.json();
 
         if (!respuesta.ok) {
@@ -878,7 +1455,7 @@ function actualizarBalance() {
         "porcentajeMermaEsperado"
     );
     const resultado = document.getElementById("balanceTransformacion");
-    const validationBox = document.querySelector(".validation-box");
+    const validationBox = document.querySelector('.validation-box');
     const estadoBalance = document.getElementById("estadoBalance");
     const totalOrigen = document.getElementById("totalOrigen");
     const totalResultantes = document.getElementById("totalResultantes");
@@ -886,24 +1463,28 @@ function actualizarBalance() {
     const porcentajeMermaResumen = document.getElementById(
         "porcentajeMermaResumen"
     );
+    const mermaRealResumen = document.getElementById(
+        "mermaRealResumen"
+    );
     const diferenciaBalance = document.getElementById("diferenciaBalance");
 
     if (!cantidadOrigenInput || !pesoMermaInput || !resultado) {
         return;
     }
 
-    const cantidadOrigen = Number(cantidadOrigenInput.value || 0);
     const totalResultados = obtenerProductosResultantes().reduce(
         function (total, producto) {
-            return total + Number(producto.cantidad || 0);
+            return total + leerCantidadKg(producto.cantidad);
         },
         0
     );
-    const mermaCalculada = totalResultados > 0
-        ? cantidadOrigen - totalResultados
-        : 0;
-    const mermaMostrada = Math.max(mermaCalculada, 0);
-    const diferencia = cantidadOrigen - totalResultados - mermaMostrada;
+    const porcentajeMermaEstimada = porcentajeMermaEstimadaProducto();
+    const cantidadOrigen = calcularEntradaEstimada(
+        totalResultados,
+        porcentajeMermaEstimada
+    );
+    const mermaMostrada = Math.max(cantidadOrigen - totalResultados, 0);
+    const diferencia = 0;
     const porcentajeMermaReal = cantidadOrigen > 0
         ? (mermaMostrada / cantidadOrigen) * 100
         : 0;
@@ -913,7 +1494,8 @@ function actualizarBalance() {
         ? Number(porcentajeEsperadoTexto)
         : null;
 
-    pesoMermaInput.value = formatearCantidad(mermaMostrada);
+    cantidadOrigenInput.value = cantidadApi(cantidadOrigen);
+    pesoMermaInput.value = cantidadApi(mermaMostrada);
 
     if (porcentajeMermaRealInput) {
         porcentajeMermaRealInput.value =
@@ -921,20 +1503,25 @@ function actualizarBalance() {
     }
 
     if (totalOrigen) {
-        totalOrigen.textContent = formatearCantidad(cantidadOrigen);
+        totalOrigen.textContent = formatearKg(cantidadOrigen);
     }
 
     if (totalResultantes) {
-        totalResultantes.textContent = formatearCantidad(totalResultados);
+        totalResultantes.textContent = formatearKg(totalResultados);
     }
 
     if (totalMerma) {
-        totalMerma.textContent = formatearCantidad(mermaMostrada);
+        totalMerma.textContent = formatearKg(mermaMostrada);
     }
 
     if (porcentajeMermaResumen) {
         porcentajeMermaResumen.textContent =
-            `${formatearPorcentaje(porcentajeMermaReal)}%`;
+            formatearPorcentajeCorto(porcentajeMermaEstimada);
+    }
+
+    if (mermaRealResumen) {
+        mermaRealResumen.textContent =
+            `Real: ${formatearCantidadCorta(mermaMostrada)} kg`;
     }
 
     if (diferenciaBalance) {
@@ -945,13 +1532,13 @@ function actualizarBalance() {
         validationBox.classList.remove("balance-ok", "balance-pending");
     }
 
-    if (!productoOrigenSeleccionado || cantidadOrigen <= 0) {
+    if (!productoOrigenSeleccionado) {
         if (estadoBalance) {
             estadoBalance.textContent = "Incompleto";
         }
 
         resultado.textContent =
-            "Selecciona un producto de origen y captura una cantidad mayor a cero.";
+            "Selecciona un producto de origen.";
         return;
     }
 
@@ -965,21 +1552,7 @@ function actualizarBalance() {
         }
 
         resultado.textContent =
-            "Agrega por lo menos un producto resultante.";
-        return;
-    }
-
-    if (mermaCalculada < -0.0001) {
-        if (validationBox) {
-            validationBox.classList.add("balance-pending");
-        }
-
-        if (estadoBalance) {
-            estadoBalance.textContent = "Revisar";
-        }
-
-        resultado.textContent =
-            "Los productos resultantes superan la cantidad de origen.";
+            "Captura la cantidad en productos resultantes.";
         return;
     }
 
@@ -1006,17 +1579,23 @@ function actualizarBalance() {
 
     if (porcentajeEsperado === null) {
         if (validationBox) {
-            validationBox.classList.add("balance-pending");
+            validationBox.classList.add("balance-ok");
         }
 
         if (estadoBalance) {
             estadoBalance.textContent = "Listo";
         }
 
+        if (productoYaTransformadoSeleccionado) {
+            resultado.textContent =
+                "Listo para registrar como producto final. " +
+                `Entrada estimada: ${formatearKg(cantidadOrigen)}.`;
+            return;
+        }
+
         resultado.textContent =
-            `Listo para registrar. Merma calculada: ` +
-            `${formatearCantidad(mermaMostrada)} ` +
-            `(${formatearPorcentaje(porcentajeMermaReal)}%).`;
+            `Listo para registrar. Entrada estimada: ` +
+            `${formatearKg(cantidadOrigen)}.`;
         return;
     }
 
@@ -1032,8 +1611,8 @@ function actualizarBalance() {
         }
 
         resultado.textContent =
-            `Perdida calculada ${formatearPorcentaje(porcentajeMermaReal)}%, ` +
-            `permitido ${formatearPorcentaje(porcentajeEsperado)}%.`;
+            `Listo para registrar. Entrada estimada: ` +
+            `${formatearKg(cantidadOrigen)}.`;
         return;
     }
 
@@ -1055,6 +1634,9 @@ function actualizarBalance() {
 function obtenerMensajeValidacionTransformacion(datos) {
     const cantidadOrigen = Number(datos.cantidad_origen || 0);
     const pesoMerma = Number(datos.peso_merma || 0);
+    const esProductoFinal =
+        datos.tipo_transformacion === TIPO_PRODUCTO_FINAL ||
+        datos.producto_ya_transformado;
     const porcentajeMermaEsperado =
         datos.porcentaje_merma_esperado === null
             ? null
@@ -1077,7 +1659,7 @@ function obtenerMensajeValidacionTransformacion(datos) {
     }
 
     if (cantidadOrigen <= 0) {
-        return "La cantidad de origen debe ser mayor a cero.";
+        return "Captura cantidad en productos resultantes.";
     }
 
     if (pesoMerma < 0) {
@@ -1094,6 +1676,17 @@ function obtenerMensajeValidacionTransformacion(datos) {
         })
     ) {
         return "Completa producto y cantidad en cada resultante.";
+    }
+
+    if (esProductoFinal) {
+        if (productos.length !== 1) {
+            return "El producto final solo debe tener una salida.";
+        }
+
+        if (productos[0].producto_id !== datos.producto_origen_id) {
+            return "El producto final debe salir con el mismo producto.";
+        }
+
     }
 
     if (new Set(idsProductos).size !== idsProductos.length) {
@@ -1120,6 +1713,14 @@ function obtenerMensajeValidacionTransformacion(datos) {
 
 
 async function registrarTransformacion() {
+    if (!sesionActual) {
+        const sesion = await cargarSesionActual();
+
+        if (!sesion) {
+            return;
+        }
+    }
+
     const productoOrigenInput =
         document.getElementById("productoOrigenId");
     const cantidadOrigenInput =
@@ -1154,8 +1755,9 @@ async function registrarTransformacion() {
         producto_origen_id: Number(productoOrigenInput.value),
         cantidad_origen: cantidadOrigenInput.value,
         productos_resultantes: productosResultantes,
-        usuario_id: Number(sessionStorage.getItem("user_id")) || null,
-        usuario_nombre: sessionStorage.getItem("usuario") || null,
+        usuario_id: sesionActual?.user_id || null,
+        usuario_nombre: sesionActual?.usuario || null,
+        tipo_transformacion: obtenerTipoTransformacionSeleccionado(),
         producto_ya_transformado: productoYaTransformadoSeleccionado,
         peso_merma: pesoMermaInput.value || "0",
         porcentaje_merma_esperado:
@@ -1178,6 +1780,7 @@ async function registrarTransformacion() {
     try {
         const respuesta = await fetch("/transformaciones/", {
             method: "POST",
+            credentials: "same-origin",
             headers: {
                 "Content-Type": "application/json"
             },
@@ -1211,11 +1814,10 @@ async function registrarTransformacion() {
 
 
 document.addEventListener("DOMContentLoaded", function () {
-    const usuarioActivo = document.getElementById("usuarioActivo");
+    const dashboard = document.getElementById("dashboardPage");
 
-    if (usuarioActivo) {
-        usuarioActivo.textContent =
-            sessionStorage.getItem("usuario") || "Usuario";
+    if (dashboard) {
+        cargarSesionActual();
     }
 
     const usuarioInput = document.getElementById("usuario");
@@ -1262,22 +1864,23 @@ document.addEventListener("DOMContentLoaded", function () {
     const porcentajeMermaEsperado = document.getElementById(
         "porcentajeMermaEsperado"
     );
-
-    if (cantidadOrigen && !cantidadOrigen.value) {
-        cantidadOrigen.value = CANTIDAD_ORIGEN_INICIAL;
-    }
+    const tipoTransformacion = document.getElementById("tipoTransformacion");
 
     if (cantidadOrigen) {
-        cantidadOrigen.addEventListener("input", function () {
-            actualizarCantidadesSugeridas();
-            actualizarBalance();
-        });
+        cantidadOrigen.value = "0";
     }
 
     if (porcentajeMermaEsperado) {
         porcentajeMermaEsperado.addEventListener(
             "input",
             actualizarBalance
+        );
+    }
+
+    if (tipoTransformacion) {
+        tipoTransformacion.addEventListener(
+            "change",
+            renderizarProductosResultantes
         );
     }
 
