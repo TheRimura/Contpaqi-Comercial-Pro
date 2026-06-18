@@ -743,6 +743,36 @@ td {
     font-weight: 800;
 }
 
+.formula-cantidad-unidad {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    width: 100%;
+    background: var(--blanco);
+    border: 1px solid var(--gris-borde);
+    border-radius: 8px;
+}
+
+.formula-cantidad-unidad:focus-within {
+    border-color: var(--azul);
+    box-shadow: 0 0 0 3px rgba(15, 91, 170, 0.12);
+}
+
+.formula-cantidad-unidad .formula-cantidad {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    padding-right: 6px;
+}
+
+.formula-unidad-fija {
+    padding-right: 14px;
+    color: var(--texto);
+    font-weight: 800;
+    pointer-events: none;
+    user-select: none;
+}
+
 .formula-cantidad[readonly] {
     background: #f8fafc;
     color: var(--azul-oscuro);

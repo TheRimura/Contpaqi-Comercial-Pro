@@ -842,13 +842,6 @@ function crearResumenFormulaAnterior(productosBalance, productosExcluidos) {
     etiquetaKilos.textContent = `${productosBalance.length} en kilos`;
     etiquetas.appendChild(etiquetaKilos);
 
-    if (productosExcluidos.length > 0) {
-        const etiquetaExcluidos = document.createElement("span");
-        etiquetaExcluidos.textContent =
-            `${productosExcluidos.length} fuera del balance`;
-        etiquetas.appendChild(etiquetaExcluidos);
-    }
-
     resumen.append(texto, etiquetas);
     return resumen;
 }
@@ -915,7 +908,7 @@ function renderizarFormulaAnterior(productosBalance, productosExcluidos) {
 }
 
 
-function crearResumenFormula(productoBase, ingredientes, productosExcluidos) {
+function crearResumenFormula(productoBase, ingredientes) {
     const resumen = document.createElement("div");
     const texto = document.createElement("div");
     const etiquetas = document.createElement("div");
@@ -937,13 +930,6 @@ function crearResumenFormula(productoBase, ingredientes, productosExcluidos) {
     etiquetaIngredientes.textContent = `${ingredientes.length} ingredientes`;
     etiquetas.appendChild(etiquetaIngredientes);
 
-    if (productosExcluidos.length > 0) {
-        const etiquetaExcluidos = document.createElement("span");
-        etiquetaExcluidos.textContent =
-            `${productosExcluidos.length} fuera del balance`;
-        etiquetas.appendChild(etiquetaExcluidos);
-    }
-
     resumen.append(texto, etiquetas);
     return resumen;
 }
@@ -954,6 +940,7 @@ function crearCampoCantidadFormula(producto, esBase) {
     const productoId = document.createElement("input");
     const info = document.createElement("div");
     const cantidad = document.createElement("input");
+    const campoCantidad = document.createElement("div");
     const cantidadBase = cantidadBaseProducto(producto);
 
     fila.className = esBase
@@ -973,18 +960,27 @@ function crearCampoCantidadFormula(producto, esBase) {
     cantidad.inputMode = "decimal";
     cantidad.placeholder = "Cantidad";
     cantidad.className = "producto-resultante-cantidad formula-cantidad";
-    cantidad.value = formatearCantidadCaptura(cantidadBase);
+    cantidad.value = esBase
+        ? formatearCantidadCorta(cantidadBase)
+        : formatearCantidadCaptura(cantidadBase);
     cantidad.dataset.cantidadBase = String(cantidadBase);
 
     if (esBase) {
+        const unidad = document.createElement("span");
+
         cantidad.id = "formulaProductoBaseCantidad";
         cantidad.addEventListener("input", ajustarFormulaDesdeProductoBase);
+        campoCantidad.className = "formula-cantidad-unidad";
+        unidad.className = "formula-unidad-fija";
+        unidad.textContent = "kg";
+        campoCantidad.append(cantidad, unidad);
     } else {
         cantidad.readOnly = true;
         cantidad.tabIndex = -1;
+        campoCantidad.appendChild(cantidad);
     }
 
-    fila.append(productoId, info, cantidad);
+    fila.append(productoId, info, campoCantidad);
     return fila;
 }
 
@@ -1071,8 +1067,7 @@ function renderizarFormula(productosBalance, productosExcluidos) {
     contenedor.appendChild(
         crearResumenFormula(
             formula.productoBase,
-            formula.ingredientes,
-            productosExcluidos
+            formula.ingredientes
         )
     );
 

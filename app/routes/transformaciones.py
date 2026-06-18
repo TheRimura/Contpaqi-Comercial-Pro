@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends
 
-from app.schemas.transformaciones import CrearTransformacion
-from app.services.historial_transformaciones import (
-    obtener_historial_transformaciones,
+from app.repositories.transformaciones import (
+    guardar_transformacion,
+    listar_transformaciones as consultar_transformaciones,
 )
+from app.schemas.transformaciones import CrearTransformacion
 from app.services.sesiones import requerir_sesion
-from app.utils.base_de_datos import obtener_base_datos
 
 
 router = APIRouter(
@@ -31,57 +31,10 @@ def calcular_rendimiento(datos: CrearTransformacion):
     }
 
 
-def formatear_producto(producto):
-    if not producto:
-        return None
-
-    return {
-        "id": producto["ProductID"],
-        "clave": producto["ProductKey"],
-        "nombre": producto["ProductName"],
-        "categoria": producto["Category1"],
-        "unidad": producto["Unit"],
-    }
-
-
-def consultar_productos_registro(datos: CrearTransformacion):
-    base_datos = obtener_base_datos()
-    ids_productos = list(dict.fromkeys([
-        datos.producto_origen_id,
-        *[
-            producto.producto_id
-            for producto in datos.productos_resultantes
-        ],
-    ]))
-    productos = base_datos.buscar_info_productos(ids_productos)
-    productos_por_id = {
-        producto["ProductID"]: producto
-        for producto in productos
-    }
-
-    producto_origen = formatear_producto(
-        productos_por_id.get(datos.producto_origen_id)
-    )
-    productos_resultantes = []
-
-    for producto in datos.productos_resultantes:
-        producto_bd = formatear_producto(
-            productos_por_id.get(producto.producto_id)
-        )
-
-        productos_resultantes.append({
-            "producto": producto_bd,
-            "cantidad": float(producto.cantidad),
-        })
-
-    return producto_origen, productos_resultantes
-
-
 @router.get("/")
 def listar_transformaciones(sesion: dict = Depends(requerir_sesion)):
-    historial = obtener_historial_transformaciones()
     return {
-        "registros": historial.listar(),
+        "registros": consultar_transformaciones(),
     }
 
 
@@ -94,16 +47,10 @@ def crear_transformacion(
         "usuario_id": sesion.get("user_id"),
         "usuario_nombre": sesion.get("usuario"),
     })
-    historial = obtener_historial_transformaciones()
     rendimiento = calcular_rendimiento(datos)
-    producto_origen, productos_resultantes = consultar_productos_registro(
-        datos
-    )
-    registro = historial.agregar(
+    registro = guardar_transformacion(
         datos,
         rendimiento,
-        producto_origen,
-        productos_resultantes,
     )
 
     return {

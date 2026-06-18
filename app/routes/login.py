@@ -97,7 +97,7 @@ def buscar_hashes_grupo_administrativo(base_datos):
                   SELECT 1
                   FROM dbo.engUser AS U2
                   INNER JOIN dbo.engUserCayal AS UC2
-                      ON UC2.UserID = U2.UserID
+                      ON UC2.UserID = U2.UserID 
                   WHERE U2.UserGroupID = G2.UserGroupID
                     AND U2.DeletedOn IS NULL
                     AND UC2.UserPassword IS NOT NULL
