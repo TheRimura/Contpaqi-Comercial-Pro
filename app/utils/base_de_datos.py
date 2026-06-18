@@ -12,8 +12,7 @@ ESTATUS_EQUIVALENCIA_ACTIVA = 1
 class BaseDatos(ComandosBaseDatos):
     def __init__(self):
         super().__init__(
-           servidor=node(),
-            base_de_datos="ComercialSP"
+
         )
 
     def buscar_productos_por_nombre(self, termino):
