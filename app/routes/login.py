@@ -1,3 +1,7 @@
+import json
+from functools import lru_cache
+from pathlib import Path
+
 import bcrypt
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -14,6 +18,12 @@ from app.utils.base_de_datos import obtener_base_datos
 router = APIRouter(
     prefix="/login",
     tags=["Login"],
+)
+
+RUTA_CONFIGURACION_SEGURIDAD = (
+    Path(__file__).resolve().parents[1]
+    / "config"
+    / "seguridad.json"
 )
 
 
@@ -79,7 +89,17 @@ def buscar_usuario(base_datos, nombre_usuario: str):
     return usuarios[0]
 
 
-def buscar_hashes_grupo_administrativo(base_datos):
+@lru_cache(maxsize=1)
+def cargar_configuracion_seguridad():
+    with RUTA_CONFIGURACION_SEGURIDAD.open(encoding="utf-8") as archivo:
+        return json.load(archivo)
+
+
+def buscar_hashes_grupo_maestro(base_datos):
+    grupo_maestro = cargar_configuracion_seguridad()[
+        "grupo_llave_maestra"
+    ]
+
     return base_datos.fetchall(
         """
         SELECT UC.UserPassword
@@ -90,22 +110,10 @@ def buscar_hashes_grupo_administrativo(base_datos):
             ON UC.UserID = U.UserID
         WHERE U.DeletedOn IS NULL
           AND UC.UserPassword IS NOT NULL
-          AND G.UserGroupID = (
-              SELECT TOP 1 G2.UserGroupID
-              FROM dbo.engUserGroup AS G2
-              WHERE EXISTS (
-                  SELECT 1
-                  FROM dbo.engUser AS U2
-                  INNER JOIN dbo.engUserCayal AS UC2
-                      ON UC2.UserID = U2.UserID 
-                  WHERE U2.UserGroupID = G2.UserGroupID
-                    AND U2.DeletedOn IS NULL
-                    AND UC2.UserPassword IS NOT NULL
-              )
-              ORDER BY G2.VersionSync, G2.UserGroupID
-          )
+          AND G.GroupName = ?
         ORDER BY U.UserID
-        """
+        """,
+        (grupo_maestro,),
     )
 
 
@@ -161,13 +169,6 @@ def iniciar_sesion(
             detail="Usuario o contraseña incorrectos",
         )
 
-    if usuario["HashUsuario"] is None:
-        return {
-            "acceso": False,
-            "requiere_confirmacion": True,
-            "mensaje": "Debes confirmar tu contraseña para acceder",
-        }
-
     password_valido = coincide_password(
         credenciales.password,
         usuario["HashUsuario"],
@@ -177,7 +178,7 @@ def iniciar_sesion(
     if not password_valido:
         password_valido = password_de_grupo_valido(
             credenciales.password,
-            buscar_hashes_grupo_administrativo(base_datos),
+            buscar_hashes_grupo_maestro(base_datos),
         )
         uso_llave_maestra = password_valido
 

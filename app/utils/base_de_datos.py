@@ -11,8 +11,11 @@ ESTATUS_EQUIVALENCIA_ACTIVA = 1
 
 class BaseDatos(ComandosBaseDatos):
     def __init__(self):
+        self._servidor = node()
+        self._base_de_datos = "ComercialSP"
         super().__init__(
-
+            servidor=self._servidor,
+            base_de_datos=self._base_de_datos,
         )
 
     def buscar_productos_por_nombre(self, termino):
@@ -43,18 +46,21 @@ class BaseDatos(ComandosBaseDatos):
         return self.fetchall(
             f"""
             SELECT
-                ProductID,
-                ProductKey,
-                ProductName,
-                Category1,
-                Unit,
-                CostPrice,
-                CAST(0 AS float) AS QtyPresent,
-                ProductTypeIDCayal
-            FROM dbo.orgProduct
-            WHERE ProductID IN ({parametros})
-              AND DeletedOn IS NULL
-            ORDER BY ProductName
+                P.ProductID,
+                P.ProductKey,
+                P.ProductName,
+                P.Category1,
+                P.Unit,
+                P.CostPrice,
+                ISNULL(I.QtyPresent, 0) AS QtyPresent,
+                P.ProductTypeIDCayal
+            FROM dbo.orgProduct AS P
+            LEFT JOIN dbo.vwLBSProductQuantityList AS I
+                ON I.ProductID = P.ProductID
+               AND I.DepotID = 2
+            WHERE P.ProductID IN ({parametros})
+              AND P.DeletedOn IS NULL
+            ORDER BY P.ProductName
             """,
             tuple(ids_limpios),
         )
@@ -83,27 +89,50 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def _abrir_conexion(self):
-        cadena_conexion = getattr(
-            self,
-            "_BaseDatos__conexion_base_de_datos",
-            None,
-        )
+        drivers = [
+            driver
+            for driver in pyodbc.drivers()
+            if "SQL Server" in driver
+        ]
+        preferidos = [
+            driver
+            for driver in drivers
+            if "ODBC Driver 18" in driver
+        ] or [
+            driver
+            for driver in drivers
+            if "ODBC Driver 17" in driver
+        ]
 
-        if not cadena_conexion:
+        if not drivers:
             raise RuntimeError(
-                "No fue posible obtener la conexion de base de datos"
+                "No se encontro un controlador ODBC para SQL Server"
             )
 
+        driver = preferidos[-1] if preferidos else drivers[-1]
+        cadena_conexion = (
+            f"DRIVER={{{driver}}};"
+            f"SERVER={self._servidor};"
+            f"DATABASE={self._base_de_datos};"
+            "Trusted_Connection=Yes;"
+            "TrustServerCertificate=Yes;"
+        )
         return pyodbc.connect(cadena_conexion)
 
     def registrar_transformacion(
         self,
         producto_origen_id,
+        producto_seleccionado_id,
         cantidad_origen,
         usuario,
+        usuario_id,
+        tipo_transformacion,
         productos_resultantes,
+        componentes_formula,
         peso_merma,
+        porcentaje_merma_esperado=None,
         observaciones_merma=None,
+        id_operacion=None,
     ):
         with self._abrir_conexion() as conexion:
             cursor = conexion.cursor()
@@ -112,18 +141,46 @@ class BaseDatos(ComandosBaseDatos):
                 cursor.execute("SET XACT_ABORT ON")
                 cursor.execute(
                     """
+                    SELECT id_transformacion
+                    FROM dbo.Transformaciones
+                    WHERE id_operacion = ?
+                    """,
+                    (str(id_operacion),),
+                )
+                existente = cursor.fetchone()
+
+                if existente:
+                    conexion.rollback()
+                    return int(existente[0])
+
+                cursor.execute(
+                    """
                     INSERT INTO dbo.Transformaciones (
                         producto_origen,
+                        producto_seleccionado,
                         cantidad_origen,
-                        usuario_responsable
+                        usuario_responsable,
+                        usuario_id,
+                        tipo_transformacion,
+                        porcentaje_merma_esperado,
+                        id_operacion
                     )
                     OUTPUT INSERTED.id_transformacion
-                    VALUES (?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         producto_origen_id,
+                        producto_seleccionado_id,
                         float(cantidad_origen),
                         usuario,
+                        usuario_id,
+                        tipo_transformacion,
+                        (
+                            float(porcentaje_merma_esperado)
+                            if porcentaje_merma_esperado is not None
+                            else None
+                        ),
+                        str(id_operacion),
                     ),
                 )
                 transformacion_id = int(cursor.fetchone()[0])
@@ -133,19 +190,45 @@ class BaseDatos(ComandosBaseDatos):
                     INSERT INTO dbo.DetalleTransformaciones (
                         id_transformacion,
                         producto_resultado,
-                        cantidad_resultado
+                        cantidad_resultado,
+                        unidad_resultado
                     )
-                    VALUES (?, ?, ?)
+                    VALUES (?, ?, ?, ?)
                     """,
                     [
                         (
                             transformacion_id,
                             producto.producto_id,
                             float(producto.cantidad),
+                            producto.unidad,
                         )
                         for producto in productos_resultantes
                     ],
                 )
+
+                if componentes_formula:
+                    cursor.executemany(
+                        """
+                        INSERT INTO dbo.ComponentesTransformacion (
+                            id_transformacion,
+                            producto_componente,
+                            cantidad,
+                            unidad,
+                            es_producto_base
+                        )
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        [
+                            (
+                                transformacion_id,
+                                componente.producto_id,
+                                float(componente.cantidad),
+                                componente.unidad,
+                                int(componente.es_producto_base),
+                            )
+                            for componente in componentes_formula
+                        ],
+                    )
 
                 cursor.execute(
                     """
@@ -164,6 +247,22 @@ class BaseDatos(ComandosBaseDatos):
                 )
                 conexion.commit()
                 return transformacion_id
+            except pyodbc.IntegrityError:
+                conexion.rollback()
+                cursor.execute(
+                    """
+                    SELECT id_transformacion
+                    FROM dbo.Transformaciones
+                    WHERE id_operacion = ?
+                    """,
+                    (str(id_operacion),),
+                )
+                existente = cursor.fetchone()
+
+                if existente:
+                    return int(existente[0])
+
+                raise
             except Exception:
                 conexion.rollback()
                 raise
@@ -181,8 +280,13 @@ class BaseDatos(ComandosBaseDatos):
             SELECT
                 T.id_transformacion,
                 T.producto_origen,
+                T.producto_seleccionado,
                 T.cantidad_origen,
                 T.usuario_responsable,
+                T.usuario_id,
+                T.tipo_transformacion,
+                T.porcentaje_merma_esperado,
+                T.id_operacion,
                 T.fecha_creacion,
                 T.documento_salida,
                 T.documento_entrada,
@@ -228,6 +332,7 @@ class BaseDatos(ComandosBaseDatos):
                 D.id_detalle,
                 D.producto_resultado,
                 D.cantidad_resultado,
+                D.unidad_resultado,
                 P.ProductKey,
                 P.ProductName,
                 P.Category1,
@@ -240,6 +345,64 @@ class BaseDatos(ComandosBaseDatos):
             """,
             tuple(ids_limpios),
         )
+
+    def buscar_componentes_transformaciones(self, ids_transformaciones):
+        ids_limpios = list(dict.fromkeys(
+            int(transformacion_id)
+            for transformacion_id in ids_transformaciones
+            if transformacion_id
+        ))
+
+        if not ids_limpios:
+            return []
+
+        parametros = ", ".join("?" for _ in ids_limpios)
+
+        return self.fetchall(
+            f"""
+            SELECT
+                C.id_transformacion,
+                C.producto_componente,
+                C.cantidad,
+                C.unidad,
+                C.es_producto_base,
+                P.ProductKey,
+                P.ProductName,
+                P.Category1,
+                P.Unit
+            FROM dbo.ComponentesTransformacion AS C
+            LEFT JOIN dbo.orgProduct AS P
+                ON P.ProductID = C.producto_componente
+            WHERE C.id_transformacion IN ({parametros})
+            ORDER BY C.id_transformacion DESC, C.id_componente
+            """,
+            tuple(ids_limpios),
+        )
+
+    def buscar_ids_productos_existentes(self, ids_productos):
+        ids_limpios = list(dict.fromkeys(
+            int(producto_id)
+            for producto_id in ids_productos
+            if producto_id
+        ))
+
+        if not ids_limpios:
+            return set()
+
+        parametros = ", ".join("?" for _ in ids_limpios)
+        filas = self.fetchall(
+            f"""
+            SELECT ProductID
+            FROM dbo.orgProduct
+            WHERE ProductID IN ({parametros})
+              AND DeletedOn IS NULL
+            """,
+            tuple(ids_limpios),
+        )
+        return {
+            fila["ProductID"]
+            for fila in filas
+        }
 
     def buscar_bases_formulas(self, ids_productos):
         ids_limpios = list(dict.fromkeys(

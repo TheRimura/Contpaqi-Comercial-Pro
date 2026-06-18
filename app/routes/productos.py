@@ -24,14 +24,9 @@ def coincide_con_busqueda(producto, termino):
     return texto_busqueda in texto_producto
 
 
-def tiene_clave_interna(producto):
-    clave = str(producto.get("ProductKey") or "").strip()
-    return len(clave) == 6 and clave.isdigit()
-
-
 def pertenece_al_modulo(producto):
     tipo_cayal = int(producto.get("ProductTypeIDCayal") or 0)
-    return tipo_cayal > 0 or tiene_clave_interna(producto)
+    return tipo_cayal > 0
 
 
 def formatear_producto(producto):

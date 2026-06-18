@@ -723,6 +723,24 @@ td {
     background: var(--blanco);
 }
 
+.formula-resultado-titulo {
+    margin: 20px 0 8px;
+    color: var(--azul-oscuro);
+    font-size: 14px;
+}
+
+.formula-resultado {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 160px;
+    align-items: center;
+    gap: 16px;
+    margin: 0;
+    padding: 18px;
+    background: #eff6ff;
+    border: 1px solid #93c5fd;
+    border-left: 5px solid var(--azul);
+}
+
 .formula-info strong {
     display: block;
     color: var(--texto);
@@ -975,7 +993,8 @@ td {
 
     .formula-base,
     .formula-resumen,
-    .formula-item {
+    .formula-item,
+    .formula-resultado {
         grid-template-columns: 1fr;
     }
 

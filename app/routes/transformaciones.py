@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.repositories.transformaciones import (
+    ErrorTransformacion,
     guardar_transformacion,
     listar_transformaciones as consultar_transformaciones,
 )
@@ -48,10 +49,16 @@ def crear_transformacion(
         "usuario_nombre": sesion.get("usuario"),
     })
     rendimiento = calcular_rendimiento(datos)
-    registro = guardar_transformacion(
-        datos,
-        rendimiento,
-    )
+    try:
+        registro = guardar_transformacion(
+            datos,
+            rendimiento,
+        )
+    except ErrorTransformacion as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(error),
+        ) from error
 
     return {
         "mensaje": "Transformacion registrada",

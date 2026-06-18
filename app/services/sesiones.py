@@ -2,15 +2,60 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import time
+from pathlib import Path
 
 from fastapi import HTTPException, Request, Response, status
 
 
 NOMBRE_COOKIE_SESION = "cayal_sesion"
 DURACION_SESION_SEGUNDOS = 8 * 60 * 60
-_CLAVE_FIRMA = secrets.token_bytes(32)
+RUTA_CLAVE_LOCAL = (
+    Path(__file__).resolve().parents[1]
+    / "config"
+    / ".session_secret"
+)
+
+
+def _cargar_clave_firma() -> bytes:
+    clave_entorno = os.getenv("CAYAL_SESSION_SECRET", "").strip()
+
+    if clave_entorno:
+        return clave_entorno.encode("utf-8")
+
+    if RUTA_CLAVE_LOCAL.exists():
+        clave_local = RUTA_CLAVE_LOCAL.read_text(
+            encoding="utf-8"
+        ).strip()
+
+        if len(clave_local) >= 32:
+            return clave_local.encode("utf-8")
+
+    clave_nueva = secrets.token_urlsafe(48)
+
+    try:
+        if RUTA_CLAVE_LOCAL.exists():
+            RUTA_CLAVE_LOCAL.write_text(
+                clave_nueva,
+                encoding="utf-8",
+            )
+        else:
+            with RUTA_CLAVE_LOCAL.open(
+                "x",
+                encoding="utf-8",
+            ) as archivo:
+                archivo.write(clave_nueva)
+    except FileExistsError:
+        return RUTA_CLAVE_LOCAL.read_text(
+            encoding="utf-8"
+        ).strip().encode("utf-8")
+
+    return clave_nueva.encode("utf-8")
+
+
+_CLAVE_FIRMA = _cargar_clave_firma()
 
 
 def _base64_url(datos: bytes) -> str:
@@ -47,7 +92,7 @@ def crear_token_sesion(datos_usuario: dict) -> str:
 
 
 def leer_token_sesion(token: str | None):
-    if not token or "." not in token:
+    if not token or len(token) > 4096 or "." not in token:
         return None
 
     payload_b64, firma_recibida = token.split(".", 1)
@@ -63,7 +108,15 @@ def leer_token_sesion(token: str | None):
     except (ValueError, UnicodeDecodeError):
         return None
 
-    if int(payload.get("exp", 0)) < int(time.time()):
+    if not isinstance(payload, dict):
+        return None
+
+    try:
+        expiracion = int(payload.get("exp", 0))
+    except (TypeError, ValueError):
+        return None
+
+    if expiracion < int(time.time()):
         return None
 
     return payload
@@ -99,6 +152,7 @@ def guardar_cookie_sesion(
         httponly=True,
         secure=usar_https,
         samesite="lax",
+        path="/",
     )
 
 
@@ -107,4 +161,5 @@ def eliminar_cookie_sesion(response: Response):
         key=NOMBRE_COOKIE_SESION,
         httponly=True,
         samesite="lax",
+        path="/",
     )

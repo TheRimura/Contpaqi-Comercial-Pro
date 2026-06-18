@@ -1,19 +1,36 @@
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ProductoResultante(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     producto_id: int = Field(gt=0)
     cantidad: Decimal = Field(gt=0)
+    unidad: str = Field(default="KILO", min_length=1, max_length=30)
+
+
+class ComponenteFormula(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    producto_id: int = Field(gt=0)
+    cantidad: Decimal = Field(gt=0)
+    unidad: str = Field(min_length=1, max_length=30)
+    es_producto_base: bool = False
 
 
 class CrearTransformacion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id_operacion: UUID = Field(default_factory=uuid4)
+    producto_seleccionado_id: int | None = Field(default=None, gt=0)
     producto_origen_id: int = Field(gt=0)
     cantidad_origen: Decimal = Field(gt=0)
     productos_resultantes: list[ProductoResultante] = Field(min_length=1)
-    producto_base_formula_id: int | None = Field(default=None, gt=0)
+    componentes_formula: list[ComponenteFormula] = Field(default_factory=list)
 
     usuario_id: int | None = Field(default=None, gt=0)
     usuario_nombre: str | None = Field(default=None, max_length=100)
@@ -39,6 +56,34 @@ class CrearTransformacion(BaseModel):
             self.tipo_transformacion == "producto_final"
         )
 
+        ids_resultantes = [
+            producto.producto_id
+            for producto in self.productos_resultantes
+        ]
+        if len(ids_resultantes) != len(set(ids_resultantes)):
+            raise ValueError(
+                "No se pueden repetir productos resultantes"
+            )
+
+        ids_componentes = [
+            producto.producto_id
+            for producto in self.componentes_formula
+        ]
+        if len(ids_componentes) != len(set(ids_componentes)):
+            raise ValueError(
+                "No se pueden repetir componentes de formula"
+            )
+
+        bases_formula = [
+            producto
+            for producto in self.componentes_formula
+            if producto.es_producto_base
+        ]
+        if len(bases_formula) > 1:
+            raise ValueError(
+                "La formula solo puede tener un producto base"
+            )
+
         if self.tipo_transformacion == "producto_final":
             if len(self.productos_resultantes) != 1:
                 raise ValueError(
@@ -50,6 +95,35 @@ class CrearTransformacion(BaseModel):
             if producto_resultante.producto_id != self.producto_origen_id:
                 raise ValueError(
                     "El producto final debe salir con el mismo producto"
+                )
+
+        if self.componentes_formula:
+            if not self.producto_seleccionado_id:
+                raise ValueError(
+                    "La formula requiere el producto seleccionado"
+                )
+
+            if len(self.productos_resultantes) != 1:
+                raise ValueError(
+                    "Una formula debe generar un producto resultante"
+                )
+
+            if (
+                self.productos_resultantes[0].producto_id
+                != self.producto_seleccionado_id
+            ):
+                raise ValueError(
+                    "El resultado debe ser el producto seleccionado"
+                )
+
+            if len(bases_formula) != 1:
+                raise ValueError(
+                    "La formula requiere un producto base"
+                )
+
+            if bases_formula[0].producto_id != self.producto_origen_id:
+                raise ValueError(
+                    "El producto base debe coincidir con el origen"
                 )
 
         total_resultante = sum(

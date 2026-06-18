@@ -41,4 +41,4 @@ def mostrar_dashboard(request: Request):
     if not obtener_sesion_request(request):
         return RedirectResponse("/", status_code=303)
 
-    return FileResponse(RUTA_APP / "templates" / "dsahboad.html")
+    return FileResponse(RUTA_APP / "templates" / "dashboard.html")
