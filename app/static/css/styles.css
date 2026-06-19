@@ -29,116 +29,53 @@ body {
 /* LOGIN */
 
 .login-body {
-    background: #e8edf2;
+    background: var(--azul);
 }
 
 .login-container {
     min-height: 100vh;
-    display: grid;
-    place-items: center;
-    padding: 40px 24px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 24px;
     background:
-        linear-gradient(90deg, var(--azul-oscuro) 0 50%, #e8edf2 50% 100%);
+        linear-gradient(
+            135deg,
+            rgba(31, 90, 133, 0.96),
+            rgba(21, 44, 70, 0.92)
+        ),
+        var(--azul);
 }
 
 .login-card {
-    width: min(920px, 100%);
-    min-height: 540px;
-    display: grid;
-    grid-template-columns: minmax(300px, 0.9fr) minmax(380px, 1.1fr);
+    width: min(420px, 100%);
     background: var(--blanco);
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 40px;
+    border-top: 5px solid var(--rojo);
     border-radius: 12px;
     box-shadow: var(--sombra-elevada);
-    overflow: hidden;
 }
 
-.login-brand-panel {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: 54px 48px;
-    background: var(--azul-oscuro);
-    color: var(--blanco);
-    overflow: hidden;
-}
-
-.login-brand-panel::after {
-    content: "";
-    position: absolute;
-    right: -90px;
-    bottom: -90px;
-    width: 260px;
-    height: 260px;
-    border: 48px solid rgba(255, 255, 255, 0.04);
-    border-radius: 50%;
-}
-
-.login-brand-mark {
-    width: 54px;
-    height: 54px;
-    display: grid;
-    place-items: center;
-    margin-bottom: 34px;
-    background: var(--blanco);
-    border-radius: 7px;
-    color: var(--azul-oscuro);
-    font-size: 25px;
-    font-weight: 800;
-}
-
-.login-kicker,
-.form-eyebrow {
-    margin-bottom: 10px;
-    color: #b9c8d6;
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.login-brand-panel h1 {
-    margin-bottom: 4px;
-    font-size: 35px;
-    letter-spacing: 0.04em;
-}
-
-.login-brand-panel h2 {
-    margin-bottom: 24px;
-    color: #dce6ee;
-    font-size: 20px;
-    font-weight: 500;
-}
-
-.login-brand-panel > p:last-child {
-    max-width: 320px;
-    color: #b9c8d6;
-    font-size: 14px;
-    line-height: 1.65;
-}
-
-.login-form-panel {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    padding: 54px 58px;
-}
-
-.login-form-panel .form-eyebrow {
-    color: var(--rojo);
-}
-
-.login-form-panel h2 {
+.login-card h1 {
     margin-bottom: 8px;
-    color: var(--azul-oscuro);
-    font-size: 28px;
+    color: var(--azul);
+    font-size: 30px;
+    letter-spacing: 0.05em;
+    text-align: center;
 }
 
-.login-help {
-    margin-bottom: 32px;
+.login-card h2 {
+    margin-bottom: 10px;
+    color: var(--azul-oscuro);
+    font-size: 20px;
+    text-align: center;
+}
+
+.login-card > p {
+    margin-bottom: 26px;
     color: var(--gris-texto);
     font-size: 14px;
+    text-align: center;
 }
 
 .login-card input {
@@ -177,7 +114,7 @@ body {
     margin-top: 14px;
     font-size: 13px;
     font-weight: 600;
-    text-align: left;
+    text-align: center;
 }
 
 /* LAYOUT */
@@ -195,14 +132,14 @@ body {
     top: 0;
     z-index: 10;
     display: grid;
-    grid-template-columns: minmax(240px, 300px) 1fr auto;
+    grid-template-columns: 280px 1fr auto;
     align-items: center;
-    gap: 32px;
-    min-height: 76px;
-    padding: 0 36px;
-    background: var(--azul-oscuro);
-    border-bottom: 4px solid var(--rojo);
-    box-shadow: 0 5px 18px rgba(16, 35, 56, 0.16);
+    gap: 24px;
+    min-height: 74px;
+    padding: 14px 32px;
+    background: var(--blanco);
+    border-bottom: 1px solid var(--gris-borde);
+    box-shadow: 0 4px 18px rgba(20, 39, 61, 0.08);
 }
 
 .brand {
@@ -218,38 +155,37 @@ body {
     align-items: center;
     justify-content: center;
     border-radius: 6px;
-    background: var(--blanco);
-    color: var(--azul-oscuro);
+    background: var(--azul);
+    color: var(--blanco);
     font-weight: 800;
 }
 
 .brand h1 {
     font-size: 18px;
-    color: var(--blanco);
+    color: var(--azul-oscuro);
     letter-spacing: 0.04em;
     line-height: 1.1;
 }
 
 .brand p {
-    color: #b9c8d6;
+    color: var(--gris-texto);
     font-size: 12px;
 }
 
 .top-nav {
-    height: 72px;
+    height: auto;
     display: flex;
     justify-content: center;
-    align-items: stretch;
-    gap: 2px;
+    align-items: center;
+    gap: 8px;
 }
 
 .top-nav button {
-    padding: 0 18px;
+    padding: 10px 16px;
     background: transparent;
-    border: 0;
-    border-bottom: 3px solid transparent;
-    color: #dce6ee;
-    border-radius: 0;
+    border: 1px solid transparent;
+    color: var(--texto);
+    border-radius: 7px;
     cursor: pointer;
     font-weight: 600;
     transition: background 0.15s ease, color 0.15s ease;
@@ -257,9 +193,9 @@ body {
 
 .top-nav button:hover,
 .top-nav button.is-active {
-    background: rgba(255, 255, 255, 0.08);
-    border-bottom-color: var(--blanco);
-    color: var(--blanco);
+    background: #eaf1f6;
+    border-color: #bfd0dc;
+    color: var(--azul);
 }
 
 .session-panel {
@@ -271,19 +207,19 @@ body {
 .user-box {
     min-width: 150px;
     padding: 7px 11px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: #f7f9fb;
+    border: 1px solid var(--gris-borde);
     border-radius: 6px;
 }
 
 .user-box span {
     display: block;
     font-size: 11px;
-    color: #b9c8d6;
+    color: var(--gris-texto);
 }
 
 .user-box strong {
-    color: var(--blanco);
+    color: var(--texto);
     font-size: 14px;
 }
 
@@ -291,7 +227,7 @@ body {
     padding: 10px 14px;
     background: var(--rojo);
     color: var(--blanco);
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    border: none;
     border-radius: 6px;
     cursor: pointer;
     font-weight: 700;
@@ -1085,11 +1021,11 @@ tbody tr:nth-child(even) {
     .topbar {
         grid-template-columns: 220px 1fr auto;
         gap: 16px;
-        padding: 0 20px;
+        padding: 12px 20px;
     }
 
     .top-nav button {
-        padding: 0 12px;
+        padding: 9px 12px;
     }
 
     .user-box {
@@ -1098,30 +1034,6 @@ tbody tr:nth-child(even) {
 }
 
 @media (max-width: 920px) {
-    .login-container {
-        background: #e8edf2;
-    }
-
-    .login-card {
-        grid-template-columns: 1fr;
-    }
-
-    .login-brand-panel {
-        padding: 34px;
-    }
-
-    .login-brand-panel > p:last-child {
-        display: none;
-    }
-
-    .login-brand-mark {
-        margin-bottom: 22px;
-    }
-
-    .login-form-panel {
-        padding: 38px 34px;
-    }
-
     .topbar {
         grid-template-columns: 1fr;
         align-items: stretch;
@@ -1137,8 +1049,8 @@ tbody tr:nth-child(even) {
 
     .top-nav button {
         min-height: 42px;
-        padding: 0 12px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
+        padding: 9px 12px;
+        border: 1px solid var(--gris-borde);
         border-radius: 5px;
     }
 
@@ -1180,9 +1092,8 @@ tbody tr:nth-child(even) {
         padding: 18px;
     }
 
-    .login-brand-panel,
-    .login-form-panel {
-        padding: 30px 24px;
+    .login-card {
+        padding: 32px 24px;
     }
 
     .content {

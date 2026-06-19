@@ -11,66 +11,52 @@
 
     <link
         rel="stylesheet"
-        href="/static/css/styles.css?v=20260619-2"
+        href="/static/css/styles.css?v=20260619-3"
     >
 </head>
 
 <body class="login-body">
     <main id="loginPage" class="login-container">
         <section class="login-card" aria-labelledby="loginTitle">
-            <div class="login-brand-panel">
-                <span class="login-brand-mark">C</span>
-                <p class="login-kicker">Sistema interno</p>
-                <h1>CAYAL</h1>
-                <h2>Transformación Cárnica</h2>
-                <p>
-                    Control operativo de productos, transformaciones,
-                    rendimientos y movimientos de inventario.
-                </p>
-            </div>
+            <h1>CAYAL</h1>
+            <h2 id="loginTitle">Módulo de Transformación Cárnica</h2>
 
-            <div class="login-form-panel">
-                <p class="form-eyebrow">Acceso seguro</p>
-                <h2 id="loginTitle">Iniciar sesión</h2>
-                <p class="login-help">
-                    Ingresa tus credenciales para acceder al módulo.
-                </p>
+            <p>Ingresa tus credenciales para continuar</p>
 
-                <form
-                    id="loginForm"
-                    onsubmit="event.preventDefault(); iniciarSesion();"
+            <form
+                id="loginForm"
+                onsubmit="event.preventDefault(); iniciarSesion();"
+            >
+                <label for="usuario">Usuario</label>
+                <input
+                    type="text"
+                    id="usuario"
+                    name="usuario"
+                    placeholder="Usuario"
+                    autocomplete="username"
+                    required
                 >
-                    <label for="usuario">Usuario</label>
-                    <input
-                        type="text"
-                        id="usuario"
-                        name="usuario"
-                        placeholder="Ingresa tu usuario"
-                        autocomplete="username"
-                        required
-                    >
 
-                    <label for="password">Contraseña</label>
-                    <input
-                        type="password"
-                        id="password"
-                        name="password"
-                        placeholder="Ingresa tu contraseña"
-                        autocomplete="current-password"
-                        required
-                    >
+                <label for="password">Contraseña</label>
+                <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    placeholder="Contraseña"
+                    autocomplete="current-password"
+                    required
+                >
 
-                    <button type="submit">
-                        Iniciar sesión
-                    </button>
+                <button type="submit">
+                    Iniciar sesión
+                </button>
 
-                    <p
-                        id="loginError"
-                        class="error"
-                        aria-live="polite"
-                    ></p>
-                </form>
-            </div>
+                <p
+                    id="loginError"
+                    class="error"
+                    aria-live="polite"
+                ></p>
+            </form>
         </section>
     </main>
 
