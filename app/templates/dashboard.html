@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title>Transformación Cárnica | CAYAL</title>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260618-17">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260619-2">
 </head>
 
 <body class="app-body">
@@ -22,15 +22,31 @@
 
         <nav class="top-nav" aria-label="Navegación principal">
 
-            <button type="button" onclick="mostrarSeccion('productos')">
+            <button
+                type="button"
+                class="nav-button is-active"
+                data-seccion="productos"
+                aria-current="page"
+                onclick="mostrarSeccion('productos')"
+            >
                 Productos
             </button>
 
-            <button type="button" onclick="mostrarSeccion('transformacion')">
+            <button
+                type="button"
+                class="nav-button"
+                data-seccion="transformacion"
+                onclick="mostrarSeccion('transformacion')"
+            >
                 Nueva transformación
             </button>
 
-            <button type="button" onclick="mostrarSeccion('registros')">
+            <button
+                type="button"
+                class="nav-button"
+                data-seccion="registros"
+                onclick="mostrarSeccion('registros')"
+            >
                 Registros
 
             </button>
@@ -292,6 +308,6 @@
     </main>
 </div>
 
-<script src="/static/js/app.js?v=20260619-1"></script>
+<script src="/static/js/app.js?v=20260619-2"></script>
 </body>
 </html>

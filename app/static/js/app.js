@@ -81,6 +81,20 @@ function mostrarSeccion(idSeccion) {
         seccion.classList.add("hidden");
     });
 
+    document.querySelectorAll(".top-nav [data-seccion]").forEach(
+        function (boton) {
+            const estaActiva = boton.dataset.seccion === idSeccion;
+
+            boton.classList.toggle("is-active", estaActiva);
+
+            if (estaActiva) {
+                boton.setAttribute("aria-current", "page");
+            } else {
+                boton.removeAttribute("aria-current");
+            }
+        }
+    );
+
     const seccionSeleccionada = document.getElementById(idSeccion);
 
     if (seccionSeleccionada) {
