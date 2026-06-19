@@ -2,9 +2,8 @@ import re
 
 from fastapi import APIRouter, Depends, Query
 
-from app.services.sesiones import requerir_sesion
-from app.services.reglas_merma import obtener_merma_estimada
 from app.utils.base_de_datos import obtener_base_datos
+from app.utils.seguridad import seguridad_sesion
 
 
 router = APIRouter(
@@ -24,12 +23,10 @@ def coincide_con_busqueda(producto, termino):
     return texto_busqueda in texto_producto
 
 
-def pertenece_al_modulo(producto):
-    tipo_cayal = int(producto.get("ProductTypeIDCayal") or 0)
-    return tipo_cayal > 0
+def formatear_producto(producto, porcentajes_merma=None):
+    categoria = str(producto.get("Category1") or "").strip().upper()
+    porcentaje_merma = (porcentajes_merma or {}).get(categoria, 0)
 
-
-def formatear_producto(producto):
     return {
         "id": producto["ProductID"],
         "clave": producto["ProductKey"],
@@ -38,7 +35,13 @@ def formatear_producto(producto):
         "unidad": producto["Unit"],
         "costo": producto["CostPrice"],
         "existencia": producto["QtyPresent"],
-        "merma_estimada": obtener_merma_estimada(producto),
+        "merma_estimada": {
+            "porcentaje": porcentaje_merma,
+            "descripcion": (
+                f"Referencia configurable para {producto['Category1']}"
+            ),
+            "fuente": "base_de_datos",
+        },
     }
 
 
@@ -72,6 +75,7 @@ def respuesta_formula(base_datos, producto_id):
             for fila in componentes
         ],
     )
+    porcentajes_merma = base_datos.buscar_porcentajes_merma()
     productos = []
 
     for componente in componentes:
@@ -80,7 +84,10 @@ def respuesta_formula(base_datos, producto_id):
         if not producto:
             continue
 
-        producto_formateado = formatear_producto(producto)
+        producto_formateado = formatear_producto(
+            producto,
+            porcentajes_merma,
+        )
         producto_formateado["cantidad_formula"] = componente[
             "CantidadComp"
         ]
@@ -111,6 +118,7 @@ def respuesta_equivalencias(base_datos, producto_id):
             for fila in equivalencias
         ],
     )
+    porcentajes_merma = base_datos.buscar_porcentajes_merma()
     resultantes = []
 
     for equivalencia in equivalencias:
@@ -119,7 +127,10 @@ def respuesta_equivalencias(base_datos, producto_id):
         if not producto:
             continue
 
-        producto_formateado = formatear_producto(producto)
+        producto_formateado = formatear_producto(
+            producto,
+            porcentajes_merma,
+        )
         producto_formateado["cantidad_origen"] = equivalencia["Cant1"]
         producto_formateado["cantidad_resultante"] = equivalencia["Cant2"]
         producto_formateado["tipo_relacion"] = "equivalencia"
@@ -135,7 +146,7 @@ def respuesta_equivalencias(base_datos, producto_id):
 
 @router.get("/")
 def buscar_productos(
-    sesion: dict = Depends(requerir_sesion),
+    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
     busqueda: str = Query(min_length=2, max_length=100),
     pagina: int = Query(default=1, ge=1),
     limite: int = Query(default=10, ge=1, le=50),
@@ -160,11 +171,11 @@ def buscar_productos(
     ]
 
     productos = base_datos.buscar_info_productos(ids_productos)
+    porcentajes_merma = base_datos.buscar_porcentajes_merma()
     productos_del_modulo = [
         producto
         for producto in productos
-        if pertenece_al_modulo(producto)
-        and coincide_con_busqueda(producto, termino)
+        if coincide_con_busqueda(producto, termino)
     ]
 
     total = len(productos_del_modulo)
@@ -174,7 +185,7 @@ def buscar_productos(
 
     return {
         "productos": [
-            formatear_producto(producto)
+            formatear_producto(producto, porcentajes_merma)
             for producto in productos_del_modulo[inicio:fin]
         ],
         "pagina": pagina,
@@ -187,7 +198,7 @@ def buscar_productos(
 @router.get("/{producto_id}/resultantes")
 def buscar_productos_resultantes(
     producto_id: int,
-    sesion: dict = Depends(requerir_sesion),
+    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     base_datos = obtener_base_datos()
     receta = respuesta_formula(base_datos, producto_id)

@@ -1,29 +1,15 @@
-import json
-from functools import lru_cache
-from pathlib import Path
-
 import bcrypt
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
-from app.services.sesiones import (
-    eliminar_cookie_sesion,
-    guardar_cookie_sesion,
-    obtener_sesion_request,
-)
 from app.utils.base_de_datos import obtener_base_datos
+from app.utils.seguridad import seguridad_sesion
 
 
 router = APIRouter(
     prefix="/login",
     tags=["Login"],
-)
-
-RUTA_CONFIGURACION_SEGURIDAD = (
-    Path(__file__).resolve().parents[1]
-    / "config"
-    / "seguridad.json"
 )
 
 
@@ -32,112 +18,86 @@ class Credenciales(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
-def preparar_hash(hash_guardado):
-    if hash_guardado is None:
-        return None
+class Autenticador:
+    def __init__(self, base_datos):
+        self._base_datos = base_datos
 
-    if isinstance(hash_guardado, bytes):
-        return hash_guardado
+    @staticmethod
+    def _preparar_hash(hash_guardado):
+        if hash_guardado is None:
+            return None
 
-    if isinstance(hash_guardado, bytearray):
+        if isinstance(hash_guardado, bytes):
+            return hash_guardado
+
+        if isinstance(hash_guardado, bytearray):
+            return bytes(hash_guardado)
+
+        if isinstance(hash_guardado, memoryview):
+            return hash_guardado.tobytes()
+
+        if isinstance(hash_guardado, str):
+            return hash_guardado.strip().encode("utf-8")
+
         return bytes(hash_guardado)
 
-    if isinstance(hash_guardado, memoryview):
-        return hash_guardado.tobytes()
+    @classmethod
+    def _coincide_password(cls, password, hash_guardado):
+        hash_password = cls._preparar_hash(hash_guardado)
 
-    if isinstance(hash_guardado, str):
-        return hash_guardado.strip().encode("utf-8")
+        if not hash_password:
+            return False
 
-    return bytes(hash_guardado)
+        try:
+            return bcrypt.checkpw(
+                password.encode("utf-8"),
+                hash_password,
+            )
+        except (TypeError, ValueError):
+            return False
 
+    def _password_maestro_valido(self, password):
+        return any(
+            self._coincide_password(password, fila["UserPassword"])
+            for fila in self._base_datos.buscar_hashes_grupo_maestro()
+        )
 
-def coincide_password(password: str, hash_guardado) -> bool:
-    hash_password = preparar_hash(hash_guardado)
+    def autenticar(self, credenciales):
+        usuario = self._base_datos.buscar_usuario_login(
+            credenciales.usuario
+        )
 
-    if not hash_password:
-        return False
+        if not usuario:
+            return None
 
-    try:
-        return bcrypt.checkpw(password.encode("utf-8"), hash_password)
-    except (TypeError, ValueError):
-        return False
+        uso_llave_maestra = not self._coincide_password(
+            credenciales.password,
+            usuario["HashUsuario"],
+        )
 
+        if (
+            uso_llave_maestra
+            and not self._password_maestro_valido(
+                credenciales.password
+            )
+        ):
+            return None
 
-def buscar_usuario(base_datos, nombre_usuario: str):
-    usuarios = base_datos.fetchall(
-        """
-        SELECT
-            U.UserID,
-            U.UserName,
-            U.UserGroupID,
-            G.GroupName,
-            CU.UserPassword AS HashUsuario
-        FROM dbo.engUser AS U
-        LEFT JOIN dbo.engUserGroup AS G
-            ON G.UserGroupID = U.UserGroupID
-        LEFT JOIN dbo.engUserCayal AS CU
-            ON CU.UserID = U.UserID
-        WHERE U.UserName = ?
-          AND U.DeletedOn IS NULL
-        """,
-        (nombre_usuario.strip(),),
-    )
-
-    if not usuarios:
-        return None
-
-    return usuarios[0]
-
-
-@lru_cache(maxsize=1)
-def cargar_configuracion_seguridad():
-    with RUTA_CONFIGURACION_SEGURIDAD.open(encoding="utf-8") as archivo:
-        return json.load(archivo)
+        return {
+            "user_id": usuario["UserID"],
+            "usuario": usuario["UserName"],
+            "user_group_id": usuario["UserGroupID"],
+            "grupo": usuario["GroupName"],
+            "uso_llave_maestra": uso_llave_maestra,
+        }
 
 
-def buscar_hashes_grupo_maestro(base_datos):
-    grupo_maestro = cargar_configuracion_seguridad()[
-        "grupo_llave_maestra"
-    ]
-
-    return base_datos.fetchall(
-        """
-        SELECT UC.UserPassword
-        FROM dbo.engUser AS U
-        INNER JOIN dbo.engUserGroup AS G
-            ON G.UserGroupID = U.UserGroupID
-        INNER JOIN dbo.engUserCayal AS UC
-            ON UC.UserID = U.UserID
-        WHERE U.DeletedOn IS NULL
-          AND UC.UserPassword IS NOT NULL
-          AND G.GroupName = ?
-        ORDER BY U.UserID
-        """,
-        (grupo_maestro,),
-    )
-
-
-def password_de_grupo_valido(password: str, hashes_grupo) -> bool:
-    for fila in hashes_grupo:
-        if coincide_password(password, fila["UserPassword"]):
-            return True
-
-    return False
-
-
-def datos_sesion(usuario, uso_llave_maestra: bool):
-    return {
-        "user_id": usuario["UserID"],
-        "usuario": usuario["UserName"],
-        "user_group_id": usuario["UserGroupID"],
-        "grupo": usuario["GroupName"],
-        "uso_llave_maestra": uso_llave_maestra,
-    }
+autenticador = Autenticador(obtener_base_datos())
 
 
 @router.get("/sesion")
 def consultar_sesion(request: Request):
-    sesion = obtener_sesion_request(request)
+    sesion = seguridad_sesion.obtener_sesion(request)
 
     if not sesion:
         raise HTTPException(
@@ -160,36 +120,15 @@ def iniciar_sesion(
     request: Request,
     response: Response,
 ):
-    base_datos = obtener_base_datos()
-    usuario = buscar_usuario(base_datos, credenciales.usuario)
+    sesion = autenticador.autenticar(credenciales)
 
-    if not usuario:
+    if not sesion:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuario o contraseña incorrectos",
         )
 
-    password_valido = coincide_password(
-        credenciales.password,
-        usuario["HashUsuario"],
-    )
-    uso_llave_maestra = False
-
-    if not password_valido:
-        password_valido = password_de_grupo_valido(
-            credenciales.password,
-            buscar_hashes_grupo_maestro(base_datos),
-        )
-        uso_llave_maestra = password_valido
-
-    if not password_valido:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario o contraseña incorrectos",
-        )
-
-    sesion = datos_sesion(usuario, uso_llave_maestra)
-    guardar_cookie_sesion(
+    seguridad_sesion.guardar_cookie(
         response,
         sesion,
         usar_https=request.url.scheme == "https",
@@ -204,7 +143,7 @@ def iniciar_sesion(
 
 @router.post("/logout")
 def cerrar_sesion(response: Response):
-    eliminar_cookie_sesion(response)
+    seguridad_sesion.eliminar_cookie(response)
 
     return {
         "acceso": False,

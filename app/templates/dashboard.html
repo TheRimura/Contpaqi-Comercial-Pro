@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title>Transformación Cárnica | CAYAL</title>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260618-15">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260618-17">
 </head>
 
 <body class="app-body">
@@ -51,47 +51,7 @@
 
     <main class="content">
 
-        <section id="inicio" class="section">
-            <div class="page-header">
-                <p class="eyebrow">Módulo operativo</p>
-                <h2>Transformación Cárnica</h2>
-                <p class="ayuda">
-                    Registra la conversión de un producto de origen en uno o.
-                    varios productos resultantes, manteniendo el balance de
-                    cantidades y merma.
-                </p>
-            </div>
-
-            <div class="cards">
-                <article class="card">
-                    <span>01</span>
-                    <h3>Producto origen</h3>
-                    <p>Producto que sale del inventario para ser transformado.</p>
-                </article>
-
-                <article class="card">
-                    <span>02</span>
-                    <h3>Productos resultantes</h3>
-                    <p>Productos obtenidos al finalizar el proceso.</p>
-                </article>
-
-                <article class="card">
-                    <span>03</span>
-                    <h3>Merma</h3>
-                    <p>Diferencia registrada durante corte, limpieza o proceso.</p>
-                </article>
-            </div>
-
-            <div class="info-box">
-                <h3>Regla de balance</h3>
-                <p>
-                    La cantidad de origen debe ser igual a la suma de los
-                    productos resultantes más la merma.
-                </p>
-            </div>
-        </section>
-
-        <section id="productos" class="section hidden">
+        <section id="productos" class="section">
             <div class="page-header">
                 <p class="eyebrow">Consulta</p>
                 <h2>Buscar productos</h2>
@@ -132,7 +92,6 @@
 
                 <div class="form-grid origen-grid">
                     <div>
-                        <input type="hidden" id="buscarOrigen">
                         <input type="hidden" id="productoOrigenId">
                         <input type="hidden" id="cantidadOrigen" value="0">
 
@@ -218,12 +177,12 @@
 
                 <div class="summary-strip">
                     <div class="summary-item">
-                        <span>Entrada estimada</span>
+                        <span>Salida de inventario</span>
                         <strong id="totalOrigen">0 kg</strong>
                     </div>
 
                     <div class="summary-item">
-                        <span>Salida</span>
+                        <span>Entrada de producto</span>
                         <strong id="totalResultantes">0 kg</strong>
                     </div>
 
@@ -305,10 +264,21 @@
             </div>
 
             <div class="panel">
+                <div
+                    id="indicadoresRegistros"
+                    class="summary-strip indicadores-registros"
+                    hidden
+                ></div>
+
                 <div class="section-toolbar">
                     <h3>Historial de transformaciones</h3>
 
-                    <button type="button" onclick="cargarHistorialTransformaciones()">
+                    <button
+                        type="button"
+                        onclick="cargarHistorialTransformaciones(
+                            registrosPaginaActual
+                        )"
+                    >
                         Actualizar
                     </button>
                 </div>
@@ -322,6 +292,6 @@
     </main>
 </div>
 
-<script src="/static/js/app.js?v=20260618-15"></script>
+<script src="/static/js/app.js?v=20260619-1"></script>
 </body>
 </html>

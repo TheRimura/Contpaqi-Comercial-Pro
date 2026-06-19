@@ -108,11 +108,13 @@ async function cerrarSesion() {
 
 
 const PRODUCTOS_POR_PAGINA = 10;
+const REGISTROS_POR_PAGINA = PRODUCTOS_POR_PAGINA;
 const TIPO_RECETA_CONFIGURADA = "receta_configurada";
 const TIPO_PRODUCTO_FINAL = "producto_final";
 let sesionActual = null;
 let productosBusquedaActual = "";
 let productosPaginaActual = 1;
+let registrosPaginaActual = 1;
 let productoOrigenSeleccionado = null;
 let productoSeleccionadoOriginal = null;
 let productosResultantesDisponibles = [];
@@ -217,21 +219,25 @@ function crearTablaProductos(productos) {
 }
 
 
-function crearControlesPaginacion(resultado) {
+function crearControlesPaginacion(
+    resultado,
+    etiqueta,
+    cambiarPagina
+) {
     const controles = document.createElement("div");
     controles.className = "paginacion";
 
     const resumen = document.createElement("span");
     resumen.textContent =
         `Página ${resultado.pagina} de ${resultado.total_paginas} ` +
-        `(${resultado.total} productos)`;
+        `(${resultado.total} ${etiqueta})`;
 
     const anterior = document.createElement("button");
     anterior.type = "button";
     anterior.textContent = "Anterior";
     anterior.disabled = resultado.pagina <= 1;
     anterior.addEventListener("click", function () {
-        buscarProductos(resultado.pagina - 1);
+        cambiarPagina(resultado.pagina - 1);
     });
 
     const siguiente = document.createElement("button");
@@ -239,7 +245,7 @@ function crearControlesPaginacion(resultado) {
     siguiente.textContent = "Siguiente";
     siguiente.disabled = resultado.pagina >= resultado.total_paginas;
     siguiente.addEventListener("click", function () {
-        buscarProductos(resultado.pagina + 1);
+        cambiarPagina(resultado.pagina + 1);
     });
 
     controles.append(anterior, resumen, siguiente);
@@ -285,15 +291,16 @@ async function buscarProductos(pagina = 1) {
         }
 
         contenedor.appendChild(crearTablaProductos(productos));
-        contenedor.appendChild(crearControlesPaginacion(resultado));
+        contenedor.appendChild(
+            crearControlesPaginacion(
+                resultado,
+                "productos",
+                buscarProductos
+            )
+        );
     } catch (error) {
         contenedor.textContent = error.message;
     }
-}
-
-
-function describirProducto(producto) {
-    return `${producto.nombre} | ${producto.clave} | ID ${producto.id}`;
 }
 
 
@@ -508,7 +515,7 @@ function calcularEntradaEstimada(totalSalida, porcentajeMerma) {
 }
 
 
-function aplicarMermaEstimadaProducto(producto) {
+function reiniciarLimiteMerma() {
     const porcentajeMermaEsperado = document.getElementById(
         "porcentajeMermaEsperado"
     );
@@ -523,25 +530,6 @@ function obtenerProductoDisponible(productoId) {
     return productosResultantesDisponibles.find(function (producto) {
         return Number(producto.id) === Number(productoId);
     });
-}
-
-
-function cantidadOrigenActual() {
-    const cantidadOrigenInput = document.getElementById("cantidadOrigen");
-    return leerCantidadKg(cantidadOrigenInput?.value || 0);
-}
-
-
-function calcularCantidadSugerida(producto) {
-    const cantidadOrigen = cantidadOrigenActual();
-    const baseOrigen = Number(producto?.cantidad_origen || 1);
-    const baseResultante = Number(producto?.cantidad_resultante || 0);
-
-    if (!cantidadOrigen || !baseOrigen || !baseResultante) {
-        return 0;
-    }
-
-    return (cantidadOrigen * baseResultante) / baseOrigen;
 }
 
 
@@ -612,7 +600,7 @@ function actualizarOrigenDesdeFormula(productoBase) {
     }
 
     actualizarTarjetaOrigen(productoBase);
-    aplicarMermaEstimadaProducto(productoBase);
+    reiniciarLimiteMerma();
 
     if (resultadoOrigen) {
         resultadoOrigen.className = "seleccion-origen";
@@ -636,7 +624,7 @@ function restaurarProductoSeleccionadoComoOrigen() {
     }
 
     actualizarTarjetaOrigen(productoSeleccionadoOriginal);
-    aplicarMermaEstimadaProducto(productoSeleccionadoOriginal);
+    reiniciarLimiteMerma();
 }
 
 
@@ -798,24 +786,20 @@ function renderizarProductosResultantes() {
 
 
 async function seleccionarProductoOrigen(producto) {
-    const busquedaInput = document.getElementById("buscarOrigen");
     const productoIdInput = document.getElementById("productoOrigenId");
     const cantidadOrigenInput = document.getElementById("cantidadOrigen");
     const resultadoOrigen = document.getElementById("resultadoOrigen");
 
-    if (!busquedaInput || !productoIdInput || !cantidadOrigenInput) {
+    if (!productoIdInput || !cantidadOrigenInput) {
         return;
     }
 
     productoSeleccionadoOriginal = producto;
     productoOrigenSeleccionado = producto;
     productoIdInput.value = producto.id;
-    busquedaInput.value = describirProducto(producto);
-    busquedaInput.readOnly = true;
-    busquedaInput.classList.add("input-bloqueado");
     cantidadOrigenInput.value = "0";
     actualizarTarjetaOrigen(producto);
-    aplicarMermaEstimadaProducto(producto);
+    reiniciarLimiteMerma();
 
     if (resultadoOrigen) {
         resultadoOrigen.className = "seleccion-origen";
@@ -835,66 +819,6 @@ async function seleccionarProductoOrigen(producto) {
     mostrarSeccion("transformacion");
     await cargarProductosResultantes(producto.id);
     actualizarBalance();
-}
-
-
-function crearOpcionProducto(producto, alSeleccionar) {
-    const boton = document.createElement("button");
-    boton.type = "button";
-    boton.className = "producto-opcion";
-    boton.textContent =
-        `${producto.nombre} | ${producto.clave} | ID ${producto.id}`;
-
-    boton.addEventListener("click", function () {
-        alSeleccionar(producto);
-    });
-
-    return boton;
-}
-
-
-async function buscarProductoOrigen() {
-    const busquedaInput = document.getElementById("buscarOrigen");
-    const productoIdInput = document.getElementById("productoOrigenId");
-    const contenedor = document.getElementById("resultadoOrigen");
-
-    if (!busquedaInput || !productoIdInput || !contenedor) {
-        return;
-    }
-
-    const termino = busquedaInput.value.trim();
-
-    if (termino.length < 2) {
-        contenedor.textContent =
-            "Escribe al menos dos caracteres para buscar.";
-        return;
-    }
-
-    contenedor.textContent = "Buscando...";
-
-    try {
-        const resultado = await consultarProductos(termino, 1, 10);
-        const productos = resultado.productos;
-        contenedor.replaceChildren();
-
-        if (productos.length === 0) {
-            contenedor.textContent = "No se encontraron productos.";
-            return;
-        }
-
-        productos.forEach(function (producto) {
-            const opcion = crearOpcionProducto(
-                producto,
-                function (seleccionado) {
-                    seleccionarProductoOrigen(seleccionado);
-                }
-            );
-
-            contenedor.appendChild(opcion);
-        });
-    } catch (error) {
-        contenedor.textContent = error.message;
-    }
 }
 
 
@@ -1309,13 +1233,13 @@ function agregarProductoResultante(productoPreseleccionado = null) {
 
         const producto = obtenerProductoDisponible(productoId.value);
         fila.classList.remove("fila-error");
-        celdaUnidad.textContent = producto?.unidad || "-";
-        cantidad.dataset.unidad = producto?.unidad || "KILO";
+        celdaUnidad.textContent = "KILO";
+        cantidad.dataset.unidad = "KILO";
 
         if (cantidad.dataset.automatica === "1") {
             const cantidadBase = cantidadBaseProducto(producto);
             cantidad.value = cantidadBase > 0
-                ? formatearCantidadCaptura(cantidadBase)
+                ? formatearKg(cantidadBase)
                 : "";
         }
 
@@ -1347,13 +1271,12 @@ function agregarProductoResultante(productoPreseleccionado = null) {
 
     if (productoPreseleccionado) {
         productoId.value = String(productoPreseleccionado.id);
-        celdaUnidad.textContent = productoPreseleccionado.unidad || "-";
-        cantidad.dataset.unidad =
-            productoPreseleccionado.unidad || "KILO";
+        celdaUnidad.textContent = "KILO";
+        cantidad.dataset.unidad = "KILO";
 
         const cantidadBase = cantidadBaseProducto(productoPreseleccionado);
         cantidad.value = cantidadBase > 0
-            ? formatearCantidadCaptura(cantidadBase)
+            ? formatearKg(cantidadBase)
             : "";
     }
 
@@ -1365,8 +1288,8 @@ function agregarProductoResultante(productoPreseleccionado = null) {
         eliminar.textContent = "Fijo";
 
         const producto = obtenerProductoDisponible(productoId.value);
-        celdaUnidad.textContent = producto?.unidad || "-";
-        cantidad.dataset.unidad = producto?.unidad || "KILO";
+        celdaUnidad.textContent = "KILO";
+        cantidad.dataset.unidad = "KILO";
     }
 
     cuerpo.appendChild(fila);
@@ -1469,6 +1392,71 @@ function resumenProductosResultantes(registro) {
     return "-";
 }
 
+function textoEstadoErp(estado) {
+    const estados = {
+        completada: "Inventario afectado",
+        pendiente_afectacion: "Pendiente de afectar",
+        procesando: "Procesando",
+        error: "Error de integración",
+        sin_movimientos: "Sin movimientos"
+    };
+
+    return estados[estado] || estado || "Sin estado";
+}
+
+
+function textoMovimientosErp(registro) {
+    const salida = registro.folio_salida || registro.documento_salida;
+    const entrada = registro.folio_entrada || registro.documento_entrada;
+
+    if (!salida && !entrada) {
+        return "-";
+    }
+
+    return `${salida || "Pendiente"} → ${entrada || "Pendiente"}`;
+}
+
+function crearIndicadorRegistro(etiqueta, valor) {
+    const indicador = document.createElement("div");
+    const titulo = document.createElement("span");
+    const contenido = document.createElement("strong");
+
+    indicador.className = "summary-item";
+    titulo.textContent = etiqueta;
+    contenido.textContent = valor;
+    indicador.append(titulo, contenido);
+    return indicador;
+}
+
+
+function renderizarIndicadoresRegistros(indicadores) {
+    const contenedor = document.getElementById("indicadoresRegistros");
+
+    if (!contenedor) {
+        return;
+    }
+
+    contenedor.replaceChildren(
+        crearIndicadorRegistro(
+            "Transformaciones del mes",
+            String(indicadores.transformaciones || 0)
+        ),
+        crearIndicadorRegistro(
+            "Kilos procesados",
+            formatearKg(indicadores.kilos_procesados)
+        ),
+        crearIndicadorRegistro(
+            "Merma acumulada",
+            formatearKg(indicadores.merma_acumulada)
+        ),
+        crearIndicadorRegistro(
+            "Rendimiento",
+            formatearPorcentajeCorto(indicadores.rendimiento)
+        )
+    );
+    contenedor.hidden = false;
+}
+
 
 function crearTablaRegistros(registros) {
     const tabla = document.createElement("table");
@@ -1483,10 +1471,12 @@ function crearTablaRegistros(registros) {
             <th>Fecha</th>
             <th>Usuario</th>
             <th>Producto origen</th>
-            <th>Entrada</th>
             <th>Salida</th>
+            <th>Entrada</th>
             <th>Merma</th>
             <th>Resultantes</th>
+            <th>Movimientos ERP</th>
+            <th>Estado</th>
         </tr>
     `;
 
@@ -1501,12 +1491,14 @@ function crearTablaRegistros(registros) {
             registro.usuario || "-",
             textoProductoRegistro(registro.producto_origen),
             formatearKg(registro.cantidad_origen),
-            formatearKg(registro.total_salida),
+            formatearKg(registro.total_entrada),
             (
                 `${formatearKg(registro.peso_merma)} ` +
                 `(${formatearPorcentaje(registro.porcentaje_merma_real)}%)`
             ),
-            resumenProductosResultantes(registro)
+            resumenProductosResultantes(registro),
+            textoMovimientosErp(registro),
+            textoEstadoErp(registro.estado_erp)
         ];
 
         valores.forEach(function (valor) {
@@ -1523,7 +1515,7 @@ function crearTablaRegistros(registros) {
 }
 
 
-async function cargarHistorialTransformaciones() {
+async function cargarHistorialTransformaciones(pagina = 1) {
     const contenedor = document.getElementById("tablaRegistros");
 
     if (!contenedor) {
@@ -1533,7 +1525,11 @@ async function cargarHistorialTransformaciones() {
     contenedor.textContent = "Cargando registros...";
 
     try {
-        const respuesta = await fetch("/transformaciones/", {
+        const parametros = new URLSearchParams({
+            pagina: String(pagina),
+            limite: String(REGISTROS_POR_PAGINA)
+        });
+        const respuesta = await fetch(`/transformaciones/?${parametros}`, {
             credentials: "same-origin"
         });
         const datos = await respuesta.json();
@@ -1545,7 +1541,9 @@ async function cargarHistorialTransformaciones() {
         }
 
         const registros = datos.registros || [];
+        registrosPaginaActual = datos.pagina;
         contenedor.replaceChildren();
+        renderizarIndicadoresRegistros(datos.indicadores || {});
 
         if (registros.length === 0) {
             contenedor.textContent =
@@ -1554,6 +1552,13 @@ async function cargarHistorialTransformaciones() {
         }
 
         contenedor.appendChild(crearTablaRegistros(registros));
+        contenedor.appendChild(
+            crearControlesPaginacion(
+                datos,
+                "registros",
+                cargarHistorialTransformaciones
+            )
+        );
     } catch (error) {
         contenedor.textContent = error.message;
     }
@@ -1731,12 +1736,12 @@ function actualizarBalance() {
         if (productoYaTransformadoSeleccionado) {
             resultado.textContent =
                 "Listo para registrar como producto final. " +
-                `Entrada estimada: ${formatearKg(cantidadOrigen)}.`;
+                `Salida calculada: ${formatearKg(cantidadOrigen)}.`;
             return;
         }
 
         resultado.textContent =
-            `Listo para registrar. Entrada estimada: ` +
+            `Listo para registrar. Salida calculada: ` +
             `${formatearKg(cantidadOrigen)}.`;
         return;
     }
@@ -1753,7 +1758,7 @@ function actualizarBalance() {
         }
 
         resultado.textContent =
-            `Listo para registrar. Entrada estimada: ` +
+            `Listo para registrar. Salida calculada: ` +
             `${formatearKg(cantidadOrigen)}.`;
         return;
     }
@@ -1969,13 +1974,15 @@ async function registrarTransformacion() {
         }
 
         contenedor.className = "success-card";
-        contenedor.textContent =
-            resultado.folio
-                ? `${resultado.mensaje}. Folio ${resultado.folio}.`
-                : resultado.mensaje;
+        const registro = resultado.registro || {};
+        const movimientos = textoMovimientosErp(registro);
+        contenedor.textContent = movimientos === "-"
+            ? resultado.mensaje
+            : `${resultado.mensaje}. Movimientos: ${movimientos}.`;
 
         idOperacionActual = crearIdOperacion();
-        cargarHistorialTransformaciones();
+
+        await cargarHistorialTransformaciones();
     } catch (error) {
         contenedor.className = "error-card";
         contenedor.textContent = error.message;
@@ -2022,17 +2029,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
             }
         );
-    }
-
-    const buscarOrigen = document.getElementById("buscarOrigen");
-
-    if (buscarOrigen) {
-        buscarOrigen.addEventListener("keydown", function (evento) {
-            if (evento.key === "Enter") {
-                evento.preventDefault();
-                buscarProductoOrigen();
-            }
-        });
     }
 
     const cantidadOrigen = document.getElementById("cantidadOrigen");

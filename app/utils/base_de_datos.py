@@ -1,37 +1,188 @@
-from functools import lru_cache
+import json
+from functools import cache
 from platform import node
-
-import pyodbc
 
 from cayal.comandos_base_datos import ComandosBaseDatos
 
 
-ESTATUS_EQUIVALENCIA_ACTIVA = 1
-
-
 class BaseDatos(ComandosBaseDatos):
     def __init__(self):
-        self._servidor = node()
-        self._base_de_datos = "ComercialSP"
-        super().__init__(
-            servidor=self._servidor,
-            base_de_datos=self._base_de_datos,
-        )
+        super().__init__(servidor=node())
 
     def buscar_productos_por_nombre(self, termino):
+        configuracion = self.buscar_configuracion_transformaciones()
+
         return self.fetchall(
             """
-            SELECT ProductID
-            FROM dbo.orgProduct
-            WHERE DeletedOn IS NULL
-              AND AvailableForSale = 1
-              AND ProductName LIKE ?
-            ORDER BY ProductName
+            SELECT P.ProductID
+            FROM dbo.orgProduct AS P
+            WHERE P.DeletedOn IS NULL
+              AND P.AvailableForSale = 1
+              AND P.ProductName LIKE ?
+              AND (
+                    EXISTS (
+                        SELECT 1
+                        FROM dbo.CategoriasTransformacion AS C
+                        WHERE C.activa = 1
+                          AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                              UPPER(LTRIM(RTRIM(P.Category1)))
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM dbo.zvwFormulasListasPCocinar AS F
+                        INNER JOIN dbo.orgProduct AS CP
+                            ON CP.ProductID = F.ComponenteID
+                           AND CP.DeletedOn IS NULL
+                        INNER JOIN dbo.CategoriasTransformacion AS C
+                            ON C.activa = 1
+                           AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                               UPPER(LTRIM(RTRIM(CP.Category1)))
+                        WHERE F.ProductID = P.ProductID
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM dbo.zvwEquivalenciasTransKoben AS E
+                        INNER JOIN dbo.orgProduct AS OP
+                            ON OP.ProductID = CASE
+                                WHEN E.ProductID1 = P.ProductID
+                                THEN E.ProductID2
+                                ELSE E.ProductID1
+                            END
+                           AND OP.DeletedOn IS NULL
+                        INNER JOIN dbo.CategoriasTransformacion AS C
+                            ON C.activa = 1
+                           AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                               UPPER(LTRIM(RTRIM(OP.Category1)))
+                        WHERE E.Status = ?
+                          AND P.ProductID IN (
+                              E.ProductID1,
+                              E.ProductID2
+                          )
+                    )
+              )
+            ORDER BY P.ProductName
             """,
-            (f"%{termino}%",),
+            (
+                f"%{termino}%",
+                configuracion["estatus_equivalencia"],
+            ),
         )
 
-    def buscar_info_productos(self, ids_productos, **kwargs):
+    def buscar_configuracion_transformaciones(self):
+        filas = self.fetchall(
+            """
+            SELECT TOP 1
+                C.id_configuracion,
+                C.almacen_id,
+                A.DepotName AS almacen,
+                C.movimiento_salida,
+                C.movimiento_entrada,
+                C.movimiento_salida_formula,
+                C.movimiento_entrada_formula,
+                C.modulo_entrada,
+                C.modulo_salida,
+                C.estatus_equivalencia,
+                C.catalogo_salida,
+                C.catalogo_entrada
+            FROM dbo.ConfiguracionTransformaciones AS C
+            INNER JOIN dbo.orgDepot AS A
+                ON A.DepotID = C.almacen_id
+               AND A.DeletedOn IS NULL
+            WHERE C.activa = 1
+            ORDER BY C.id_configuracion
+            """,
+        )
+
+        if not filas:
+            raise RuntimeError(
+                "No existe una configuracion activa para transformaciones"
+            )
+
+        return filas[0]
+
+    def buscar_configuracion_seguridad(self):
+        filas = self.fetchall(
+            """
+            SELECT TOP 1
+                grupo_llave_maestra,
+                nombre_cookie,
+                duracion_sesion_segundos,
+                clave_firma
+            FROM dbo.ConfiguracionSeguridad
+            WHERE activa = 1
+            ORDER BY id_configuracion
+            """
+        )
+
+        if not filas:
+            raise RuntimeError(
+                "No existe una configuracion activa de seguridad"
+            )
+
+        return filas[0]
+
+    def buscar_usuario_login(self, nombre_usuario):
+        filas = self.fetchall(
+            """
+            SELECT
+                U.UserID,
+                U.UserName,
+                U.UserGroupID,
+                G.GroupName,
+                CU.UserPassword AS HashUsuario
+            FROM dbo.engUser AS U
+            LEFT JOIN dbo.engUserGroup AS G
+                ON G.UserGroupID = U.UserGroupID
+            LEFT JOIN dbo.engUserCayal AS CU
+                ON CU.UserID = U.UserID
+            WHERE U.UserName = ?
+              AND U.DeletedOn IS NULL
+            """,
+            (nombre_usuario.strip(),),
+        )
+        return filas[0] if filas else None
+
+    def buscar_hashes_grupo_maestro(self):
+        configuracion = self.buscar_configuracion_seguridad()
+
+        return self.fetchall(
+            """
+            SELECT UC.UserPassword
+            FROM dbo.engUser AS U
+            INNER JOIN dbo.engUserGroup AS G
+                ON G.UserGroupID = U.UserGroupID
+            INNER JOIN dbo.engUserCayal AS UC
+                ON UC.UserID = U.UserID
+            WHERE U.DeletedOn IS NULL
+              AND UC.UserPassword IS NOT NULL
+              AND G.GroupName = ?
+            ORDER BY U.UserID
+            """,
+            (configuracion["grupo_llave_maestra"],),
+        )
+
+    def buscar_porcentajes_merma(self):
+        return {
+            str(fila["categoria"]).strip().upper(): (
+                float(fila["porcentaje_merma"])
+                if fila["porcentaje_merma"] is not None
+                else 0
+            )
+            for fila in self.fetchall(
+                """
+                SELECT categoria, porcentaje_merma
+                FROM dbo.CategoriasTransformacion
+                WHERE activa = 1
+                """
+            )
+        }
+
+    def buscar_info_productos(
+        self,
+        ids_productos,
+        almacen_id=None,
+        **kwargs,
+    ):
         ids_limpios = list(dict.fromkeys(
             int(producto_id)
             for producto_id in ids_productos
@@ -41,31 +192,108 @@ class BaseDatos(ComandosBaseDatos):
         if not ids_limpios:
             return []
 
-        parametros = ", ".join("?" for _ in ids_limpios)
+        configuracion = self.buscar_configuracion_transformaciones()
+        almacen_id = almacen_id or configuracion["almacen_id"]
 
+        parametros = ", ".join("?" for _ in ids_limpios)
         return self.fetchall(
             f"""
             SELECT
                 P.ProductID,
                 P.ProductKey,
                 P.ProductName,
-                P.Category1,
+                COALESCE(
+                    CM.categoria,
+                    CFM.categoria,
+                    CEM.categoria,
+                    P.Category1
+                ) AS Category1,
+                P.Category1 AS CategoryOriginal,
                 P.Unit,
                 P.CostPrice,
                 ISNULL(I.QtyPresent, 0) AS QtyPresent,
                 P.ProductTypeIDCayal
             FROM dbo.orgProduct AS P
-            LEFT JOIN dbo.vwLBSProductQuantityList AS I
-                ON I.ProductID = P.ProductID
-               AND I.DepotID = 2
+            OUTER APPLY (
+                SELECT SUM(Q.QtyPresent) AS QtyPresent
+                FROM dbo.vwLBSProductQuantityList AS Q
+                WHERE Q.ProductID = P.ProductID
+                  AND Q.DepotID = ?
+            ) AS I
+            OUTER APPLY (
+                SELECT TOP 1 C.categoria
+                FROM dbo.CategoriasTransformacion AS C
+                WHERE C.activa = 1
+                  AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                      UPPER(LTRIM(RTRIM(P.Category1)))
+            ) AS CM
+            OUTER APPLY (
+                SELECT TOP 1 C.categoria
+                FROM dbo.zvwFormulasListasPCocinar AS F
+                INNER JOIN dbo.orgProduct AS CP
+                    ON CP.ProductID = F.ComponenteID
+                   AND CP.DeletedOn IS NULL
+                INNER JOIN dbo.CategoriasTransformacion AS C
+                    ON C.activa = 1
+                   AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                       UPPER(LTRIM(RTRIM(CP.Category1)))
+                WHERE F.ProductID = P.ProductID
+                ORDER BY F.IDComp
+            ) AS CFM
+            OUTER APPLY (
+                SELECT TOP 1 C.categoria
+                FROM dbo.zvwEquivalenciasTransKoben AS E
+                INNER JOIN dbo.orgProduct AS OP
+                    ON OP.ProductID = CASE
+                        WHEN E.ProductID1 = P.ProductID
+                        THEN E.ProductID2
+                        ELSE E.ProductID1
+                    END
+                   AND OP.DeletedOn IS NULL
+                INNER JOIN dbo.CategoriasTransformacion AS C
+                    ON C.activa = 1
+                   AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                       UPPER(LTRIM(RTRIM(OP.Category1)))
+                WHERE E.Status = ?
+                  AND P.ProductID IN (
+                      E.ProductID1,
+                      E.ProductID2
+                  )
+                ORDER BY E.ID
+            ) AS CEM
             WHERE P.ProductID IN ({parametros})
               AND P.DeletedOn IS NULL
             ORDER BY P.ProductName
             """,
-            tuple(ids_limpios),
+            (
+                almacen_id,
+                configuracion["estatus_equivalencia"],
+                *ids_limpios,
+            ),
         )
 
+    def buscar_ids_productos_modulo(self, ids_productos):
+        productos = self.buscar_info_productos(ids_productos)
+        categorias_activas = {
+            str(fila["categoria"]).strip().upper()
+            for fila in self.fetchall(
+                """
+                SELECT categoria
+                FROM dbo.CategoriasTransformacion
+                WHERE activa = 1
+                """
+            )
+        }
+        return {
+            producto["ProductID"]
+            for producto in productos
+            if str(producto["Category1"]).strip().upper()
+            in categorias_activas
+        }
+
     def buscar_resultantes_transformacion(self, producto_origen_id):
+        configuracion = self.buscar_configuracion_transformaciones()
+
         return self.fetchall(
             """
             SELECT ProductID2, Cant1, Cant2
@@ -74,7 +302,10 @@ class BaseDatos(ComandosBaseDatos):
               AND Status = ?
             ORDER BY ID
             """,
-            (producto_origen_id, ESTATUS_EQUIVALENCIA_ACTIVA),
+            (
+                producto_origen_id,
+                configuracion["estatus_equivalencia"],
+            ),
         )
 
     def buscar_componentes_formula(self, producto_id):
@@ -88,36 +319,194 @@ class BaseDatos(ComandosBaseDatos):
             (producto_id,),
         )
 
-    def _abrir_conexion(self):
-        drivers = [
-            driver
-            for driver in pyodbc.drivers()
-            if "SQL Server" in driver
-        ]
-        preferidos = [
-            driver
-            for driver in drivers
-            if "ODBC Driver 18" in driver
-        ] or [
-            driver
-            for driver in drivers
-            if "ODBC Driver 17" in driver
-        ]
+    def buscar_tipo_movimiento(self, tipo, nombre):
+        configuracion = self.buscar_configuracion_transformaciones()
+        tipo_normalizado = str(tipo).strip().lower()
+        grupo = configuracion.get(f"catalogo_{tipo_normalizado}")
 
-        if not drivers:
+        if not grupo:
+            raise ValueError("Tipo de movimiento no valido")
+
+        filas = self.fetchall(
+            """
+            SELECT TOP 1 ItemData, ItemValue
+            FROM dbo.engRefCombo
+            WHERE CboGroupName = ?
+              AND UPPER(LTRIM(RTRIM(ItemValue))) =
+                  UPPER(LTRIM(RTRIM(?)))
+            """,
+            (grupo, nombre),
+        )
+
+        if not filas:
             raise RuntimeError(
-                "No se encontro un controlador ODBC para SQL Server"
+                f"No existe el movimiento {nombre!r} para {tipo}"
             )
 
-        driver = preferidos[-1] if preferidos else drivers[-1]
-        cadena_conexion = (
-            f"DRIVER={{{driver}}};"
-            f"SERVER={self._servidor};"
-            f"DATABASE={self._base_de_datos};"
-            "Trusted_Connection=Yes;"
-            "TrustServerCertificate=Yes;"
+        return {
+            "id": int(filas[0]["ItemData"]),
+            "nombre": filas[0]["ItemValue"],
+        }
+
+    def buscar_transformacion_por_operacion(self, id_operacion):
+        filas = self.fetchall(
+            """
+            SELECT TOP 1
+                id_transformacion,
+                documento_salida,
+                documento_entrada,
+                almacen_id,
+                estado_erp,
+                error_erp
+            FROM dbo.Transformaciones
+            WHERE id_operacion = ?
+            """,
+            (str(id_operacion),),
         )
-        return pyodbc.connect(cadena_conexion)
+        return filas[0] if filas else None
+
+    def actualizar_integracion_erp(
+        self,
+        transformacion_id,
+        documento_salida=None,
+        documento_entrada=None,
+        estado=None,
+        error=None,
+    ):
+        self.command(
+            """
+            UPDATE dbo.Transformaciones
+            SET documento_salida =
+                    COALESCE(?, documento_salida),
+                documento_entrada =
+                    COALESCE(?, documento_entrada),
+                estado_erp =
+                    COALESCE(?, estado_erp),
+                error_erp = ?
+            WHERE id_transformacion = ?
+            """,
+            (
+                documento_salida,
+                documento_entrada,
+                estado,
+                error,
+                transformacion_id,
+            ),
+        )
+
+    def configurar_almacen_documento(self, documento_id, almacen_id):
+        self.command(
+            """
+            UPDATE dbo.docDocument
+            SET DepotID = ?,
+                DepotIDFrom = ?
+            WHERE DocumentID = ?
+            """,
+            (almacen_id, almacen_id, documento_id),
+        )
+
+    def buscar_productos_partidas_documento(self, documento_id):
+        filas = self.fetchall(
+            """
+            SELECT ProductID
+            FROM dbo.docDocumentItem
+            WHERE DocumentID = ?
+              AND DeletedOn IS NULL
+            """,
+            (documento_id,),
+        )
+        return {
+            fila["ProductID"]
+            for fila in filas
+        }
+
+    def insertar_partida_movimiento(
+        self,
+        documento_id,
+        producto_id,
+        almacen_id,
+        cantidad,
+        modulo_id,
+        comentario,
+    ):
+        costo_producto = self.buscar_ultimo_costo_producto(producto_id)
+        costo = float(costo_producto.get("CostPrice") or 0)
+        cantidad_numero = float(cantidad)
+        total = costo * cantidad_numero
+
+        partida_id = self.insertar_partida_documento_cayal((
+            documento_id,
+            producto_id,
+            almacen_id,
+            cantidad_numero,
+            0,
+            costo,
+            total,
+            0,
+            modulo_id,
+            comentario,
+        ))
+
+        if not partida_id:
+            raise RuntimeError(
+                f"No fue posible insertar el producto {producto_id}"
+            )
+
+        self.command(
+            """
+            UPDATE dbo.docDocumentItem
+            SET DepotID = ?,
+                CostPrice = ?,
+                UnitPrice = ?,
+                Total = ?
+            WHERE DocumentItemID = ?
+            """,
+            (
+                almacen_id,
+                costo,
+                costo,
+                total,
+                partida_id,
+            ),
+        )
+
+        return partida_id
+
+    def registrar_recalculo_si_pendiente(
+        self,
+        documento_id,
+        id_operacion,
+    ):
+        filas = self.fetchall(
+            """
+            SELECT TOP 1 ID
+            FROM dbo.zvwDocumentosRecalculadosCayal
+            WHERE DocumentID = ?
+              AND UUID = ?
+            """,
+            (documento_id, str(id_operacion)),
+        )
+
+        if filas:
+            return
+
+        self.registrar_documento_a_recalcular(
+            documento_id,
+            0,
+            str(id_operacion),
+        )
+
+    def buscar_folio_documento(self, documento_id):
+        filas = self.fetchall(
+            """
+            SELECT
+                ISNULL(FolioPrefix, '') + ISNULL(Folio, '') AS Folio
+            FROM dbo.docDocument
+            WHERE DocumentID = ?
+            """,
+            (documento_id,),
+        )
+        return filas[0]["Folio"] if filas else None
 
     def registrar_transformacion(
         self,
@@ -130,142 +519,51 @@ class BaseDatos(ComandosBaseDatos):
         productos_resultantes,
         componentes_formula,
         peso_merma,
+        almacen_id,
         porcentaje_merma_esperado=None,
         observaciones_merma=None,
         id_operacion=None,
     ):
-        with self._abrir_conexion() as conexion:
-            cursor = conexion.cursor()
+        productos_json = json.dumps([
+            {
+                "producto_id": producto.producto_id,
+                "cantidad": float(producto.cantidad),
+                "unidad": producto.unidad,
+            }
+            for producto in productos_resultantes
+        ])
+        componentes_json = json.dumps([
+            {
+                "producto_id": componente.producto_id,
+                "cantidad": float(componente.cantidad),
+                "unidad": componente.unidad,
+                "es_producto_base": componente.es_producto_base,
+            }
+            for componente in componentes_formula
+        ])
 
-            try:
-                cursor.execute("SET XACT_ABORT ON")
-                cursor.execute(
-                    """
-                    SELECT id_transformacion
-                    FROM dbo.Transformaciones
-                    WHERE id_operacion = ?
-                    """,
-                    (str(id_operacion),),
-                )
-                existente = cursor.fetchone()
-
-                if existente:
-                    conexion.rollback()
-                    return int(existente[0])
-
-                cursor.execute(
-                    """
-                    INSERT INTO dbo.Transformaciones (
-                        producto_origen,
-                        producto_seleccionado,
-                        cantidad_origen,
-                        usuario_responsable,
-                        usuario_id,
-                        tipo_transformacion,
-                        porcentaje_merma_esperado,
-                        id_operacion
-                    )
-                    OUTPUT INSERTED.id_transformacion
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        producto_origen_id,
-                        producto_seleccionado_id,
-                        float(cantidad_origen),
-                        usuario,
-                        usuario_id,
-                        tipo_transformacion,
-                        (
-                            float(porcentaje_merma_esperado)
-                            if porcentaje_merma_esperado is not None
-                            else None
-                        ),
-                        str(id_operacion),
-                    ),
-                )
-                transformacion_id = int(cursor.fetchone()[0])
-
-                cursor.executemany(
-                    """
-                    INSERT INTO dbo.DetalleTransformaciones (
-                        id_transformacion,
-                        producto_resultado,
-                        cantidad_resultado,
-                        unidad_resultado
-                    )
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    [
-                        (
-                            transformacion_id,
-                            producto.producto_id,
-                            float(producto.cantidad),
-                            producto.unidad,
-                        )
-                        for producto in productos_resultantes
-                    ],
-                )
-
-                if componentes_formula:
-                    cursor.executemany(
-                        """
-                        INSERT INTO dbo.ComponentesTransformacion (
-                            id_transformacion,
-                            producto_componente,
-                            cantidad,
-                            unidad,
-                            es_producto_base
-                        )
-                        VALUES (?, ?, ?, ?, ?)
-                        """,
-                        [
-                            (
-                                transformacion_id,
-                                componente.producto_id,
-                                float(componente.cantidad),
-                                componente.unidad,
-                                int(componente.es_producto_base),
-                            )
-                            for componente in componentes_formula
-                        ],
-                    )
-
-                cursor.execute(
-                    """
-                    INSERT INTO dbo.Mermas (
-                        id_transformacion,
-                        peso_merma,
-                        motivo
-                    )
-                    VALUES (?, ?, ?)
-                    """,
-                    (
-                        transformacion_id,
-                        float(peso_merma),
-                        observaciones_merma,
-                    ),
-                )
-                conexion.commit()
-                return transformacion_id
-            except pyodbc.IntegrityError:
-                conexion.rollback()
-                cursor.execute(
-                    """
-                    SELECT id_transformacion
-                    FROM dbo.Transformaciones
-                    WHERE id_operacion = ?
-                    """,
-                    (str(id_operacion),),
-                )
-                existente = cursor.fetchone()
-
-                if existente:
-                    return int(existente[0])
-
-                raise
-            except Exception:
-                conexion.rollback()
-                raise
+        return int(self.exec_stored_procedure(
+            "zvwRegistrarTransformacionCayal",
+            (
+                str(id_operacion),
+                producto_origen_id,
+                producto_seleccionado_id,
+                float(cantidad_origen),
+                usuario,
+                usuario_id,
+                tipo_transformacion,
+                (
+                    float(porcentaje_merma_esperado)
+                    if porcentaje_merma_esperado is not None
+                    else None
+                ),
+                almacen_id,
+                float(peso_merma),
+                observaciones_merma,
+                productos_json,
+                componentes_json or None,
+            ),
+        ))
 
     def buscar_historial_transformaciones(self, transformacion_id=None):
         filtro = ""
@@ -290,6 +588,36 @@ class BaseDatos(ComandosBaseDatos):
                 T.fecha_creacion,
                 T.documento_salida,
                 T.documento_entrada,
+                T.almacen_id,
+                A.DepotName AS almacen,
+                CASE
+                    WHEN T.documento_salida IS NOT NULL
+                     AND T.documento_entrada IS NOT NULL
+                     AND (
+                        SELECT COUNT(DISTINCT R.DocumentID)
+                        FROM dbo.zvwDocumentosRecalculadosCayal AS R
+                        WHERE R.DocumentID IN (
+                            T.documento_salida,
+                            T.documento_entrada
+                        )
+                     ) = 2
+                     AND NOT EXISTS (
+                        SELECT 1
+                        FROM dbo.zvwDocumentosRecalculadosCayal AS R
+                        WHERE R.DocumentID IN (
+                            T.documento_salida,
+                            T.documento_entrada
+                        )
+                          AND R.Status = 0
+                     )
+                    THEN 'completada'
+                    ELSE T.estado_erp
+                END AS estado_erp,
+                T.error_erp,
+                ISNULL(DS.FolioPrefix, '') +
+                    ISNULL(DS.Folio, '') AS folio_salida,
+                ISNULL(DE.FolioPrefix, '') +
+                    ISNULL(DE.Folio, '') AS folio_entrada,
                 P.ProductKey AS origen_clave,
                 P.ProductName AS origen_nombre,
                 P.Category1 AS origen_categoria,
@@ -299,6 +627,12 @@ class BaseDatos(ComandosBaseDatos):
             FROM dbo.Transformaciones AS T
             LEFT JOIN dbo.orgProduct AS P
                 ON P.ProductID = T.producto_origen
+            LEFT JOIN dbo.orgDepot AS A
+                ON A.DepotID = T.almacen_id
+            LEFT JOIN dbo.docDocument AS DS
+                ON DS.DocumentID = T.documento_salida
+            LEFT JOIN dbo.docDocument AS DE
+                ON DE.DocumentID = T.documento_entrada
             OUTER APPLY (
                 SELECT TOP 1
                     merma.peso_merma,
@@ -447,6 +781,6 @@ class BaseDatos(ComandosBaseDatos):
         )
 
 
-@lru_cache(maxsize=1)
+@cache
 def obtener_base_datos():
     return BaseDatos()

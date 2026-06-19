@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from app.repositories.movimientos_erp import IntegracionMovimientosERP
 from app.utils.base_de_datos import obtener_base_datos
 
 
@@ -171,6 +172,10 @@ def construir_registros(
         porcentaje_esperado = numero(
             encabezado["porcentaje_merma_esperado"]
         )
+        total_entrada = sum(
+            producto["cantidad"]
+            for producto in productos_resultantes
+        )
 
         registros.append({
             "folio": folio,
@@ -197,10 +202,7 @@ def construir_registros(
             "producto_base_formula": producto_base_formula,
             "ingredientes_formula": ingredientes_formula,
             "productos_resultantes": productos_visibles,
-            "total_salida": sum(
-                producto["cantidad"]
-                for producto in productos_resultantes
-            ),
+            "total_entrada": total_entrada,
             "peso_merma": peso_merma,
             "porcentaje_merma_real": porcentaje_merma,
             "porcentaje_merma_esperado": porcentaje_esperado,
@@ -212,6 +214,12 @@ def construir_registros(
             "observaciones_merma": encabezado["motivo"],
             "documento_salida": encabezado["documento_salida"],
             "documento_entrada": encabezado["documento_entrada"],
+            "folio_salida": encabezado["folio_salida"],
+            "folio_entrada": encabezado["folio_entrada"],
+            "almacen_id": encabezado["almacen_id"],
+            "almacen": encabezado["almacen"],
+            "estado_erp": encabezado["estado_erp"],
+            "error_erp": encabezado["error_erp"],
         })
 
     return registros
@@ -282,6 +290,20 @@ def validar_productos_existentes(base_datos, datos):
         raise ErrorTransformacion(
             "Hay productos inexistentes o eliminados: "
             + ", ".join(str(producto_id) for producto_id in sorted(faltantes))
+        )
+
+    productos_principales = {
+        datos.producto_origen_id,
+        datos.producto_seleccionado_id or datos.producto_origen_id,
+    }
+    productos_del_modulo = base_datos.buscar_ids_productos_modulo(
+        productos_principales
+    )
+    fuera_del_modulo = productos_principales - productos_del_modulo
+
+    if fuera_del_modulo:
+        raise ErrorTransformacion(
+            "El producto no pertenece a Pollo, Cerdo o Res Local"
         )
 
 
@@ -393,6 +415,7 @@ def validar_transformacion(base_datos, datos):
 def guardar_transformacion(datos, rendimiento):
     base_datos = obtener_base_datos()
     validar_transformacion(base_datos, datos)
+    configuracion = base_datos.buscar_configuracion_transformaciones()
     transformacion_id = base_datos.registrar_transformacion(
         producto_origen_id=datos.producto_origen_id,
         producto_seleccionado_id=(
@@ -406,9 +429,14 @@ def guardar_transformacion(datos, rendimiento):
         productos_resultantes=datos.productos_resultantes,
         componentes_formula=datos.componentes_formula,
         peso_merma=rendimiento["peso_merma"],
+        almacen_id=configuracion["almacen_id"],
         porcentaje_merma_esperado=datos.porcentaje_merma_esperado,
         observaciones_merma=datos.observaciones_merma,
         id_operacion=datos.id_operacion,
+    )
+    IntegracionMovimientosERP(base_datos).procesar(
+        transformacion_id,
+        datos,
     )
 
     return obtener_transformacion(transformacion_id)

@@ -10,7 +10,7 @@ class ProductoResultante(BaseModel):
 
     producto_id: int = Field(gt=0)
     cantidad: Decimal = Field(gt=0)
-    unidad: str = Field(default="KILO", min_length=1, max_length=30)
+    unidad: Literal["KILO"] = "KILO"
 
 
 class ComponenteFormula(BaseModel):
@@ -96,6 +96,24 @@ class CrearTransformacion(BaseModel):
                 raise ValueError(
                     "El producto final debe salir con el mismo producto"
                 )
+
+            if (
+                self.producto_seleccionado_id is not None
+                and self.producto_seleccionado_id
+                != self.producto_origen_id
+            ):
+                raise ValueError(
+                    "El producto seleccionado debe coincidir con el origen"
+                )
+
+        if (
+            not self.componentes_formula
+            and self.producto_seleccionado_id is not None
+            and self.producto_seleccionado_id != self.producto_origen_id
+        ):
+            raise ValueError(
+                "El producto seleccionado debe coincidir con el origen"
+            )
 
         if self.componentes_formula:
             if not self.producto_seleccionado_id:
