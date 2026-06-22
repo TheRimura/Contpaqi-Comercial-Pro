@@ -351,10 +351,8 @@ def validar_formula(base_datos, datos):
         )
 
     productos_formula = {
-        producto["ProductID"]: producto
-        for producto in base_datos.buscar_info_productos(
-            componentes_recibidos.keys()
-        )
+        producto["ComponenteID"]: producto
+        for producto in componentes_configurados
     }
 
     for producto_id, componente in componentes_recibidos.items():

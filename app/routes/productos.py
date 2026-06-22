@@ -50,49 +50,25 @@ def producto_maneja_peso(producto):
     return unidad == "KILO"
 
 
-def buscar_productos_por_ids(base_datos, ids_productos):
-    if not ids_productos:
-        return {}
-
-    productos = base_datos.buscar_info_productos(ids_productos)
-
-    return {
-        producto["ProductID"]: producto
-        for producto in productos
-    }
-
-
 def respuesta_formula(base_datos, producto_id):
     componentes = base_datos.buscar_componentes_formula(producto_id)
 
     if not componentes:
         return None
 
-    productos_por_id = buscar_productos_por_ids(
-        base_datos,
-        [
-            fila["ComponenteID"]
-            for fila in componentes
-        ],
-    )
     porcentajes_merma = base_datos.buscar_porcentajes_merma()
     productos = []
 
     for componente in componentes:
-        producto = productos_por_id.get(componente["ComponenteID"])
-
-        if not producto:
-            continue
-
         producto_formateado = formatear_producto(
-            producto,
+            componente,
             porcentajes_merma,
         )
         producto_formateado["cantidad_formula"] = componente[
             "CantidadComp"
         ]
         producto_formateado["participa_balance"] = producto_maneja_peso(
-            producto
+            componente
         )
         producto_formateado["tipo_relacion"] = "componente_formula"
         productos.append(producto_formateado)
@@ -111,24 +87,12 @@ def respuesta_equivalencias(base_datos, producto_id):
     if not equivalencias:
         return None
 
-    productos_por_id = buscar_productos_por_ids(
-        base_datos,
-        [
-            fila["ProductID2"]
-            for fila in equivalencias
-        ],
-    )
     porcentajes_merma = base_datos.buscar_porcentajes_merma()
     resultantes = []
 
     for equivalencia in equivalencias:
-        producto = productos_por_id.get(equivalencia["ProductID2"])
-
-        if not producto:
-            continue
-
         producto_formateado = formatear_producto(
-            producto,
+            equivalencia,
             porcentajes_merma,
         )
         producto_formateado["cantidad_origen"] = equivalencia["Cant1"]
@@ -154,9 +118,9 @@ def buscar_productos(
     base_datos = obtener_base_datos()
     termino = busqueda.strip()
 
-    coincidencias = base_datos.buscar_productos_por_nombre(termino)
+    productos = base_datos.buscar_productos_por_nombre(termino)
 
-    if not coincidencias:
+    if not productos:
         return {
             "productos": [],
             "pagina": pagina,
@@ -165,12 +129,6 @@ def buscar_productos(
             "total_paginas": 0,
         }
 
-    ids_productos = [
-        fila["ProductID"]
-        for fila in coincidencias
-    ]
-
-    productos = base_datos.buscar_info_productos(ids_productos)
     porcentajes_merma = base_datos.buscar_porcentajes_merma()
     productos_del_modulo = [
         producto

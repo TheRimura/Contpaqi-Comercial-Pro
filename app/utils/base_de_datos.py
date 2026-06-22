@@ -14,8 +14,68 @@ class BaseDatos(ComandosBaseDatos):
 
         return self.fetchall(
             """
-            SELECT P.ProductID
+            SELECT
+                P.ProductID,
+                P.ProductKey,
+                P.ProductName,
+                COALESCE(
+                    CM.categoria,
+                    CFM.categoria,
+                    CEM.categoria,
+                    P.Category1
+                ) AS Category1,
+                P.Unit,
+                P.CostPrice,
+                ISNULL(I.QtyPresent, 0) AS QtyPresent,
+                P.ProductTypeIDCayal
             FROM dbo.orgProduct AS P
+            OUTER APPLY (
+                SELECT SUM(Q.QtyPresent) AS QtyPresent
+                FROM dbo.vwLBSProductQuantityList AS Q
+                WHERE Q.ProductID = P.ProductID
+                  AND Q.DepotID = ?
+            ) AS I
+            OUTER APPLY (
+                SELECT TOP 1 C.categoria
+                FROM dbo.CategoriasTransformacion AS C
+                WHERE C.activa = 1
+                  AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                      UPPER(LTRIM(RTRIM(P.Category1)))
+            ) AS CM
+            OUTER APPLY (
+                SELECT TOP 1 C.categoria
+                FROM dbo.zvwFormulasListasPCocinar AS F
+                INNER JOIN dbo.orgProduct AS CP
+                    ON CP.ProductID = F.ComponenteID
+                   AND CP.DeletedOn IS NULL
+                INNER JOIN dbo.CategoriasTransformacion AS C
+                    ON C.activa = 1
+                   AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                       UPPER(LTRIM(RTRIM(CP.Category1)))
+                WHERE F.ProductID = P.ProductID
+                ORDER BY F.IDComp
+            ) AS CFM
+            OUTER APPLY (
+                SELECT TOP 1 C.categoria
+                FROM dbo.zvwEquivalenciasTransKoben AS E
+                INNER JOIN dbo.orgProduct AS OP
+                    ON OP.ProductID = CASE
+                        WHEN E.ProductID1 = P.ProductID
+                        THEN E.ProductID2
+                        ELSE E.ProductID1
+                    END
+                   AND OP.DeletedOn IS NULL
+                INNER JOIN dbo.CategoriasTransformacion AS C
+                    ON C.activa = 1
+                   AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                       UPPER(LTRIM(RTRIM(OP.Category1)))
+                WHERE E.Status = ?
+                  AND P.ProductID IN (
+                      E.ProductID1,
+                      E.ProductID2
+                  )
+                ORDER BY E.ID
+            ) AS CEM
             WHERE P.DeletedOn IS NULL
               AND P.AvailableForSale = 1
               AND P.ProductName LIKE ?
@@ -63,6 +123,8 @@ class BaseDatos(ComandosBaseDatos):
             ORDER BY P.ProductName
             """,
             (
+                configuracion["almacen_id"],
+                configuracion["estatus_equivalencia"],
                 f"%{termino}%",
                 configuracion["estatus_equivalencia"],
             ),
@@ -177,12 +239,7 @@ class BaseDatos(ComandosBaseDatos):
             )
         }
 
-    def buscar_info_productos(
-        self,
-        ids_productos,
-        almacen_id=None,
-        **kwargs,
-    ):
+    def buscar_ids_productos_modulo(self, ids_productos):
         ids_limpios = list(dict.fromkeys(
             int(producto_id)
             for producto_id in ids_productos
@@ -190,30 +247,93 @@ class BaseDatos(ComandosBaseDatos):
         ))
 
         if not ids_limpios:
-            return []
+            return set()
 
         configuracion = self.buscar_configuracion_transformaciones()
-        almacen_id = almacen_id or configuracion["almacen_id"]
-
         parametros = ", ".join("?" for _ in ids_limpios)
+
+        return {
+            fila["ProductID"]
+            for fila in self.fetchall(
+                f"""
+                SELECT P.ProductID
+                FROM dbo.orgProduct AS P
+                WHERE P.ProductID IN ({parametros})
+                  AND P.DeletedOn IS NULL
+                  AND (
+                        EXISTS (
+                            SELECT 1
+                            FROM dbo.CategoriasTransformacion AS C
+                            WHERE C.activa = 1
+                              AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                                  UPPER(LTRIM(RTRIM(P.Category1)))
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM dbo.zvwFormulasListasPCocinar AS F
+                            INNER JOIN dbo.orgProduct AS CP
+                                ON CP.ProductID = F.ComponenteID
+                               AND CP.DeletedOn IS NULL
+                            INNER JOIN dbo.CategoriasTransformacion AS C
+                                ON C.activa = 1
+                               AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                                   UPPER(LTRIM(RTRIM(CP.Category1)))
+                            WHERE F.ProductID = P.ProductID
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM dbo.zvwEquivalenciasTransKoben AS E
+                            INNER JOIN dbo.orgProduct AS OP
+                                ON OP.ProductID = CASE
+                                    WHEN E.ProductID1 = P.ProductID
+                                    THEN E.ProductID2
+                                    ELSE E.ProductID1
+                                END
+                               AND OP.DeletedOn IS NULL
+                            INNER JOIN dbo.CategoriasTransformacion AS C
+                                ON C.activa = 1
+                               AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                                   UPPER(LTRIM(RTRIM(OP.Category1)))
+                            WHERE E.Status = ?
+                              AND P.ProductID IN (
+                                  E.ProductID1,
+                                  E.ProductID2
+                              )
+                        )
+                  )
+                """,
+                (
+                    *ids_limpios,
+                    configuracion["estatus_equivalencia"],
+                ),
+            )
+        }
+
+    def buscar_resultantes_transformacion(self, producto_origen_id):
+        configuracion = self.buscar_configuracion_transformaciones()
+
         return self.fetchall(
-            f"""
+            """
             SELECT
+                E.ProductID2,
+                E.Cant1,
+                E.Cant2,
                 P.ProductID,
                 P.ProductKey,
                 P.ProductName,
-                COALESCE(
-                    CM.categoria,
-                    CFM.categoria,
-                    CEM.categoria,
-                    P.Category1
-                ) AS Category1,
-                P.Category1 AS CategoryOriginal,
+                COALESCE(CP.categoria, CO.categoria, P.Category1)
+                    AS Category1,
                 P.Unit,
                 P.CostPrice,
                 ISNULL(I.QtyPresent, 0) AS QtyPresent,
                 P.ProductTypeIDCayal
-            FROM dbo.orgProduct AS P
+            FROM dbo.zvwEquivalenciasTransKoben AS E
+            INNER JOIN dbo.orgProduct AS P
+                ON P.ProductID = E.ProductID2
+               AND P.DeletedOn IS NULL
+            INNER JOIN dbo.orgProduct AS O
+                ON O.ProductID = E.ProductID1
+               AND O.DeletedOn IS NULL
             OUTER APPLY (
                 SELECT SUM(Q.QtyPresent) AS QtyPresent
                 FROM dbo.vwLBSProductQuantityList AS Q
@@ -226,97 +346,58 @@ class BaseDatos(ComandosBaseDatos):
                 WHERE C.activa = 1
                   AND UPPER(LTRIM(RTRIM(C.categoria))) =
                       UPPER(LTRIM(RTRIM(P.Category1)))
-            ) AS CM
+            ) AS CP
             OUTER APPLY (
                 SELECT TOP 1 C.categoria
-                FROM dbo.zvwFormulasListasPCocinar AS F
-                INNER JOIN dbo.orgProduct AS CP
-                    ON CP.ProductID = F.ComponenteID
-                   AND CP.DeletedOn IS NULL
-                INNER JOIN dbo.CategoriasTransformacion AS C
-                    ON C.activa = 1
-                   AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                       UPPER(LTRIM(RTRIM(CP.Category1)))
-                WHERE F.ProductID = P.ProductID
-                ORDER BY F.IDComp
-            ) AS CFM
-            OUTER APPLY (
-                SELECT TOP 1 C.categoria
-                FROM dbo.zvwEquivalenciasTransKoben AS E
-                INNER JOIN dbo.orgProduct AS OP
-                    ON OP.ProductID = CASE
-                        WHEN E.ProductID1 = P.ProductID
-                        THEN E.ProductID2
-                        ELSE E.ProductID1
-                    END
-                   AND OP.DeletedOn IS NULL
-                INNER JOIN dbo.CategoriasTransformacion AS C
-                    ON C.activa = 1
-                   AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                       UPPER(LTRIM(RTRIM(OP.Category1)))
-                WHERE E.Status = ?
-                  AND P.ProductID IN (
-                      E.ProductID1,
-                      E.ProductID2
-                  )
-                ORDER BY E.ID
-            ) AS CEM
-            WHERE P.ProductID IN ({parametros})
-              AND P.DeletedOn IS NULL
-            ORDER BY P.ProductName
+                FROM dbo.CategoriasTransformacion AS C
+                WHERE C.activa = 1
+                  AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                      UPPER(LTRIM(RTRIM(O.Category1)))
+            ) AS CO
+            WHERE E.ProductID1 = ?
+              AND E.Status = ?
+            ORDER BY E.ID
             """,
             (
-                almacen_id,
-                configuracion["estatus_equivalencia"],
-                *ids_limpios,
-            ),
-        )
-
-    def buscar_ids_productos_modulo(self, ids_productos):
-        productos = self.buscar_info_productos(ids_productos)
-        categorias_activas = {
-            str(fila["categoria"]).strip().upper()
-            for fila in self.fetchall(
-                """
-                SELECT categoria
-                FROM dbo.CategoriasTransformacion
-                WHERE activa = 1
-                """
-            )
-        }
-        return {
-            producto["ProductID"]
-            for producto in productos
-            if str(producto["Category1"]).strip().upper()
-            in categorias_activas
-        }
-
-    def buscar_resultantes_transformacion(self, producto_origen_id):
-        configuracion = self.buscar_configuracion_transformaciones()
-
-        return self.fetchall(
-            """
-            SELECT ProductID2, Cant1, Cant2
-            FROM dbo.zvwEquivalenciasTransKoben
-            WHERE ProductID1 = ?
-              AND Status = ?
-            ORDER BY ID
-            """,
-            (
+                configuracion["almacen_id"],
                 producto_origen_id,
                 configuracion["estatus_equivalencia"],
             ),
         )
 
     def buscar_componentes_formula(self, producto_id):
+        configuracion = self.buscar_configuracion_transformaciones()
+
         return self.fetchall(
             """
-            SELECT ComponenteID, CantidadComp
-            FROM dbo.zvwFormulasListasPCocinar
-            WHERE ProductID = ?
-            ORDER BY IDComp
+            SELECT
+                F.ComponenteID,
+                F.CantidadComp,
+                P.ProductID,
+                P.ProductKey,
+                P.ProductName,
+                P.Category1,
+                P.Unit,
+                P.CostPrice,
+                ISNULL(I.QtyPresent, 0) AS QtyPresent,
+                P.ProductTypeIDCayal
+            FROM dbo.zvwFormulasListasPCocinar AS F
+            INNER JOIN dbo.orgProduct AS P
+                ON P.ProductID = F.ComponenteID
+               AND P.DeletedOn IS NULL
+            OUTER APPLY (
+                SELECT SUM(Q.QtyPresent) AS QtyPresent
+                FROM dbo.vwLBSProductQuantityList AS Q
+                WHERE Q.ProductID = P.ProductID
+                  AND Q.DepotID = ?
+            ) AS I
+            WHERE F.ProductID = ?
+            ORDER BY F.IDComp
             """,
-            (producto_id,),
+            (
+                configuracion["almacen_id"],
+                producto_id,
+            ),
         )
 
     def buscar_tipo_movimiento(self, tipo, nombre):
