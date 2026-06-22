@@ -13,15 +13,6 @@ class ProductoResultante(BaseModel):
     unidad: Literal["KILO"] = "KILO"
 
 
-class ComponenteFormula(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    producto_id: int = Field(gt=0)
-    cantidad: Decimal = Field(gt=0)
-    unidad: str = Field(min_length=1, max_length=30)
-    es_producto_base: bool = False
-
-
 class CrearTransformacion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -30,7 +21,6 @@ class CrearTransformacion(BaseModel):
     producto_origen_id: int = Field(gt=0)
     cantidad_origen: Decimal = Field(gt=0)
     productos_resultantes: list[ProductoResultante] = Field(min_length=1)
-    componentes_formula: list[ComponenteFormula] = Field(default_factory=list)
 
     usuario_id: int | None = Field(default=None, gt=0)
     usuario_nombre: str | None = Field(default=None, max_length=100)
@@ -65,25 +55,6 @@ class CrearTransformacion(BaseModel):
                 "No se pueden repetir productos resultantes"
             )
 
-        ids_componentes = [
-            producto.producto_id
-            for producto in self.componentes_formula
-        ]
-        if len(ids_componentes) != len(set(ids_componentes)):
-            raise ValueError(
-                "No se pueden repetir componentes de formula"
-            )
-
-        bases_formula = [
-            producto
-            for producto in self.componentes_formula
-            if producto.es_producto_base
-        ]
-        if len(bases_formula) > 1:
-            raise ValueError(
-                "La formula solo puede tener un producto base"
-            )
-
         if self.tipo_transformacion == "producto_final":
             if len(self.productos_resultantes) != 1:
                 raise ValueError(
@@ -107,42 +78,12 @@ class CrearTransformacion(BaseModel):
                 )
 
         if (
-            not self.componentes_formula
-            and self.producto_seleccionado_id is not None
+            self.producto_seleccionado_id is not None
             and self.producto_seleccionado_id != self.producto_origen_id
         ):
             raise ValueError(
                 "El producto seleccionado debe coincidir con el origen"
             )
-
-        if self.componentes_formula:
-            if not self.producto_seleccionado_id:
-                raise ValueError(
-                    "La formula requiere el producto seleccionado"
-                )
-
-            if len(self.productos_resultantes) != 1:
-                raise ValueError(
-                    "Una formula debe generar un producto resultante"
-                )
-
-            if (
-                self.productos_resultantes[0].producto_id
-                != self.producto_seleccionado_id
-            ):
-                raise ValueError(
-                    "El resultado debe ser el producto seleccionado"
-                )
-
-            if len(bases_formula) != 1:
-                raise ValueError(
-                    "La formula requiere un producto base"
-                )
-
-            if bases_formula[0].producto_id != self.producto_origen_id:
-                raise ValueError(
-                    "El producto base debe coincidir con el origen"
-                )
 
         total_resultante = sum(
             producto.cantidad
@@ -158,5 +99,3 @@ class CrearTransformacion(BaseModel):
 
         self.peso_merma = merma_calculada
         return self
-
-    

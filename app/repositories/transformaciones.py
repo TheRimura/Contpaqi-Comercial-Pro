@@ -278,10 +278,6 @@ def validar_productos_existentes(base_datos, datos):
             producto.producto_id
             for producto in datos.productos_resultantes
         ],
-        *[
-            producto.producto_id
-            for producto in datos.componentes_formula
-        ],
     }
     existentes = base_datos.buscar_ids_productos_existentes(ids_productos)
     faltantes = ids_productos - existentes
@@ -305,77 +301,6 @@ def validar_productos_existentes(base_datos, datos):
         raise ErrorTransformacion(
             "El producto no pertenece a Pollo, Cerdo o Res Local"
         )
-
-
-def validar_formula(base_datos, datos):
-    componentes_configurados = base_datos.buscar_componentes_formula(
-        datos.producto_seleccionado_id
-    )
-
-    if not componentes_configurados:
-        raise ErrorTransformacion(
-            "El producto no tiene una formula configurada"
-        )
-
-    cantidades_configuradas = {
-        fila["ComponenteID"]: Decimal(str(fila["CantidadComp"]))
-        for fila in componentes_configurados
-    }
-    componentes_recibidos = {
-        componente.producto_id: componente
-        for componente in datos.componentes_formula
-    }
-
-    if set(componentes_recibidos) != set(cantidades_configuradas):
-        raise ErrorTransformacion(
-            "Los componentes no coinciden con la formula configurada"
-        )
-
-    base = next(
-        componente
-        for componente in datos.componentes_formula
-        if componente.es_producto_base
-    )
-    bases_configuradas = base_datos.buscar_bases_formulas([
-        datos.producto_seleccionado_id
-    ])
-    base_configurada_id = (
-        bases_configuradas[0]["ComponenteID"]
-        if bases_configuradas
-        else None
-    )
-
-    if base.producto_id != base_configurada_id:
-        raise ErrorTransformacion(
-            "El producto base no coincide con la formula configurada"
-        )
-
-    productos_formula = {
-        producto["ComponenteID"]: producto
-        for producto in componentes_configurados
-    }
-
-    for producto_id, componente in componentes_recibidos.items():
-        unidad_configurada = str(
-            productos_formula[producto_id]["Unit"] or ""
-        ).strip().upper()
-
-        if componente.unidad.strip().upper() != unidad_configurada:
-            raise ErrorTransformacion(
-                "La unidad de un componente no coincide con el producto"
-            )
-
-    cantidad_base_configurada = cantidades_configuradas[base.producto_id]
-    factor = datos.cantidad_origen / cantidad_base_configurada
-    tolerancia = Decimal("0.01")
-
-    for producto_id, componente in componentes_recibidos.items():
-        cantidad_esperada = cantidades_configuradas[producto_id] * factor
-
-        if abs(componente.cantidad - cantidad_esperada) > tolerancia:
-            raise ErrorTransformacion(
-                "Las cantidades no corresponden a la formula configurada"
-            )
 
 
 def validar_equivalencias(base_datos, datos):
@@ -403,10 +328,6 @@ def validar_transformacion(base_datos, datos):
     if datos.tipo_transformacion == "producto_final":
         return
 
-    if datos.componentes_formula:
-        validar_formula(base_datos, datos)
-        return
-
     validar_equivalencias(base_datos, datos)
 
 
@@ -425,7 +346,6 @@ def guardar_transformacion(datos, rendimiento):
         usuario_id=datos.usuario_id,
         tipo_transformacion=datos.tipo_transformacion,
         productos_resultantes=datos.productos_resultantes,
-        componentes_formula=datos.componentes_formula,
         peso_merma=rendimiento["peso_merma"],
         almacen_id=configuracion["almacen_id"],
         porcentaje_merma_esperado=datos.porcentaje_merma_esperado,

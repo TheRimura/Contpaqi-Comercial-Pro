@@ -7,13 +7,7 @@ class IntegracionMovimientosERP:
         self._base_datos = base_datos
 
     @staticmethod
-    def _nombres_movimientos(datos, configuracion):
-        if datos.componentes_formula:
-            return (
-                configuracion["movimiento_salida_formula"],
-                configuracion["movimiento_entrada_formula"],
-            )
-
+    def _nombres_movimientos(configuracion):
         return (
             configuracion["movimiento_salida"],
             configuracion["movimiento_entrada"],
@@ -21,12 +15,6 @@ class IntegracionMovimientosERP:
 
     @staticmethod
     def _partidas_salida(datos):
-        if datos.componentes_formula:
-            return [
-                (componente.producto_id, componente.cantidad)
-                for componente in datos.componentes_formula
-            ]
-
         return [(datos.producto_origen_id, datos.cantidad_origen)]
 
     @staticmethod
@@ -75,11 +63,13 @@ class IntegracionMovimientosERP:
         modulo_id,
         comentario,
     ):
-        productos_existentes = (
-            self._base_datos.buscar_productos_partidas_documento(
-                documento_id
+        productos_existentes = {
+            fila["ProductID"]
+            for fila in self._base_datos.buscar_partidas_documento(
+                documento_id,
+                filtro=["ProductID"],
             )
-        )
+        }
 
         for producto_id, cantidad in partidas:
             if producto_id in productos_existentes:
@@ -98,11 +88,13 @@ class IntegracionMovimientosERP:
             producto_id
             for producto_id, _ in partidas
         }
-        productos_registrados = (
-            self._base_datos.buscar_productos_partidas_documento(
-                documento_id
+        productos_registrados = {
+            fila["ProductID"]
+            for fila in self._base_datos.buscar_partidas_documento(
+                documento_id,
+                filtro=["ProductID"],
             )
-        )
+        }
 
         if productos_registrados != productos_esperados:
             raise ErrorIntegracionERP(
@@ -115,10 +107,7 @@ class IntegracionMovimientosERP:
             self._base_datos.buscar_configuracion_transformaciones()
         )
         almacen_id = configuracion["almacen_id"]
-        nombre_salida, nombre_entrada = self._nombres_movimientos(
-            datos,
-            configuracion,
-        )
+        nombre_salida, nombre_entrada = self._nombres_movimientos(configuracion)
         comentario = (
             f"Transformacion {transformacion_id} creada por "
             f"{datos.usuario_nombre or datos.usuario_id}"

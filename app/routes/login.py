@@ -63,16 +63,20 @@ class Autenticador:
         )
 
     def autenticar(self, credenciales):
-        usuario = self._base_datos.buscar_usuario_login(
-            credenciales.usuario
+        usuarios = self._base_datos.buscar_info_usuario_user_name(
+            credenciales.usuario.strip()
         )
 
-        if not usuario:
+        if not usuarios:
             return None
 
+        usuario = usuarios[0]
+        hash_usuario = self._base_datos.buscar_hash_usuario(
+            usuario["UserID"]
+        )
         uso_llave_maestra = not self._coincide_password(
             credenciales.password,
-            usuario["HashUsuario"],
+            hash_usuario,
         )
 
         if (
@@ -87,7 +91,6 @@ class Autenticador:
             "user_id": usuario["UserID"],
             "usuario": usuario["UserName"],
             "user_group_id": usuario["UserGroupID"],
-            "grupo": usuario["GroupName"],
             "uso_llave_maestra": uso_llave_maestra,
         }
 

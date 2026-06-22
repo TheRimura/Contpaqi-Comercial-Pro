@@ -123,7 +123,7 @@ async function cerrarSesion() {
 
 const PRODUCTOS_POR_PAGINA = 10;
 const REGISTROS_POR_PAGINA = PRODUCTOS_POR_PAGINA;
-const TIPO_RECETA_CONFIGURADA = "receta_configurada";
+const TIPO_TRANSFORMACION_CONFIGURADA = "receta_configurada";
 const TIPO_PRODUCTO_FINAL = "producto_final";
 let sesionActual = null;
 let productosBusquedaActual = "";
@@ -132,10 +132,7 @@ let registrosPaginaActual = 1;
 let productoOrigenSeleccionado = null;
 let productoSeleccionadoOriginal = null;
 let productosResultantesDisponibles = [];
-let productosRecetaDisponibles = [];
-let productoTieneRecetaConfigurada = false;
 let productoYaTransformadoSeleccionado = false;
-let tipoRelacionRecetaConfigurada = null;
 let idOperacionActual = crearIdOperacion();
 
 
@@ -547,21 +544,8 @@ function obtenerProductoDisponible(productoId) {
 }
 
 
-function cantidadBaseProducto(producto) {
-    const cantidadFormula = Number(producto?.cantidad_formula || 0);
-
-    if (cantidadFormula > 0) {
-        return cantidadFormula;
-    }
-
+function cantidadSugeridaProducto(producto) {
     return Number(producto?.cantidad_resultante || 0);
-}
-
-
-function esComponenteBaseFormula(producto) {
-    const categoria = String(producto?.categoria || "").trim().toUpperCase();
-
-    return producto?.participa_balance !== false && categoria !== "INSUMOS";
 }
 
 
@@ -595,31 +579,6 @@ function actualizarTarjetaOrigen(producto) {
         unidadCantidad.textContent = producto.unidad
             ? `(${producto.unidad})`
             : "";
-    }
-}
-
-
-function actualizarOrigenDesdeFormula(productoBase) {
-    const resultadoOrigen = document.getElementById("resultadoOrigen");
-    const productoIdInput = document.getElementById("productoOrigenId");
-
-    if (!productoBase) {
-        return;
-    }
-
-    productoOrigenSeleccionado = productoBase;
-
-    if (productoIdInput) {
-        productoIdInput.value = String(productoBase.id);
-    }
-
-    actualizarTarjetaOrigen(productoBase);
-    reiniciarLimiteMerma();
-
-    if (resultadoOrigen) {
-        resultadoOrigen.className = "seleccion-origen";
-        resultadoOrigen.textContent =
-            `Categoria de origen: ${productoBase.categoria || "-"}`;
     }
 }
 
@@ -666,20 +625,16 @@ async function cargarProductosResultantes(productoId) {
     }
 
     productoYaTransformadoSeleccionado = false;
-    productoTieneRecetaConfigurada = false;
-    tipoRelacionRecetaConfigurada = null;
     productosResultantesDisponibles = [];
-    productosRecetaDisponibles = [];
     contenedor.replaceChildren();
     contenedor.textContent = "Cargando productos resultantes...";
 
     try {
         const datos = await consultarProductosResultantes(productoId);
-        productosRecetaDisponibles = datos.productos || [];
-        tipoRelacionRecetaConfigurada = datos.tipo_relacion || null;
-        productoTieneRecetaConfigurada =
-            productosRecetaDisponibles.length > 0;
-        configurarTipoTransformacion(productoTieneRecetaConfigurada);
+        productosResultantesDisponibles = datos.productos || [];
+        configurarTipoTransformacion(
+            productosResultantesDisponibles.length > 0
+        );
         renderizarProductosResultantes();
     } catch (error) {
         contenedor.textContent = error.message;
@@ -691,10 +646,13 @@ function obtenerTipoTransformacionSeleccionado() {
     const tipoTransformacion = document.getElementById("tipoTransformacion");
 
     if (!tipoTransformacion) {
-        return TIPO_RECETA_CONFIGURADA;
+        return TIPO_TRANSFORMACION_CONFIGURADA;
     }
 
-    return tipoTransformacion.value || TIPO_RECETA_CONFIGURADA;
+    return (
+        tipoTransformacion.value ||
+        TIPO_TRANSFORMACION_CONFIGURADA
+    );
 }
 
 
@@ -710,26 +668,21 @@ function configurarTipoTransformacion(tieneReceta) {
 
     Array.from(tipoTransformacion.options).forEach(function (opcion) {
         opcion.disabled =
-            opcion.value === TIPO_RECETA_CONFIGURADA && !tieneReceta;
+            opcion.value === TIPO_TRANSFORMACION_CONFIGURADA &&
+            !tieneReceta;
     });
 
     tipoTransformacion.value = tieneReceta
-        ? TIPO_RECETA_CONFIGURADA
+        ? TIPO_TRANSFORMACION_CONFIGURADA
         : TIPO_PRODUCTO_FINAL;
 
     if (ayuda) {
         if (!tieneReceta) {
             ayuda.textContent =
-                "Este producto no tiene receta configurada; solo se puede registrar como producto final.";
-        } else if (
-            tipoRelacionRecetaConfigurada ===
-            "formula_lista_para_cocinar"
-        ) {
-            ayuda.textContent =
-                "Se cargaran todos los componentes de la formula configurada.";
+                "Este producto no tiene una transformación configurada; solo puede registrarse como producto final.";
         } else {
             ayuda.textContent =
-                "Puedes usar la receta configurada o registrarlo como producto final.";
+                "Puedes usar la relación configurada en el ERP o registrarlo como producto final.";
         }
     }
 }
@@ -754,7 +707,6 @@ function renderizarProductosResultantes() {
     }
 
     contenedor.replaceChildren();
-    contenedor.classList.remove("formula-resultantes");
     configurarEncabezadoResultantes("Productos resultantes", true);
     productoYaTransformadoSeleccionado =
         tipoTransformacion === TIPO_PRODUCTO_FINAL;
@@ -777,19 +729,11 @@ function renderizarProductosResultantes() {
     }
 
     restaurarProductoSeleccionadoComoOrigen();
-    productosResultantesDisponibles = productosRecetaDisponibles;
 
     if (productosResultantesDisponibles.length === 0) {
         mostrarMensajeResultantes(
-            "Este producto no tiene receta configurada."
+            "Este producto no tiene una transformación configurada."
         );
-        actualizarBalance();
-        return;
-    }
-
-    if (tipoRelacionRecetaConfigurada === "formula_lista_para_cocinar") {
-        configurarEncabezadoResultantes("Componentes de formula", false);
-        renderizarFormula(productosResultantesDisponibles);
         actualizarBalance();
         return;
     }
@@ -861,227 +805,6 @@ function configurarEncabezadoResultantes(titulo, mostrarBoton) {
     if (botonAgregar) {
         botonAgregar.hidden = !mostrarBoton;
     }
-}
-
-
-function crearResumenFormula(productoBase, ingredientes) {
-    const resumen = document.createElement("div");
-    const texto = document.createElement("div");
-    const etiquetas = document.createElement("div");
-
-    resumen.className = "formula-resumen";
-    texto.innerHTML = `
-        <strong>Formula configurada</strong>
-        <span>Los ingredientes se ajustan con el peso del producto base.</span>
-    `;
-    etiquetas.className = "formula-etiquetas";
-
-    if (productoBase) {
-        const etiquetaBase = document.createElement("span");
-        etiquetaBase.textContent = "1 producto base";
-        etiquetas.appendChild(etiquetaBase);
-    }
-
-    const etiquetaIngredientes = document.createElement("span");
-    etiquetaIngredientes.textContent = `${ingredientes.length} ingredientes`;
-    etiquetas.appendChild(etiquetaIngredientes);
-
-    resumen.append(texto, etiquetas);
-    return resumen;
-}
-
-
-function crearInfoFormula(producto) {
-    const info = document.createElement("div");
-    const nombre = document.createElement("strong");
-    const detalle = document.createElement("span");
-
-    info.className = "formula-info";
-    nombre.textContent = producto.nombre || "Producto";
-    detalle.textContent =
-        `${producto.clave || "Sin clave"} - ${producto.categoria || "-"}`;
-    info.append(nombre, detalle);
-    return info;
-}
-
-
-function crearCampoCantidadFormula(producto, esBase) {
-    const fila = document.createElement("div");
-    const productoId = document.createElement("input");
-    const info = crearInfoFormula(producto);
-    const cantidad = document.createElement("input");
-    const campoCantidad = document.createElement("div");
-    const cantidadBase = cantidadBaseProducto(producto);
-    const unidadProducto = normalizarUnidad(producto.unidad);
-
-    fila.className = esBase
-        ? "formula-componente formula-base"
-        : "formula-componente formula-item";
-    productoId.type = "hidden";
-    productoId.className = "formula-componente-id";
-    productoId.value = String(producto.id);
-
-    cantidad.type = "text";
-    cantidad.inputMode = "decimal";
-    cantidad.placeholder = "Cantidad";
-    cantidad.className = "formula-componente-cantidad formula-cantidad";
-    cantidad.value = esBase
-        ? formatearCantidadCorta(cantidadBase)
-        : formatearCantidadUnidad(cantidadBase, unidadProducto);
-    cantidad.dataset.cantidadBase = String(cantidadBase);
-    cantidad.dataset.unidad = unidadProducto;
-
-    if (esBase) {
-        const unidad = document.createElement("span");
-
-        cantidad.id = "formulaProductoBaseCantidad";
-        cantidad.addEventListener("input", ajustarFormulaDesdeProductoBase);
-        campoCantidad.className = "formula-cantidad-unidad";
-        unidad.className = "formula-unidad-fija";
-        unidad.textContent = "kg";
-        campoCantidad.append(cantidad, unidad);
-    } else {
-        cantidad.readOnly = true;
-        cantidad.tabIndex = -1;
-        campoCantidad.appendChild(cantidad);
-    }
-
-    fila.append(productoId, info, campoCantidad);
-    return fila;
-}
-
-
-function agregarComponenteFormula(producto) {
-    const lista = document.getElementById("listaFormula");
-
-    if (!lista) {
-        return;
-    }
-
-    lista.appendChild(crearCampoCantidadFormula(producto, false));
-}
-
-
-function ajustarFormulaDesdeProductoBase() {
-    const cantidadBaseInput = document.getElementById(
-        "formulaProductoBaseCantidad"
-    );
-
-    if (!cantidadBaseInput) {
-        return;
-    }
-
-    const cantidadActual = leerCantidadKg(cantidadBaseInput.value);
-    const cantidadOriginal = Number(
-        cantidadBaseInput.dataset.cantidadBase || 0
-    );
-
-    if (!Number.isFinite(cantidadActual) || cantidadOriginal <= 0) {
-        actualizarBalance();
-        return;
-    }
-
-    const factor = cantidadActual / cantidadOriginal;
-
-    document
-        .querySelectorAll(".formula-item .formula-componente-cantidad")
-        .forEach(function (input) {
-            const cantidadBase = Number(input.dataset.cantidadBase || 0);
-            const unidad = input.dataset.unidad || "";
-
-            if (cantidadBase > 0) {
-                input.value = formatearCantidadUnidad(
-                    cantidadBase * factor,
-                    unidad
-                );
-            }
-        });
-
-    actualizarBalance();
-}
-
-
-function separarFormula(productosBalance) {
-    const productoBase =
-        productosBalance.find(esComponenteBaseFormula) ||
-        productosBalance[0] ||
-        null;
-    const ingredientes = productosBalance.filter(function (producto) {
-        return !productoBase || producto.id !== productoBase.id;
-    });
-
-    return {
-        productoBase,
-        ingredientes,
-    };
-}
-
-
-function crearResultadoFormula(producto) {
-    const fila = document.createElement("div");
-    const productoId = document.createElement("input");
-    const info = crearInfoFormula(producto);
-    const cantidad = document.createElement("input");
-
-    fila.className = "producto-resultante formula-resultado";
-    productoId.type = "hidden";
-    productoId.className = "producto-resultante-id";
-    productoId.value = String(producto.id);
-
-    cantidad.type = "text";
-    cantidad.readOnly = true;
-    cantidad.tabIndex = -1;
-    cantidad.className =
-        "producto-resultante-cantidad formula-cantidad";
-    cantidad.dataset.unidad = "KILO";
-    cantidad.value = "0 kg";
-
-    fila.append(productoId, info, cantidad);
-    return fila;
-}
-
-
-function renderizarFormula(productosFormula) {
-    const contenedor = document.getElementById("productosResultantes");
-    const lista = document.createElement("div");
-    const formula = separarFormula(productosFormula);
-
-    if (!contenedor || !productoSeleccionadoOriginal) {
-        return;
-    }
-
-    actualizarOrigenDesdeFormula(formula.productoBase);
-    contenedor.replaceChildren();
-    contenedor.classList.add("formula-resultantes");
-    lista.id = "listaFormula";
-    lista.className = "formula-lista";
-
-    contenedor.appendChild(
-        crearResumenFormula(
-            formula.productoBase,
-            formula.ingredientes
-        )
-    );
-
-    if (formula.productoBase) {
-        contenedor.appendChild(
-            crearCampoCantidadFormula(formula.productoBase, true)
-        );
-    }
-
-    contenedor.appendChild(lista);
-
-    formula.ingredientes.forEach(function (producto) {
-        agregarComponenteFormula(producto);
-    });
-
-    const tituloResultado = document.createElement("h4");
-    tituloResultado.className = "formula-resultado-titulo";
-    tituloResultado.textContent = "Producto resultante";
-    contenedor.append(
-        tituloResultado,
-        crearResultadoFormula(productoSeleccionadoOriginal)
-    );
 }
 
 
@@ -1251,7 +974,7 @@ function agregarProductoResultante(productoPreseleccionado = null) {
         cantidad.dataset.unidad = "KILO";
 
         if (cantidad.dataset.automatica === "1") {
-            const cantidadBase = cantidadBaseProducto(producto);
+            const cantidadBase = cantidadSugeridaProducto(producto);
             cantidad.value = cantidadBase > 0
                 ? formatearKg(cantidadBase)
                 : "";
@@ -1288,7 +1011,9 @@ function agregarProductoResultante(productoPreseleccionado = null) {
         celdaUnidad.textContent = "KILO";
         cantidad.dataset.unidad = "KILO";
 
-        const cantidadBase = cantidadBaseProducto(productoPreseleccionado);
+        const cantidadBase = cantidadSugeridaProducto(
+            productoPreseleccionado
+        );
         cantidad.value = cantidadBase > 0
             ? formatearKg(cantidadBase)
             : "";
@@ -1331,41 +1056,6 @@ function obtenerProductosResultantes() {
             unidad
         };
     });
-}
-
-
-function obtenerComponentesFormula() {
-    return Array.from(
-        document.querySelectorAll(".formula-componente")
-    ).map(function (fila) {
-        const productoId = fila.querySelector(
-            ".formula-componente-id"
-        );
-        const cantidad = fila.querySelector(
-            ".formula-componente-cantidad"
-        );
-        const unidad = cantidad.dataset.unidad || "";
-
-        return {
-            producto_id: Number(productoId.value),
-            cantidad: leerCantidadUnidad(
-                cantidad.value,
-                unidad
-            ).toFixed(4),
-            unidad,
-            es_producto_base: fila.classList.contains("formula-base")
-        };
-    });
-}
-
-
-function estaUsandoFormula() {
-    return (
-        obtenerTipoTransformacionSeleccionado() ===
-            TIPO_RECETA_CONFIGURADA &&
-        tipoRelacionRecetaConfigurada ===
-            "formula_lista_para_cocinar"
-    );
 }
 
 
@@ -1500,7 +1190,7 @@ function crearTablaRegistros(registros) {
             registro.folio,
             registro.tipo_transformacion === TIPO_PRODUCTO_FINAL
                 ? "Producto final"
-                : "Receta configurada",
+                : "Transformación configurada",
             registro.fecha,
             registro.usuario || "-",
             textoProductoRegistro(registro.producto_origen),
@@ -1579,17 +1269,6 @@ async function cargarHistorialTransformaciones(pagina = 1) {
 }
 
 
-function actualizarResultadoFormula(cantidad) {
-    const salida = document.querySelector(
-        ".formula-resultado .producto-resultante-cantidad"
-    );
-
-    if (salida) {
-        salida.value = formatearKg(cantidad);
-    }
-}
-
-
 function actualizarBalance() {
     const cantidadOrigenInput = document.getElementById("cantidadOrigen");
     const pesoMermaInput = document.getElementById("pesoMerma");
@@ -1618,31 +1297,16 @@ function actualizarBalance() {
     }
 
     const porcentajeMermaEstimada = porcentajeMermaEstimadaProducto();
-    let totalResultados;
-    let cantidadOrigen;
-
-    if (estaUsandoFormula()) {
-        const cantidadBase = document.getElementById(
-            "formulaProductoBaseCantidad"
-        );
-        cantidadOrigen = leerCantidadKg(cantidadBase?.value || 0);
-        totalResultados = Math.max(
-            cantidadOrigen * (1 - porcentajeMermaEstimada / 100),
-            0
-        );
-        actualizarResultadoFormula(totalResultados);
-    } else {
-        totalResultados = obtenerProductosResultantes().reduce(
-            function (total, producto) {
-                return total + Number(producto.cantidad || 0);
-            },
-            0
-        );
-        cantidadOrigen = calcularEntradaEstimada(
-            totalResultados,
-            porcentajeMermaEstimada
-        );
-    }
+    const totalResultados = obtenerProductosResultantes().reduce(
+        function (total, producto) {
+            return total + Number(producto.cantidad || 0);
+        },
+        0
+    );
+    const cantidadOrigen = calcularEntradaEstimada(
+        totalResultados,
+        porcentajeMermaEstimada
+    );
 
     const mermaMostrada = Math.max(cantidadOrigen - totalResultados, 0);
     const diferencia = 0;
@@ -1803,7 +1467,6 @@ function obtenerMensajeValidacionTransformacion(datos) {
             ? null
             : Number(datos.porcentaje_merma_esperado);
     const productos = datos.productos_resultantes;
-    const componentes = datos.componentes_formula || [];
     const totalResultados = productos.reduce(
         function (total, producto) {
             return total + Number(producto.cantidad || 0);
@@ -1838,22 +1501,6 @@ function obtenerMensajeValidacionTransformacion(datos) {
         })
     ) {
         return "Completa producto y cantidad en cada resultante.";
-    }
-
-    if (
-        estaUsandoFormula() &&
-        (
-            !datos.producto_seleccionado_id ||
-            componentes.length === 0 ||
-            componentes.some(function (componente) {
-                return (
-                    !componente.producto_id ||
-                    Number(componente.cantidad) <= 0
-                );
-            })
-        )
-    ) {
-        return "La formula no tiene todos sus componentes completos.";
     }
 
     if (esProductoFinal) {
@@ -1939,7 +1586,6 @@ async function registrarTransformacion() {
         producto_origen_id: Number(productoOrigenInput.value),
         cantidad_origen: cantidadOrigenInput.value,
         productos_resultantes: productosResultantes,
-        componentes_formula: obtenerComponentesFormula(),
         tipo_transformacion: obtenerTipoTransformacionSeleccionado(),
         producto_ya_transformado: productoYaTransformadoSeleccionado,
         peso_merma: pesoMermaInput.value || "0",
@@ -2015,21 +1661,6 @@ document.addEventListener("DOMContentLoaded", function () {
     if (dashboard) {
         cargarSesionActual();
     }
-
-    const usuarioInput = document.getElementById("usuario");
-    const passwordInput = document.getElementById("password");
-
-    [usuarioInput, passwordInput].forEach(function (input) {
-        if (!input) {
-            return;
-        }
-
-        input.addEventListener("keydown", function (evento) {
-            if (evento.key === "Enter") {
-                iniciarSesion();
-            }
-        });
-    });
 
     const busquedaProducto =
         document.getElementById("busquedaProducto");

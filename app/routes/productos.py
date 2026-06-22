@@ -45,42 +45,6 @@ def formatear_producto(producto, porcentajes_merma=None):
     }
 
 
-def producto_maneja_peso(producto):
-    unidad = str(producto.get("Unit") or "").strip().upper()
-    return unidad == "KILO"
-
-
-def respuesta_formula(base_datos, producto_id):
-    componentes = base_datos.buscar_componentes_formula(producto_id)
-
-    if not componentes:
-        return None
-
-    porcentajes_merma = base_datos.buscar_porcentajes_merma()
-    productos = []
-
-    for componente in componentes:
-        producto_formateado = formatear_producto(
-            componente,
-            porcentajes_merma,
-        )
-        producto_formateado["cantidad_formula"] = componente[
-            "CantidadComp"
-        ]
-        producto_formateado["participa_balance"] = producto_maneja_peso(
-            componente
-        )
-        producto_formateado["tipo_relacion"] = "componente_formula"
-        productos.append(producto_formateado)
-
-    return {
-        "producto_origen_id": producto_id,
-        "fuente": "zvwFormulasListasPCocinar",
-        "tipo_relacion": "formula_lista_para_cocinar",
-        "productos": productos,
-    }
-
-
 def respuesta_equivalencias(base_datos, producto_id):
     equivalencias = base_datos.buscar_resultantes_transformacion(producto_id)
 
@@ -159,11 +123,6 @@ def buscar_productos_resultantes(
     sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     base_datos = obtener_base_datos()
-    receta = respuesta_formula(base_datos, producto_id)
-
-    if receta:
-        return receta
-
     equivalencias = respuesta_equivalencias(base_datos, producto_id)
 
     if equivalencias:

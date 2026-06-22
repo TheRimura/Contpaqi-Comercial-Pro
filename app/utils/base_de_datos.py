@@ -139,8 +139,6 @@ class BaseDatos(ComandosBaseDatos):
                 A.DepotName AS almacen,
                 C.movimiento_salida,
                 C.movimiento_entrada,
-                C.movimiento_salida_formula,
-                C.movimiento_entrada_formula,
                 C.modulo_entrada,
                 C.modulo_salida,
                 C.estatus_equivalencia,
@@ -182,27 +180,6 @@ class BaseDatos(ComandosBaseDatos):
             )
 
         return filas[0]
-
-    def buscar_usuario_login(self, nombre_usuario):
-        filas = self.fetchall(
-            """
-            SELECT
-                U.UserID,
-                U.UserName,
-                U.UserGroupID,
-                G.GroupName,
-                CU.UserPassword AS HashUsuario
-            FROM dbo.engUser AS U
-            LEFT JOIN dbo.engUserGroup AS G
-                ON G.UserGroupID = U.UserGroupID
-            LEFT JOIN dbo.engUserCayal AS CU
-                ON CU.UserID = U.UserID
-            WHERE U.UserName = ?
-              AND U.DeletedOn IS NULL
-            """,
-            (nombre_usuario.strip(),),
-        )
-        return filas[0] if filas else None
 
     def buscar_hashes_grupo_maestro(self):
         configuracion = self.buscar_configuracion_seguridad()
@@ -365,41 +342,6 @@ class BaseDatos(ComandosBaseDatos):
             ),
         )
 
-    def buscar_componentes_formula(self, producto_id):
-        configuracion = self.buscar_configuracion_transformaciones()
-
-        return self.fetchall(
-            """
-            SELECT
-                F.ComponenteID,
-                F.CantidadComp,
-                P.ProductID,
-                P.ProductKey,
-                P.ProductName,
-                P.Category1,
-                P.Unit,
-                P.CostPrice,
-                ISNULL(I.QtyPresent, 0) AS QtyPresent,
-                P.ProductTypeIDCayal
-            FROM dbo.zvwFormulasListasPCocinar AS F
-            INNER JOIN dbo.orgProduct AS P
-                ON P.ProductID = F.ComponenteID
-               AND P.DeletedOn IS NULL
-            OUTER APPLY (
-                SELECT SUM(Q.QtyPresent) AS QtyPresent
-                FROM dbo.vwLBSProductQuantityList AS Q
-                WHERE Q.ProductID = P.ProductID
-                  AND Q.DepotID = ?
-            ) AS I
-            WHERE F.ProductID = ?
-            ORDER BY F.IDComp
-            """,
-            (
-                configuracion["almacen_id"],
-                producto_id,
-            ),
-        )
-
     def buscar_tipo_movimiento(self, tipo, nombre):
         configuracion = self.buscar_configuracion_transformaciones()
         tipo_normalizado = str(tipo).strip().lower()
@@ -485,21 +427,6 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (almacen_id, almacen_id, documento_id),
         )
-
-    def buscar_productos_partidas_documento(self, documento_id):
-        filas = self.fetchall(
-            """
-            SELECT ProductID
-            FROM dbo.docDocumentItem
-            WHERE DocumentID = ?
-              AND DeletedOn IS NULL
-            """,
-            (documento_id,),
-        )
-        return {
-            fila["ProductID"]
-            for fila in filas
-        }
 
     def insertar_partida_movimiento(
         self,
@@ -598,7 +525,6 @@ class BaseDatos(ComandosBaseDatos):
         usuario_id,
         tipo_transformacion,
         productos_resultantes,
-        componentes_formula,
         peso_merma,
         almacen_id,
         porcentaje_merma_esperado=None,
@@ -613,16 +539,6 @@ class BaseDatos(ComandosBaseDatos):
             }
             for producto in productos_resultantes
         ])
-        componentes_json = json.dumps([
-            {
-                "producto_id": componente.producto_id,
-                "cantidad": float(componente.cantidad),
-                "unidad": componente.unidad,
-                "es_producto_base": componente.es_producto_base,
-            }
-            for componente in componentes_formula
-        ])
-
         return int(self.exec_stored_procedure(
             "zvwRegistrarTransformacionCayal",
             (
@@ -642,7 +558,7 @@ class BaseDatos(ComandosBaseDatos):
                 float(peso_merma),
                 observaciones_merma,
                 productos_json,
-                componentes_json or None,
+                None,
             ),
         ))
 

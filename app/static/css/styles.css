@@ -684,170 +684,6 @@ tbody tr:nth-child(even) {
     border-color: #fecaca;
 }
 
-.formula-resultantes {
-    display: grid;
-    gap: 12px;
-}
-
-.formula-resumen {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    padding: 14px 16px;
-    background: #edf3f7;
-    border: 1px solid #cbd8e2;
-    border-radius: 7px;
-}
-
-.formula-resumen strong,
-.formula-resumen span {
-    display: block;
-}
-
-.formula-resumen strong {
-    color: var(--azul-oscuro);
-    margin-bottom: 3px;
-}
-
-.formula-resumen span {
-    color: var(--gris-texto);
-    font-size: 13px;
-}
-
-.formula-etiquetas {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 8px;
-}
-
-.formula-etiquetas span {
-    padding: 6px 10px;
-    background: var(--blanco);
-    border: 1px solid #c7d7ef;
-    border-radius: 4px;
-    color: var(--azul-oscuro);
-    font-size: 12px;
-    font-weight: 800;
-    white-space: nowrap;
-}
-
-.formula-lista {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-}
-
-.formula-base {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 160px;
-    align-items: center;
-    gap: 16px;
-    margin: 0;
-    padding: 18px;
-    background: var(--blanco);
-    border: 1px solid #bcd0ef;
-    border-left: 4px solid var(--azul);
-    border-radius: 7px;
-    box-shadow: none;
-}
-
-.formula-base .formula-info strong {
-    color: var(--azul-oscuro);
-    font-size: 15px;
-}
-
-.formula-base .formula-cantidad {
-    font-size: 16px;
-}
-
-.formula-item {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 140px;
-    align-items: center;
-    gap: 12px;
-    margin: 0;
-    padding: 14px;
-    background: var(--blanco);
-    border-radius: 7px;
-}
-
-.formula-resultado-titulo {
-    margin: 20px 0 8px;
-    color: var(--azul-oscuro);
-    font-size: 14px;
-}
-
-.formula-resultado {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 160px;
-    align-items: center;
-    gap: 16px;
-    margin: 0;
-    padding: 18px;
-    background: #edf3f7;
-    border: 1px solid #b9ccda;
-    border-left: 4px solid var(--azul);
-    border-radius: 7px;
-}
-
-.formula-info strong {
-    display: block;
-    color: var(--texto);
-    font-size: 14px;
-    line-height: 1.25;
-    margin-bottom: 4px;
-}
-
-.formula-info span {
-    color: var(--gris-texto);
-    font-size: 12px;
-}
-
-.formula-cantidad {
-    min-width: 0 !important;
-    width: 100%;
-    text-align: right;
-    font-weight: 800;
-}
-
-.formula-cantidad-unidad {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    width: 100%;
-    background: var(--blanco);
-    border: 1px solid var(--gris-borde);
-    border-radius: 6px;
-}
-
-.formula-cantidad-unidad:focus-within {
-    border-color: var(--azul);
-    box-shadow: 0 0 0 3px rgba(15, 91, 170, 0.12);
-}
-
-.formula-cantidad-unidad .formula-cantidad {
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-    padding-right: 6px;
-}
-
-.formula-unidad-fija {
-    padding-right: 14px;
-    color: var(--texto);
-    font-weight: 800;
-    pointer-events: none;
-    user-select: none;
-}
-
-.formula-cantidad[readonly] {
-    background: #f8fafc;
-    color: var(--azul-oscuro);
-    cursor: default;
-}
-
 .aviso-producto-transformado {
     background: #f8fafc;
     border: 1px solid var(--gris-borde);
@@ -1060,7 +896,6 @@ tbody tr:nth-child(even) {
 
     .cards,
     .form-grid,
-    .formula-lista,
     .summary-strip,
     .balance-grid {
         grid-template-columns: 1fr;
@@ -1074,17 +909,6 @@ tbody tr:nth-child(even) {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .formula-base,
-    .formula-resumen,
-    .formula-item,
-    .formula-resultado {
-        grid-template-columns: 1fr;
-    }
-
-    .formula-resumen {
-        align-items: flex-start;
-        flex-direction: column;
-    }
 }
 
 @media (max-width: 560px) {
