@@ -44,7 +44,6 @@ def formatear_producto(producto, porcentajes_merma=None):
         },
     }
 
-
 def respuesta_equivalencias(base_datos, producto_id):
     equivalencias = base_datos.buscar_resultantes_transformacion(producto_id)
 
@@ -134,3 +133,4 @@ def buscar_productos_resultantes(
         "tipo_relacion": None,
         "productos": [],
     }
+

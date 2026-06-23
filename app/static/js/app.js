@@ -123,12 +123,15 @@ async function cerrarSesion() {
 
 const PRODUCTOS_POR_PAGINA = 10;
 const REGISTROS_POR_PAGINA = PRODUCTOS_POR_PAGINA;
+const TIEMPO_LIMITE_CONSULTA_MS = 15000;
+const TIEMPO_LIMITE_REGISTRO_MS = 60000;
 const TIPO_TRANSFORMACION_CONFIGURADA = "receta_configurada";
 const TIPO_PRODUCTO_FINAL = "producto_final";
 let sesionActual = null;
 let productosBusquedaActual = "";
 let productosPaginaActual = 1;
 let registrosPaginaActual = 1;
+let solicitudHistorialActual = 0;
 let productoOrigenSeleccionado = null;
 let productoSeleccionadoOriginal = null;
 let productosResultantesDisponibles = [];
@@ -145,6 +148,52 @@ function crearIdOperacion() {
         `${Date.now()}-${Math.random().toString(16).slice(2)}` +
         `-${Math.random().toString(16).slice(2)}`
     );
+}
+
+
+async function solicitarJson(
+    url,
+    opciones = {},
+    tiempoLimite = TIEMPO_LIMITE_CONSULTA_MS
+) {
+    const controlador = new AbortController();
+    const temporizador = window.setTimeout(
+        function () {
+            controlador.abort();
+        },
+        tiempoLimite
+    );
+
+    try {
+        const respuesta = await fetch(url, {
+            ...opciones,
+            signal: controlador.signal
+        });
+        let datos = {};
+
+        try {
+            datos = await respuesta.json();
+        } catch (error) {
+            if (respuesta.ok) {
+                throw new Error("El servidor devolvió una respuesta vacía");
+            }
+        }
+
+        return {
+            respuesta,
+            datos
+        };
+    } catch (error) {
+        if (error.name === "AbortError") {
+            throw new Error(
+                "El servidor tardó demasiado en responder. Intenta nuevamente."
+            );
+        }
+
+        throw error;
+    } finally {
+        window.clearTimeout(temporizador);
+    }
 }
 
 
@@ -1221,6 +1270,7 @@ function crearTablaRegistros(registros) {
 
 async function cargarHistorialTransformaciones(pagina = 1) {
     const contenedor = document.getElementById("tablaRegistros");
+    const idSolicitud = ++solicitudHistorialActual;
 
     if (!contenedor) {
         return;
@@ -1233,10 +1283,16 @@ async function cargarHistorialTransformaciones(pagina = 1) {
             pagina: String(pagina),
             limite: String(REGISTROS_POR_PAGINA)
         });
-        const respuesta = await fetch(`/transformaciones/?${parametros}`, {
-            credentials: "same-origin"
-        });
-        const datos = await respuesta.json();
+        const { respuesta, datos } = await solicitarJson(
+            `/transformaciones/?${parametros}`,
+            {
+                credentials: "same-origin"
+            }
+        );
+
+        if (idSolicitud !== solicitudHistorialActual) {
+            return;
+        }
 
         if (!respuesta.ok) {
             throw new Error(
@@ -1264,7 +1320,9 @@ async function cargarHistorialTransformaciones(pagina = 1) {
             )
         );
     } catch (error) {
-        contenedor.textContent = error.message;
+        if (idSolicitud === solicitudHistorialActual) {
+            contenedor.textContent = error.message;
+        }
     }
 }
 
@@ -1612,16 +1670,18 @@ async function registrarTransformacion() {
     }
 
     try {
-        const respuesta = await fetch("/transformaciones/", {
-            method: "POST",
-            credentials: "same-origin",
-            headers: {
-                "Content-Type": "application/json"
+        const { respuesta, datos: resultado } = await solicitarJson(
+            "/transformaciones/",
+            {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(datos)
             },
-            body: JSON.stringify(datos)
-        });
-
-        const resultado = await respuesta.json();
+            TIEMPO_LIMITE_REGISTRO_MS
+        );
 
         if (!respuesta.ok) {
             const detalle = Array.isArray(resultado.detail)
@@ -1641,8 +1701,7 @@ async function registrarTransformacion() {
             : `${resultado.mensaje}. Movimientos: ${movimientos}.`;
 
         idOperacionActual = crearIdOperacion();
-
-        await cargarHistorialTransformaciones();
+        void cargarHistorialTransformaciones();
     } catch (error) {
         contenedor.className = "error-card";
         contenedor.textContent = error.message;
