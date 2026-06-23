@@ -44,7 +44,7 @@ async function iniciarSesion() {
             return;
         }
 
-        window.location.href = "/dashboard";
+        window.location.replace("/dashboard");
     } catch (error) {
         mensajeError.textContent =
             "No se pudo conectar con el servidor";
@@ -55,11 +55,12 @@ async function iniciarSesion() {
 
 async function cargarSesionActual() {
     const respuesta = await fetch("/login/sesion", {
-        credentials: "same-origin"
+        credentials: "same-origin",
+        cache: "no-store"
     });
 
     if (!respuesta.ok) {
-        window.location.href = "/";
+        window.location.replace("/");
         return null;
     }
 
@@ -73,6 +74,22 @@ async function cargarSesionActual() {
     }
 
     return datos;
+}
+
+
+async function redirigirSiSesionActiva() {
+    try {
+        const respuesta = await fetch("/login/sesion", {
+            credentials: "same-origin",
+            cache: "no-store"
+        });
+
+        if (respuesta.ok) {
+            window.location.replace("/dashboard");
+        }
+    } catch (error) {
+        console.error(error);
+    }
 }
 
 
@@ -117,7 +134,7 @@ async function cerrarSesion() {
         console.error(error);
     }
 
-    window.location.href = "/";
+    window.location.replace("/");
 }
 
 
@@ -1715,7 +1732,12 @@ async function registrarTransformacion() {
 
 
 document.addEventListener("DOMContentLoaded", function () {
+    const login = document.getElementById("loginPage");
     const dashboard = document.getElementById("dashboardPage");
+
+    if (login) {
+        redirigirSiSesionActiva();
+    }
 
     if (dashboard) {
         cargarSesionActual();
@@ -1771,4 +1793,20 @@ document.addEventListener("DOMContentLoaded", function () {
 
 
 
+});
+
+
+window.addEventListener("pageshow", function (evento) {
+    if (!evento.persisted) {
+        return;
+    }
+
+    if (document.getElementById("loginPage")) {
+        redirigirSiSesionActiva();
+        return;
+    }
+
+    if (document.getElementById("dashboardPage")) {
+        cargarSesionActual();
+    }
 });
