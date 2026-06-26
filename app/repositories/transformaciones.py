@@ -322,10 +322,91 @@ def validar_equivalencias(base_datos, datos):
         )
 
 
+def validar_configuracion_usuario(base_datos, datos):
+    producto_seleccionado = (
+        datos.producto_seleccionado_id
+        or datos.producto_origen_id
+    )
+    configuracion = base_datos.buscar_configuracion_usuario_para_producto(
+        producto_seleccionado
+    )
+
+    if not configuracion:
+        return False
+
+    if configuracion["producto_origen"] != datos.producto_origen_id:
+        raise ErrorTransformacion(
+            "El producto origen no coincide con la configuracion guardada"
+        )
+
+    detalles = base_datos.buscar_detalles_configuraciones_usuario([
+        configuracion["id_transformacion_usuario"]
+    ])
+    ids_permitidos = {
+        fila["producto_resultante"]
+        for fila in detalles
+    }
+    ids_recibidos = {
+        producto.producto_id
+        for producto in datos.productos_resultantes
+    }
+
+    if not ids_permitidos or not ids_recibidos.issubset(ids_permitidos):
+        raise ErrorTransformacion(
+            "Los productos no corresponden a la configuracion guardada"
+        )
+
+    return True
+
+
+def validar_formula_producto(base_datos, datos):
+    producto_seleccionado = datos.producto_seleccionado_id
+
+    if not producto_seleccionado:
+        return False
+
+    ingredientes = base_datos.buscar_ingredientes_formula(
+        producto_seleccionado
+    )
+
+    if not ingredientes:
+        return False
+
+    categorias_modulo = set(base_datos.buscar_porcentajes_merma())
+    bases_formula = {
+        fila["ComponenteID"]
+        for fila in ingredientes
+        if (
+            str(fila["Category1"] or "").strip().upper()
+            in categorias_modulo
+        )
+    }
+    ids_resultantes = {
+        producto.producto_id
+        for producto in datos.productos_resultantes
+    }
+
+    if datos.producto_origen_id not in bases_formula:
+        return False
+
+    if ids_resultantes != {producto_seleccionado}:
+        raise ErrorTransformacion(
+            "El producto resultante debe coincidir con la formula seleccionada"
+        )
+
+    return True
+
+
 def validar_transformacion(base_datos, datos):
     validar_productos_existentes(base_datos, datos)
 
     if datos.tipo_transformacion == "producto_final":
+        return
+
+    if validar_configuracion_usuario(base_datos, datos):
+        return
+
+    if validar_formula_producto(base_datos, datos):
         return
 
     validar_equivalencias(base_datos, datos)
@@ -346,6 +427,7 @@ def guardar_transformacion(datos, rendimiento):
         usuario_id=datos.usuario_id,
         tipo_transformacion=datos.tipo_transformacion,
         productos_resultantes=datos.productos_resultantes,
+        componentes_formula=datos.componentes_formula,
         peso_merma=rendimiento["peso_merma"],
         almacen_id=configuracion["almacen_id"],
         porcentaje_merma_esperado=datos.porcentaje_merma_esperado,

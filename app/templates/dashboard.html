@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title>Transformación Cárnica | CAYAL</title>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260622-1">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260626-5">
 </head>
 
 <body class="app-body">
@@ -181,6 +181,84 @@
             <div class="panel">
                 <div class="section-toolbar">
                     <div>
+                        <h3>Guardar configuracion</h3>
+                        <p class="panel-help">
+                            Guarda esta relacion para reutilizarla en
+                            futuras transformaciones.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="config-resumen">
+                    <div>
+                        <span>Producto origen</span>
+                        <strong id="configOrigenSeleccionado">
+                            Selecciona un producto desde Productos
+                        </strong>
+                    </div>
+
+                    <div>
+                        <span>Salida base</span>
+                        <strong id="configCantidadBaseVista">0 kg</strong>
+                    </div>
+
+                    <div>
+                        <span>Resultantes</span>
+                        <strong id="configResultantesVista">
+                            Sin productos capturados
+                        </strong>
+                    </div>
+                </div>
+
+                <div class="form-grid compact-form">
+                    <div>
+                        <label for="configNombre">Nombre</label>
+                        <input
+                            type="text"
+                            id="configNombre"
+                            maxlength="150"
+                            placeholder="Ej. Chuleta preparada"
+                        >
+                    </div>
+
+                </div>
+
+                <div class="actions">
+                    <button
+                        type="button"
+                        id="botonGuardarConfiguracion"
+                        onclick="guardarConfiguracionTransformacion()"
+                    >
+                        Guardar configuracion
+                    </button>
+                </div>
+
+                <div id="resultadoConfiguracion"></div>
+            </div>
+
+            <div class="panel">
+                <div class="section-toolbar">
+                    <h3>Configuraciones creadas</h3>
+                    <button
+                        type="button"
+                        onclick="cargarConfiguracionesTransformacion(
+                            configuracionesPaginaActual
+                        )"
+                    >
+                        Actualizar
+                    </button>
+                </div>
+
+                <div id="tablaConfiguraciones" class="result-container">
+                    Aun no hay configuraciones registradas.
+                </div>
+
+                <div id="ingredientesConfiguracion"></div>
+            </div>
+
+            <div class="panel">
+                <div class="section-toolbar">
+                    <div>
                         <h3>Resumen</h3>
                         <p class="panel-help">
                             El sistema calcula la merma automaticamente.
@@ -308,6 +386,6 @@
     </main>
 </div>
 
-<script src="/static/js/app.js?v=20260623-1"></script>
+<script src="/static/js/app.js?v=20260626-6"></script>
 </body>
 </html>

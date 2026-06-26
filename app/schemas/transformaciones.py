@@ -13,6 +13,17 @@ class ProductoResultante(BaseModel):
     unidad: Literal["KILO"] = "KILO"
 
 
+class ComponenteFormula(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    producto_id: int = Field(gt=0)
+    cantidad: Decimal = Field(gt=0)
+    unidad: str = Field(min_length=1, max_length=50)
+    es_producto_base: bool = False
+    tipo_componente: str = Field(default="INSUMO", max_length=30)
+    participa_balance: bool = False
+
+
 class CrearTransformacion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -21,6 +32,7 @@ class CrearTransformacion(BaseModel):
     producto_origen_id: int = Field(gt=0)
     cantidad_origen: Decimal = Field(gt=0)
     productos_resultantes: list[ProductoResultante] = Field(min_length=1)
+    componentes_formula: list[ComponenteFormula] = Field(default_factory=list)
 
     usuario_id: int | None = Field(default=None, gt=0)
     usuario_nombre: str | None = Field(default=None, max_length=100)
@@ -77,14 +89,6 @@ class CrearTransformacion(BaseModel):
                     "El producto seleccionado debe coincidir con el origen"
                 )
 
-        if (
-            self.producto_seleccionado_id is not None
-            and self.producto_seleccionado_id != self.producto_origen_id
-        ):
-            raise ValueError(
-                "El producto seleccionado debe coincidir con el origen"
-            )
-
         total_resultante = sum(
             producto.cantidad
             for producto in self.productos_resultantes
@@ -99,6 +103,4 @@ class CrearTransformacion(BaseModel):
 
         self.peso_merma = merma_calculada
         return self
-
-
 

@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.routes.configuraciones import router as configuraciones_router
 from app.routes.login import router as login_router
 from app.routes.productos import router as productos_router
 from app.routes.transformaciones import router as transformaciones_router
@@ -26,6 +27,7 @@ app.mount(
 app.include_router(login_router)
 app.include_router(productos_router)
 app.include_router(transformaciones_router)
+app.include_router(configuraciones_router)
 
 
 @app.get("/")

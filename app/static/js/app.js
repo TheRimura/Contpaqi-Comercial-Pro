@@ -121,6 +121,11 @@ function mostrarSeccion(idSeccion) {
     if (idSeccion === "registros") {
         cargarHistorialTransformaciones();
     }
+
+    if (idSeccion === "transformacion") {
+        actualizarResumenConfiguracion();
+        cargarConfiguracionesTransformacion();
+    }
 }
 
 
@@ -140,6 +145,7 @@ async function cerrarSesion() {
 
 const PRODUCTOS_POR_PAGINA = 10;
 const REGISTROS_POR_PAGINA = PRODUCTOS_POR_PAGINA;
+const CONFIGURACIONES_POR_PAGINA = PRODUCTOS_POR_PAGINA;
 const TIEMPO_LIMITE_CONSULTA_MS = 15000;
 const TIEMPO_LIMITE_REGISTRO_MS = 60000;
 const TIPO_TRANSFORMACION_CONFIGURADA = "receta_configurada";
@@ -148,10 +154,15 @@ let sesionActual = null;
 let productosBusquedaActual = "";
 let productosPaginaActual = 1;
 let registrosPaginaActual = 1;
+let configuracionesPaginaActual = 1;
 let solicitudHistorialActual = 0;
 let productoOrigenSeleccionado = null;
 let productoSeleccionadoOriginal = null;
 let productosResultantesDisponibles = [];
+let origenConfiguradoActual = null;
+let configuracionUsuarioActual = null;
+let tipoRelacionActual = null;
+let componentesFormulaActual = [];
 let productoYaTransformadoSeleccionado = false;
 let idOperacionActual = crearIdOperacion();
 
@@ -649,20 +660,33 @@ function actualizarTarjetaOrigen(producto) {
 }
 
 
-function restaurarProductoSeleccionadoComoOrigen() {
+function restaurarProductoSeleccionadoComoOrigen(usarOrigenConfigurado = true) {
     const productoIdInput = document.getElementById("productoOrigenId");
+    const resultadoOrigen = document.getElementById("resultadoOrigen");
+    const productoOrigen = (
+        usarOrigenConfigurado && origenConfiguradoActual
+            ? origenConfiguradoActual
+            : productoSeleccionadoOriginal
+    );
 
-    if (!productoSeleccionadoOriginal) {
+    if (!productoOrigen) {
         return;
     }
 
-    productoOrigenSeleccionado = productoSeleccionadoOriginal;
+    productoOrigenSeleccionado = productoOrigen;
 
     if (productoIdInput) {
-        productoIdInput.value = String(productoSeleccionadoOriginal.id);
+        productoIdInput.value = String(productoOrigen.id);
     }
 
-    actualizarTarjetaOrigen(productoSeleccionadoOriginal);
+    actualizarTarjetaOrigen(productoOrigen);
+
+    if (resultadoOrigen) {
+        resultadoOrigen.className = "seleccion-origen";
+        resultadoOrigen.textContent =
+            `Producto origen seleccionado: ${productoOrigen.categoria}`;
+    }
+
     reiniciarLimiteMerma();
 }
 
@@ -692,12 +716,20 @@ async function cargarProductosResultantes(productoId) {
 
     productoYaTransformadoSeleccionado = false;
     productosResultantesDisponibles = [];
+    origenConfiguradoActual = null;
+    configuracionUsuarioActual = null;
+    tipoRelacionActual = null;
+    componentesFormulaActual = [];
     contenedor.replaceChildren();
     contenedor.textContent = "Cargando productos resultantes...";
 
     try {
         const datos = await consultarProductosResultantes(productoId);
         productosResultantesDisponibles = datos.productos || [];
+        origenConfiguradoActual = datos.producto_origen || null;
+        configuracionUsuarioActual = datos.configuracion || null;
+        tipoRelacionActual = datos.tipo_relacion || null;
+        componentesFormulaActual = datos.componentes || [];
         configurarTipoTransformacion(
             productosResultantesDisponibles.length > 0
         );
@@ -778,7 +810,7 @@ function renderizarProductosResultantes() {
         tipoTransformacion === TIPO_PRODUCTO_FINAL;
 
     if (productoYaTransformadoSeleccionado) {
-        restaurarProductoSeleccionadoComoOrigen();
+        restaurarProductoSeleccionadoComoOrigen(false);
         configurarEncabezadoResultantes("Producto final", false);
         productosResultantesDisponibles = [
             {
@@ -800,6 +832,17 @@ function renderizarProductosResultantes() {
         mostrarMensajeResultantes(
             "Este producto no tiene una transformación configurada."
         );
+        actualizarBalance();
+        return;
+    }
+
+    if (
+        tipoRelacionActual === "configuracion_usuario" ||
+        tipoRelacionActual === "formula_producto"
+    ) {
+        productosResultantesDisponibles.forEach(function (producto) {
+            agregarProductoResultante(producto);
+        });
         actualizarBalance();
         return;
     }
@@ -1125,12 +1168,107 @@ function obtenerProductosResultantes() {
 }
 
 
+function obtenerComponentesFormulaParaRegistro(productosResultantes) {
+    if (componentesFormulaActual.length === 0) {
+        return [];
+    }
+
+    const productoPrincipal = productosResultantes[0];
+    const referencia = productosResultantesDisponibles[0];
+    const cantidadReferencia = Number(
+        referencia?.cantidad_resultante ||
+        referencia?.cantidad_origen ||
+        0
+    );
+    const cantidadCapturada = Number(productoPrincipal?.cantidad || 0);
+    const factor = cantidadReferencia > 0
+        ? cantidadCapturada / cantidadReferencia
+        : 1;
+
+    return componentesFormulaActual.map(function (componente) {
+        const cantidad = Number(componente.cantidad || 0) * factor;
+        const esProductoBase = Boolean(componente.es_producto_base);
+
+        return {
+            producto_id: Number(componente.producto_id || componente.id),
+            cantidad: cantidad.toFixed(6),
+            unidad: componente.unidad || "KILO",
+            es_producto_base: esProductoBase,
+            tipo_componente: (
+                componente.tipo_componente ||
+                (esProductoBase ? "PRODUCTO_BASE" : "INSUMO")
+            ),
+            participa_balance: (
+                componente.participa_balance ?? esProductoBase
+            )
+        };
+    }).filter(function (componente) {
+        return componente.producto_id && Number(componente.cantidad) > 0;
+    });
+}
+
+
 function textoProductoRegistro(producto) {
     if (!producto) {
         return "Producto no encontrado";
     }
 
     return `${producto.nombre} | ${producto.clave}`;
+}
+
+
+function actualizarResumenConfiguracion() {
+    const origen = document.getElementById("configOrigenSeleccionado");
+    const cantidadBase = document.getElementById("configCantidadBaseVista");
+    const resultantes = document.getElementById("configResultantesVista");
+    const nombre = document.getElementById("configNombre");
+    const cantidadOrigen = document.getElementById("cantidadOrigen");
+
+    if (!origen || !cantidadBase || !resultantes) {
+        return;
+    }
+
+    if (!productoOrigenSeleccionado) {
+        origen.textContent = "Selecciona un producto desde Productos";
+        cantidadBase.textContent = "0 kg";
+        resultantes.textContent = "Sin productos capturados";
+        return;
+    }
+
+    origen.textContent = textoProductoRegistro(productoOrigenSeleccionado);
+
+    if (nombre && !nombre.value.trim()) {
+        nombre.value = productoOrigenSeleccionado.nombre || "";
+    }
+
+    cantidadBase.textContent = formatearKg(
+        leerCantidadKg(cantidadOrigen?.value || "0")
+    );
+
+    const productos = obtenerProductosResultantes()
+        .filter(function (producto) {
+            return producto.producto_id && Number(producto.cantidad) > 0;
+        })
+        .map(function (producto) {
+            const disponible = obtenerProductoDisponible(
+                producto.producto_id
+            ) || {
+                nombre: `Producto ${producto.producto_id}`,
+                clave: producto.producto_id
+            };
+
+            return (
+                `${textoProductoRegistro(disponible)} ` +
+                `(${formatearCantidadUnidad(
+                    producto.cantidad,
+                    producto.unidad
+                )})`
+            );
+        });
+
+    resultantes.textContent = productos.length
+        ? productos.join(", ")
+        : "Sin productos capturados";
 }
 
 
@@ -1344,6 +1482,400 @@ async function cargarHistorialTransformaciones(pagina = 1) {
 }
 
 
+function validarConfiguracion(datos) {
+    if (datos.nombre_transformacion.length < 3) {
+        return "Captura un nombre para la configuracion.";
+    }
+
+    if (!datos.producto_origen_id) {
+        return "Selecciona un producto desde la tabla de productos.";
+    }
+
+    if (Number(datos.cantidad_base) <= 0) {
+        return "Captura cantidades en productos resultantes.";
+    }
+
+    if (datos.productos_resultantes.length === 0) {
+        return "Agrega al menos un producto resultante.";
+    }
+
+    if (
+        datos.productos_resultantes.some(function (producto) {
+            return !producto.producto_id || Number(producto.cantidad) <= 0;
+        })
+    ) {
+        return "Completa producto y cantidad en cada resultante.";
+    }
+
+    const ids = datos.productos_resultantes.map(function (producto) {
+        return producto.producto_id;
+    });
+
+    if (new Set(ids).size !== ids.length) {
+        return "No repitas productos resultantes.";
+    }
+
+    return "";
+}
+
+
+function obtenerResultantesParaConfiguracion() {
+    return obtenerProductosResultantes().map(function (producto, indice) {
+        return {
+            producto_id: producto.producto_id,
+            cantidad: producto.cantidad,
+            unidad: producto.unidad,
+            participa_balance: true,
+            orden: indice + 1
+        };
+    });
+}
+
+
+async function guardarConfiguracionTransformacion() {
+    const resultado = document.getElementById("resultadoConfiguracion");
+    const boton = document.getElementById("botonGuardarConfiguracion");
+    const nombre = document.getElementById("configNombre");
+    const cantidadOrigen = document.getElementById("cantidadOrigen");
+
+    if (!resultado || !nombre || !cantidadOrigen) {
+        return;
+    }
+
+    const datos = {
+        nombre_transformacion: nombre.value.trim(),
+        producto_origen_id: Number(productoOrigenSeleccionado?.id || 0),
+        producto_formula_id: productoSeleccionadoOriginal?.id || null,
+        cantidad_base: cantidadOrigen.value || "0",
+        porcentaje_merma: null,
+        observaciones: null,
+        productos_resultantes: obtenerResultantesParaConfiguracion()
+    };
+    const mensaje = validarConfiguracion(datos);
+
+    if (mensaje) {
+        resultado.className = "error-card";
+        resultado.textContent = mensaje;
+        return;
+    }
+
+    resultado.className = "result-container";
+    resultado.textContent = "Guardando configuracion...";
+
+    if (boton) {
+        boton.disabled = true;
+        boton.textContent = "Guardando...";
+    }
+
+    try {
+        const { respuesta, datos: respuestaDatos } = await solicitarJson(
+            "/configuraciones-transformacion/",
+            {
+                method: "POST",
+                credentials: "same-origin",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(datos)
+            },
+            TIEMPO_LIMITE_REGISTRO_MS
+        );
+
+        if (!respuesta.ok) {
+            const detalle = Array.isArray(respuestaDatos.detail)
+                ? respuestaDatos.detail[0]?.msg
+                : respuestaDatos.detail;
+
+            throw new Error(
+                detalle || "No fue posible guardar la configuracion"
+            );
+        }
+
+        resultado.className = "success-card";
+        resultado.textContent =
+            `Configuracion guardada con folio ${respuestaDatos.id}.`;
+        nombre.value = "";
+        await cargarConfiguracionesTransformacion();
+    } catch (error) {
+        resultado.className = "error-card";
+        resultado.textContent = error.message;
+    } finally {
+        if (boton) {
+            boton.disabled = false;
+            boton.textContent = "Guardar configuracion";
+        }
+    }
+}
+
+
+function resumenResultantesConfiguracion(configuracion) {
+    const productos = configuracion.productos_resultantes || [];
+
+    if (productos.length === 0) {
+        return "-";
+    }
+
+    return productos.map(function (detalle) {
+        return (
+            `${textoProductoRegistro(detalle.producto)} ` +
+            `(${formatearCantidadUnidad(
+                detalle.cantidad,
+                detalle.unidad
+            )})`
+        );
+    }).join(", ");
+}
+
+
+function crearTablaConfiguraciones(configuraciones) {
+    const tabla = document.createElement("table");
+    const encabezado = document.createElement("thead");
+    const cuerpo = document.createElement("tbody");
+
+    tabla.className = "productos-tabla registros-tabla";
+    encabezado.innerHTML = `
+        <tr>
+            <th>ID</th>
+            <th>Nombre</th>
+            <th>Origen</th>
+            <th>Formula</th>
+            <th>Cantidad base</th>
+            <th>Resultantes</th>
+            <th>Usuario</th>
+            <th></th>
+        </tr>
+    `;
+
+    configuraciones.forEach(function (configuracion) {
+        const fila = document.createElement("tr");
+        const valores = [
+            configuracion.id,
+            configuracion.nombre,
+            textoProductoRegistro(configuracion.producto_origen),
+            configuracion.producto_formula
+                ? textoProductoRegistro(configuracion.producto_formula)
+                : "-",
+            formatearCantidadUnidad(
+                configuracion.cantidad_base,
+                configuracion.producto_origen?.unidad || "KILO"
+            ),
+            resumenResultantesConfiguracion(configuracion),
+            configuracion.usuario_creacion?.nombre || "-",
+        ];
+
+        valores.forEach(function (valor) {
+            const celda = document.createElement("td");
+            celda.textContent = valor ?? "";
+            fila.appendChild(celda);
+        });
+
+        const celdaAcciones = document.createElement("td");
+        const botonIngredientes = document.createElement("button");
+
+        botonIngredientes.type = "button";
+        botonIngredientes.textContent = "Detalle";
+        botonIngredientes.addEventListener("click", function () {
+            verDetalleConfiguracion(configuracion);
+        });
+        celdaAcciones.appendChild(botonIngredientes);
+        fila.appendChild(celdaAcciones);
+        cuerpo.appendChild(fila);
+    });
+
+    tabla.append(encabezado, cuerpo);
+    return tabla;
+}
+
+
+async function cargarConfiguracionesTransformacion(pagina = 1) {
+    const contenedor = document.getElementById("tablaConfiguraciones");
+
+    if (!contenedor) {
+        return;
+    }
+
+    contenedor.textContent = "Cargando configuraciones...";
+
+    try {
+        const parametros = new URLSearchParams({
+            pagina: String(pagina),
+            limite: String(CONFIGURACIONES_POR_PAGINA)
+        });
+        const { respuesta, datos } = await solicitarJson(
+            `/configuraciones-transformacion/?${parametros}`,
+            {
+                credentials: "same-origin"
+            }
+        );
+
+        if (!respuesta.ok) {
+            throw new Error(
+                datos.detail || "No fue posible consultar configuraciones"
+            );
+        }
+
+        const configuraciones = datos.configuraciones || [];
+        configuracionesPaginaActual = datos.pagina;
+        contenedor.replaceChildren();
+
+        if (configuraciones.length === 0) {
+            contenedor.textContent =
+                "Aun no hay configuraciones registradas.";
+            return;
+        }
+
+        contenedor.appendChild(crearTablaConfiguraciones(configuraciones));
+        contenedor.appendChild(
+            crearControlesPaginacion(
+                datos,
+                "configuraciones",
+                cargarConfiguracionesTransformacion
+            )
+        );
+    } catch (error) {
+        contenedor.textContent = error.message;
+    }
+}
+
+
+function crearTablaIngredientes(ingredientes) {
+    const tabla = document.createElement("table");
+    const encabezado = document.createElement("thead");
+    const cuerpo = document.createElement("tbody");
+
+    tabla.className = "productos-tabla";
+    encabezado.innerHTML = `
+        <tr>
+            <th>Clave</th>
+            <th>Producto</th>
+            <th>Categoria</th>
+            <th>Cantidad</th>
+        </tr>
+    `;
+
+    ingredientes.forEach(function (ingrediente) {
+        const producto = ingrediente.producto || ingrediente;
+        const fila = document.createElement("tr");
+        [
+            producto.clave,
+            producto.nombre,
+            producto.categoria,
+            formatearCantidadUnidad(
+                ingrediente.cantidad,
+                ingrediente.unidad || producto.unidad
+            )
+        ].forEach(function (valor) {
+            const celda = document.createElement("td");
+            celda.textContent = valor ?? "";
+            fila.appendChild(celda);
+        });
+        cuerpo.appendChild(fila);
+    });
+
+    tabla.append(encabezado, cuerpo);
+    return tabla;
+}
+
+
+function crearResumenConfiguracion(configuracion) {
+    const resumen = document.createElement("div");
+    resumen.className = "config-detalle";
+
+    const origen = document.createElement("div");
+    origen.innerHTML = `
+        <span>Producto origen</span>
+        <strong>${textoProductoRegistro(configuracion.producto_origen)}</strong>
+    `;
+
+    const formula = document.createElement("div");
+    formula.innerHTML = `
+        <span>Producto configurado</span>
+        <strong>${
+            configuracion.producto_formula
+                ? textoProductoRegistro(configuracion.producto_formula)
+                : "-"
+        }</strong>
+    `;
+
+    const cantidad = document.createElement("div");
+    cantidad.innerHTML = `
+        <span>Cantidad base</span>
+        <strong>${formatearCantidadUnidad(
+            configuracion.cantidad_base,
+            configuracion.producto_origen?.unidad || "KILO"
+        )}</strong>
+    `;
+
+    resumen.append(origen, formula, cantidad);
+    return resumen;
+}
+
+
+function verDetalleConfiguracion(configuracion) {
+    const contenedor = document.getElementById("ingredientesConfiguracion");
+    const productos = configuracion.productos_resultantes || [];
+
+    if (!contenedor) {
+        return;
+    }
+
+    contenedor.className = "result-container";
+    contenedor.replaceChildren();
+    contenedor.appendChild(crearResumenConfiguracion(configuracion));
+
+    if (productos.length === 0) {
+        const mensaje = document.createElement("p");
+        mensaje.textContent =
+            "Esta configuracion aun no tiene productos resultantes.";
+        contenedor.appendChild(mensaje);
+        return;
+    }
+
+    contenedor.appendChild(crearTablaIngredientes(productos));
+}
+
+
+async function verIngredientesConfiguracion(productoFormulaId) {
+    const contenedor = document.getElementById("ingredientesConfiguracion");
+
+    if (!contenedor) {
+        return;
+    }
+
+    contenedor.className = "result-container";
+    contenedor.textContent = "Consultando ingredientes...";
+
+    try {
+        const { respuesta, datos } = await solicitarJson(
+            `/configuraciones-transformacion/formula/` +
+            `${productoFormulaId}/ingredientes`,
+            {
+                credentials: "same-origin"
+            }
+        );
+
+        if (!respuesta.ok) {
+            throw new Error(
+                datos.detail || "No fue posible consultar ingredientes"
+            );
+        }
+
+        const ingredientes = datos.ingredientes || [];
+
+        if (ingredientes.length === 0) {
+            contenedor.textContent =
+                "Este producto no tiene ingredientes configurados.";
+            return;
+        }
+
+        contenedor.replaceChildren(crearTablaIngredientes(ingredientes));
+    } catch (error) {
+        contenedor.className = "error-card";
+        contenedor.textContent = error.message;
+    }
+}
+
+
 function actualizarBalance() {
     const cantidadOrigenInput = document.getElementById("cantidadOrigen");
     const pesoMermaInput = document.getElementById("pesoMerma");
@@ -1427,6 +1959,8 @@ function actualizarBalance() {
     if (diferenciaBalance) {
         diferenciaBalance.textContent = formatearCantidad(diferencia);
     }
+
+    actualizarResumenConfiguracion();
 
     if (validationBox) {
         validationBox.classList.remove("balance-ok", "balance-pending");
@@ -1653,6 +2187,9 @@ async function registrarTransformacion() {
     actualizarBalance();
 
     const productosResultantes = obtenerProductosResultantes();
+    const componentesFormula = obtenerComponentesFormulaParaRegistro(
+        productosResultantes
+    );
 
     const datos = {
         id_operacion: idOperacionActual,
@@ -1661,6 +2198,7 @@ async function registrarTransformacion() {
         producto_origen_id: Number(productoOrigenInput.value),
         cantidad_origen: cantidadOrigenInput.value,
         productos_resultantes: productosResultantes,
+        componentes_formula: componentesFormula,
         tipo_transformacion: obtenerTipoTransformacionSeleccionado(),
         producto_ya_transformado: productoYaTransformadoSeleccionado,
         peso_merma: pesoMermaInput.value || "0",
