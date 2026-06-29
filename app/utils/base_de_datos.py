@@ -9,6 +9,19 @@ class BaseDatos(ComandosBaseDatos):
     def __init__(self):
         super().__init__(servidor=node())
 
+    @staticmethod
+    def valor_escalar(fila, campo):
+        if fila is None:
+            return None
+
+        if isinstance(fila, dict):
+            return fila.get(campo)
+
+        if isinstance(fila, (list, tuple)):
+            return fila[0] if fila else None
+
+        return fila
+
     def buscar_productos_por_nombre(self, termino):
         configuracion = self.buscar_configuracion_transformaciones()
 
@@ -829,7 +842,7 @@ class BaseDatos(ComandosBaseDatos):
                 componentes_json,
             ),
         )
-        return int(fila["id_transformacion_usuario"])
+        return int(self.valor_escalar(fila, "id_transformacion_usuario"))
 
     def actualizar_configuracion_usuario(
         self,
@@ -981,7 +994,7 @@ class BaseDatos(ComandosBaseDatos):
                 componentes_json,
             ),
         )
-        return bool(fila and int(fila["actualizados"] or 0))
+        return bool(int(self.valor_escalar(fila, "actualizados") or 0))
 
     def buscar_tipo_movimiento(self, tipo, nombre):
         configuracion = self.buscar_configuracion_transformaciones()

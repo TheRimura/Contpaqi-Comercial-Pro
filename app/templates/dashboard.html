@@ -388,13 +388,6 @@
                     </div>
 
                     <div>
-                        <span>Insumos</span>
-                        <strong id="configComponentesVista">
-                            Sin insumos capturados
-                        </strong>
-                    </div>
-
-                    <div>
                         <span>Resultantes</span>
                         <strong id="configResultantesVista">
                             Sin productos capturados
@@ -402,55 +395,8 @@
                     </div>
                 </div>
 
-                <div class="form-grid compact-form">
-                    <div>
-                        <label for="configNombre">Nombre</label>
-                        <input
-                            type="text"
-                            id="configNombre"
-                            maxlength="150"
-                            placeholder="Ej. Chuleta preparada"
-                        >
-                    </div>
-
-                    <div>
-                        <label for="configCantidadBase">
-                            Peso base / salida
-                        </label>
-                        <input
-                            type="text"
-                            id="configCantidadBase"
-                            inputmode="decimal"
-                            placeholder="Ej. 1,5 kg"
-                        >
-                    </div>
-                    
-                <div class="config-product-picker">
-                    <div>
-                        <h4>Agregar productos a la configuracion</h4>
-                        <p class="panel-help">
-                            Busca productos y agregalos como origen, insumo o
-                            resultante de esta transformacion.
-                        </p>
-                    </div>
-
-                    <div class="form-row">
-                        <input
-                            type="text"
-                            id="busquedaProductoConfiguracion"
-                            placeholder="Buscar producto para configurar"
-                        >
-
-                        <button
-                            type="button"
-                            onclick="buscarProductosConfiguracion()"
-                        >
-                            Buscar
-                        </button>
-                    </div>
-
-                    <div id="tablaProductosConfiguracion"></div>
-                </div>
+                <input type="hidden" id="configNombre">
+                <input type="hidden" id="configCantidadBase">
 
                 <div id="editorComponentesConfiguracion"></div>
                 <div id="editorResultantesConfiguracion"></div>

@@ -1666,7 +1666,6 @@ function resumenDetallesConfiguracion(detalles, mensajeVacio) {
 function actualizarResumenConfiguracion() {
     const origen = document.getElementById("configOrigenSeleccionado");
     const cantidadBase = document.getElementById("configCantidadBaseVista");
-    const componentes = document.getElementById("configComponentesVista");
     const resultantes = document.getElementById("configResultantesVista");
     const nombre = document.getElementById("configNombre");
     const cantidadOrigen = document.getElementById("cantidadOrigen");
@@ -1676,14 +1675,13 @@ function actualizarResumenConfiguracion() {
         productoOrigenSeleccionado
     );
 
-    if (!origen || !cantidadBase || !componentes || !resultantes) {
+    if (!origen || !cantidadBase || !resultantes) {
         return;
     }
 
     if (!productoBase) {
         origen.textContent = "Selecciona un producto desde Productos";
         cantidadBase.textContent = "0 kg";
-        componentes.textContent = "Sin insumos capturados";
         resultantes.textContent = "Sin productos capturados";
         return;
     }
@@ -1712,10 +1710,6 @@ function actualizarResumenConfiguracion() {
     );
     cantidadBase.textContent = formatearKg(pesoBase);
 
-    componentes.textContent = resumenDetallesConfiguracion(
-        obtenerComponentesEditorConfiguracion(),
-        "Sin insumos capturados"
-    );
     resultantes.textContent = resumenDetallesConfiguracion(
         obtenerResultantesEditorConfiguracion(),
         "Sin productos capturados"
@@ -2224,7 +2218,8 @@ function renderizarEditorComponentesConfiguracion() {
     const encabezado = document.createElement("thead");
     const cuerpo = document.createElement("tbody");
 
-    tabla.className = "tabla-resultantes config-editor-tabla";
+    tabla.className =
+        "tabla-resultantes config-editor-tabla config-componentes-tabla";
     encabezado.innerHTML = `
         <tr>
             <th>Producto</th>
@@ -2359,7 +2354,8 @@ function renderizarEditorResultantesConfiguracion() {
     const encabezado = document.createElement("thead");
     const cuerpo = document.createElement("tbody");
 
-    tabla.className = "tabla-resultantes config-editor-tabla";
+    tabla.className =
+        "tabla-resultantes config-editor-tabla config-resultantes-tabla";
     encabezado.innerHTML = `
         <tr>
             <th>Producto</th>
@@ -3548,27 +3544,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
     const busquedaProducto =
         document.getElementById("busquedaProducto");
-    const busquedaProductoConfiguracion = document.getElementById(
-        "busquedaProductoConfiguracion"
-    );
-
     if (busquedaProducto) {
         busquedaProducto.addEventListener(
             "keydown",
             function (evento) {
                 if (evento.key === "Enter") {
                     buscarProductos();
-                }
-            }
-        );
-    }
-
-    if (busquedaProductoConfiguracion) {
-        busquedaProductoConfiguracion.addEventListener(
-            "keydown",
-            function (evento) {
-                if (evento.key === "Enter") {
-                    buscarProductosConfiguracion();
                 }
             }
         );

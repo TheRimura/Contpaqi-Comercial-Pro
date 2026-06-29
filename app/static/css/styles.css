@@ -905,7 +905,7 @@ tbody tr:nth-child(even) {
 
 .config-resumen {
     display: grid;
-    grid-template-columns: 1.2fr 0.65fr 1.1fr 1.25fr;
+    grid-template-columns: 1.2fr 0.7fr 1.4fr;
     gap: 14px;
     margin-bottom: 14px;
 }
@@ -933,33 +933,6 @@ tbody tr:nth-child(even) {
     color: var(--azul-oscuro);
     font-size: 14px;
     line-height: 1.35;
-}
-
-.config-product-picker {
-    margin: 4px 0 18px;
-    padding: 16px;
-    background: #f8fafc;
-    border: 1px solid var(--gris-borde);
-    border-radius: 7px;
-}
-
-.config-product-picker h4 {
-    color: var(--azul-oscuro);
-    font-size: 15px;
-    margin-bottom: 2px;
-}
-
-.config-product-picker .form-row {
-    margin-top: 12px;
-    margin-bottom: 10px;
-}
-
-.config-productos-tabla td:last-child {
-    min-width: 250px;
-}
-
-.config-productos-tabla .acciones-tabla {
-    min-width: 250px;
 }
 
 .config-detalle {
@@ -1002,14 +975,51 @@ tbody tr:nth-child(even) {
 
 .config-editor-tabla {
     margin-bottom: 14px;
+    table-layout: fixed;
 }
 
 .config-editor-tabla td:first-child {
     font-weight: 700;
 }
 
+.config-editor-tabla th,
+.config-editor-tabla td {
+    vertical-align: middle;
+}
+
 .config-editor-tabla input {
     min-width: 130px;
+}
+
+.config-componentes-tabla th:nth-child(1),
+.config-componentes-tabla td:nth-child(1) {
+    width: 42%;
+}
+
+.config-componentes-tabla th:nth-child(2),
+.config-componentes-tabla td:nth-child(2) {
+    width: 15%;
+}
+
+.config-componentes-tabla th:nth-child(3),
+.config-componentes-tabla td:nth-child(3) {
+    width: 10%;
+}
+
+.config-componentes-tabla th:nth-child(4),
+.config-componentes-tabla td:nth-child(4) {
+    width: 23%;
+}
+
+.config-componentes-tabla th:nth-child(5),
+.config-componentes-tabla td:nth-child(5) {
+    width: 10%;
+}
+
+.config-componentes-tabla input,
+.config-resultantes-tabla input {
+    min-width: 0;
+    width: 100%;
 }
 
 .indicadores-registros {

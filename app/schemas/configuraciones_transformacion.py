@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.routes.productos import componentes_desde_configuracion
+
 
 class ProductoConfigurado(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -33,6 +35,7 @@ class CrearConfiguracionTransformacion(BaseModel):
     producto_formula_id: int | None = Field(default=None, gt=0)
     cantidad_base: Decimal = Field(gt=0)
     porcentaje_merma: Decimal | None = Field(default=None, ge=0, le=100)
+    observaciones: str | None = Field(default=None, max_length=500)
     productos_resultantes: list[ProductoConfigurado] = Field(min_length=1)
     componentes: list[ComponenteConfigurado] = Field(default_factory=list)
 
@@ -70,3 +73,4 @@ class CrearConfiguracionTransformacion(BaseModel):
             )
 
         return self
+

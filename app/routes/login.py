@@ -152,3 +152,4 @@ def cerrar_sesion(response: Response):
         "acceso": False,
         "mensaje": "Sesion cerrada",
     }
+
