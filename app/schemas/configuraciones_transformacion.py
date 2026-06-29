@@ -12,6 +12,7 @@ class ProductoConfigurado(BaseModel):
     participa_balance: bool = True
     orden: int = Field(default=1, ge=1)
 
+
 class CrearConfiguracionTransformacion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title>Transformación Cárnica | CAYAL</title>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260626-5">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260628-3">
 </head>
 
 <body class="app-body">
@@ -25,8 +25,17 @@
             <button
                 type="button"
                 class="nav-button is-active"
-                data-seccion="productos"
+                data-seccion="moduloCarnico"
                 aria-current="page"
+                onclick="mostrarSeccion('moduloCarnico')"
+            >
+                Módulo cárnico
+            </button>
+
+            <button
+                type="button"
+                class="nav-button"
+                data-seccion="productos"
                 onclick="mostrarSeccion('productos')"
             >
                 Productos
@@ -39,6 +48,15 @@
                 onclick="mostrarSeccion('transformacion')"
             >
                 Nueva transformación
+            </button>
+
+            <button
+                type="button"
+                class="nav-button"
+                data-seccion="configuraciones"
+                onclick="mostrarSeccion('configuraciones')"
+            >
+                Configuraciones
             </button>
 
             <button
@@ -67,7 +85,97 @@
 
     <main class="content">
 
-        <section id="productos" class="section">
+        <section id="moduloCarnico" class="section">
+            <div class="page-header">
+                <p class="eyebrow">Operación</p>
+                <h2>Módulo cárnico</h2>
+                <p class="ayuda">
+                    Vista diaria de transformaciones, rendimiento y trabajo
+                    activo.
+                </p>
+            </div>
+
+            <div
+                id="moduloIndicadores"
+                class="summary-strip modulo-indicadores"
+            ></div>
+
+            <div class="modulo-grid">
+                <div class="panel">
+                    <div class="section-toolbar">
+                        <h3>Producto en trabajo</h3>
+
+                        <button
+                            type="button"
+                            onclick="mostrarSeccion('productos')"
+                        >
+                            Buscar producto
+                        </button>
+                    </div>
+
+                    <div
+                        id="moduloProductoActual"
+                        class="modulo-producto-actual is-empty"
+                    >
+                        Sin producto seleccionado.
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="section-toolbar">
+                        <h3>Flujo rápido</h3>
+                    </div>
+
+                    <div class="modulo-acciones">
+                        <button
+                            type="button"
+                            onclick="mostrarSeccion('productos')"
+                        >
+                            Buscar producto
+                        </button>
+
+                        <button
+                            type="button"
+                            onclick="mostrarSeccion('transformacion')"
+                        >
+                            Nueva transformación
+                        </button>
+
+                        <button
+                            type="button"
+                            class="modulo-accion-secundaria"
+                            onclick="mostrarSeccion('configuraciones')"
+                        >
+                            Configuraciones
+                        </button>
+
+                        <button
+                            type="button"
+                            class="modulo-accion-secundaria"
+                            onclick="mostrarSeccion('registros')"
+                        >
+                            Registros
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="section-toolbar">
+                    <h3>Últimos movimientos</h3>
+
+                    <button type="button" onclick="mostrarSeccion('registros')">
+                        Ver registros
+                    </button>
+                </div>
+
+                <div id="moduloUltimosRegistros" class="result-container">
+                    Cargando registros...
+                </div>
+            </div>
+        </section>
+
+        <section id="productos" class="section hidden">
             <div class="page-header">
                 <p class="eyebrow">Consulta</p>
                 <h2>Buscar productos</h2>
@@ -181,84 +289,6 @@
             <div class="panel">
                 <div class="section-toolbar">
                     <div>
-                        <h3>Guardar configuracion</h3>
-                        <p class="panel-help">
-                            Guarda esta relacion para reutilizarla en
-                            futuras transformaciones.
-                        </p>
-                    </div>
-                </div>
-
-                <div class="config-resumen">
-                    <div>
-                        <span>Producto origen</span>
-                        <strong id="configOrigenSeleccionado">
-                            Selecciona un producto desde Productos
-                        </strong>
-                    </div>
-
-                    <div>
-                        <span>Salida base</span>
-                        <strong id="configCantidadBaseVista">0 kg</strong>
-                    </div>
-
-                    <div>
-                        <span>Resultantes</span>
-                        <strong id="configResultantesVista">
-                            Sin productos capturados
-                        </strong>
-                    </div>
-                </div>
-
-                <div class="form-grid compact-form">
-                    <div>
-                        <label for="configNombre">Nombre</label>
-                        <input
-                            type="text"
-                            id="configNombre"
-                            maxlength="150"
-                            placeholder="Ej. Chuleta preparada"
-                        >
-                    </div>
-
-                </div>
-
-                <div class="actions">
-                    <button
-                        type="button"
-                        id="botonGuardarConfiguracion"
-                        onclick="guardarConfiguracionTransformacion()"
-                    >
-                        Guardar configuracion
-                    </button>
-                </div>
-
-                <div id="resultadoConfiguracion"></div>
-            </div>
-
-            <div class="panel">
-                <div class="section-toolbar">
-                    <h3>Configuraciones creadas</h3>
-                    <button
-                        type="button"
-                        onclick="cargarConfiguracionesTransformacion(
-                            configuracionesPaginaActual
-                        )"
-                    >
-                        Actualizar
-                    </button>
-                </div>
-
-                <div id="tablaConfiguraciones" class="result-container">
-                    Aun no hay configuraciones registradas.
-                </div>
-
-                <div id="ingredientesConfiguracion"></div>
-            </div>
-
-            <div class="panel">
-                <div class="section-toolbar">
-                    <div>
                         <h3>Resumen</h3>
                         <p class="panel-help">
                             El sistema calcula la merma automaticamente.
@@ -348,6 +378,136 @@
             </div>
         </section>
 
+        <section id="configuraciones" class="section hidden">
+            <div class="page-header">
+                <p class="eyebrow">Configuracion</p>
+                <h2>Configuraciones</h2>
+                <p class="ayuda">
+                    Guarda relaciones de productos y consulta las
+                    configuraciones creadas para futuras transformaciones.
+                </p>
+            </div>
+
+            <div class="panel">
+                <div class="section-toolbar">
+                    <div>
+                        <h3 id="tituloFormularioConfiguracion">
+                            Guardar configuracion
+                        </h3>
+                        <p
+                            id="ayudaFormularioConfiguracion"
+                            class="panel-help"
+                        >
+                            Guarda esta relacion para reutilizarla en
+                            futuras transformaciones.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="config-resumen">
+                    <div>
+                        <span>Producto origen</span>
+                        <strong id="configOrigenSeleccionado">
+                            Selecciona un producto desde Productos
+                        </strong>
+                    </div>
+
+                    <div>
+                        <span>Salida base</span>
+                        <strong id="configCantidadBaseVista">0 kg</strong>
+                    </div>
+
+                    <div>
+                        <span>Resultantes</span>
+                        <strong id="configResultantesVista">
+                            Sin productos capturados
+                        </strong>
+                    </div>
+                </div>
+
+                <div class="form-grid compact-form">
+                    <div>
+                        <label for="configNombre">Nombre</label>
+                        <input
+                            type="text"
+                            id="configNombre"
+                            maxlength="150"
+                            placeholder="Ej. Chuleta preparada"
+                        >
+                    </div>
+
+                    <div>
+                        <label for="configCantidadBase">
+                            Peso base / salida
+                        </label>
+                        <input
+                            type="text"
+                            id="configCantidadBase"
+                            inputmode="decimal"
+                            placeholder="Ej. 1,5 kg"
+                        >
+                    </div>
+
+                    <div>
+                        <label for="configObservaciones">
+                            Observaciones
+                        </label>
+                        <input
+                            type="text"
+                            id="configObservaciones"
+                            maxlength="500"
+                            placeholder="Opcional"
+                        >
+                    </div>
+
+                </div>
+
+                <div id="editorResultantesConfiguracion"></div>
+
+                <div class="actions">
+                    <button
+                        type="button"
+                        id="botonCancelarEdicionConfiguracion"
+                        class="modulo-accion-secundaria"
+                        onclick="cancelarEdicionConfiguracion()"
+                        hidden
+                    >
+                        Cancelar edicion
+                    </button>
+
+                    <button
+                        type="button"
+                        id="botonGuardarConfiguracion"
+                        onclick="guardarConfiguracionTransformacion()"
+                    >
+                        Guardar configuracion
+                    </button>
+                </div>
+
+                <div id="resultadoConfiguracion"></div>
+            </div>
+
+            <div class="panel">
+                <div class="section-toolbar">
+                    <h3>Configuraciones creadas</h3>
+                    <button
+                        type="button"
+                        onclick="cargarConfiguracionesTransformacion(
+                            configuracionesPaginaActual
+                        )"
+                    >
+                        Actualizar
+                    </button>
+                </div>
+
+                <div id="tablaConfiguraciones" class="result-container">
+                    Aun no hay configuraciones registradas.
+                </div>
+
+                <div id="ingredientesConfiguracion"></div>
+            </div>
+        </section>
+
         <section id="registros" class="section hidden">
             <div class="page-header">
                 <p class="eyebrow">Consulta</p>
@@ -386,6 +546,6 @@
     </main>
 </div>
 
-<script src="/static/js/app.js?v=20260626-6"></script>
+<script src="/static/js/app.js?v=20260628-3"></script>
 </body>
 </html>

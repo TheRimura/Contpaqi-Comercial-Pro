@@ -184,6 +184,32 @@ def crear_configuracion(
     }
 
 
+@router.put("/{configuracion_id}")
+def actualizar_configuracion(
+    configuracion_id: int,
+    datos: CrearConfiguracionTransformacion,
+    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
+):
+    base_datos = obtener_base_datos()
+    validar_productos(base_datos, datos)
+    actualizada = base_datos.actualizar_configuracion_usuario(
+        configuracion_id,
+        datos,
+        sesion["user_id"],
+    )
+
+    if not actualizada:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Configuracion no encontrada",
+        )
+
+    return {
+        "mensaje": "Configuracion actualizada",
+        "id": configuracion_id,
+    }
+
+
 @router.get("/formula/{producto_id}/ingredientes")
 def consultar_ingredientes_formula(
     producto_id: int,

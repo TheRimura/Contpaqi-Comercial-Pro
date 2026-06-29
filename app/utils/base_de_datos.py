@@ -670,6 +670,108 @@ class BaseDatos(ComandosBaseDatos):
         )
         return int(fila["id_transformacion_usuario"])
 
+    def actualizar_configuracion_usuario(
+        self,
+        configuracion_id,
+        datos,
+        usuario_id,
+    ):
+        detalles_json = json.dumps([
+            {
+                "producto_id": detalle.producto_id,
+                "cantidad": float(detalle.cantidad),
+                "unidad": detalle.unidad,
+                "participa_balance": detalle.participa_balance,
+                "orden": detalle.orden,
+            }
+            for detalle in datos.productos_resultantes
+        ])
+
+        fila = self.fetchone(
+            """
+            SET NOCOUNT ON;
+
+            DECLARE @actualizados INT = 0;
+
+            BEGIN TRY
+                BEGIN TRANSACTION;
+
+                UPDATE dbo.TransformacionesUsuario
+                SET nombre_transformacion = ?,
+                    producto_origen = ?,
+                    producto_formula = ?,
+                    cantidad_base = ?,
+                    porcentaje_merma = ?,
+                    usuario_actualizacion = ?,
+                    fecha_actualizacion = GETDATE(),
+                    observaciones = ?
+                WHERE id_transformacion_usuario = ?
+                  AND activa = 1;
+
+                SET @actualizados = @@ROWCOUNT;
+
+                IF @actualizados = 1
+                BEGIN
+                    UPDATE dbo.TransformacionesUsuarioDetalle
+                    SET activa = 0
+                    WHERE id_transformacion_usuario = ?;
+
+                    INSERT INTO dbo.TransformacionesUsuarioDetalle (
+                        id_transformacion_usuario,
+                        producto_resultante,
+                        cantidad_resultante,
+                        unidad,
+                        participa_balance,
+                        orden
+                    )
+                    SELECT
+                        ?,
+                        producto_id,
+                        cantidad,
+                        unidad,
+                        participa_balance,
+                        orden
+                    FROM OPENJSON(?)
+                    WITH (
+                        producto_id INT '$.producto_id',
+                        cantidad DECIMAL(18, 6) '$.cantidad',
+                        unidad NVARCHAR(50) '$.unidad',
+                        participa_balance BIT '$.participa_balance',
+                        orden INT '$.orden'
+                    );
+                END
+
+                COMMIT TRANSACTION;
+
+                SELECT @actualizados AS actualizados;
+            END TRY
+            BEGIN CATCH
+                IF @@TRANCOUNT > 0
+                    ROLLBACK TRANSACTION;
+
+                THROW;
+            END CATCH;
+            """,
+            (
+                datos.nombre_transformacion.strip(),
+                datos.producto_origen_id,
+                datos.producto_formula_id,
+                float(datos.cantidad_base),
+                (
+                    float(datos.porcentaje_merma)
+                    if datos.porcentaje_merma is not None
+                    else None
+                ),
+                usuario_id,
+                datos.observaciones,
+                configuracion_id,
+                configuracion_id,
+                configuracion_id,
+                detalles_json,
+            ),
+        )
+        return bool(fila and int(fila["actualizados"] or 0))
+
     def buscar_tipo_movimiento(self, tipo, nombre):
         configuracion = self.buscar_configuracion_transformaciones()
         tipo_normalizado = str(tipo).strip().lower()
