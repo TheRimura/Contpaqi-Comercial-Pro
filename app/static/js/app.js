@@ -1473,6 +1473,13 @@ function productoDesdeDetalleConfiguracion(detalle) {
 }
 
 
+function idProductoDetalleConfiguracion(detalle) {
+    const producto = productoDesdeDetalleConfiguracion(detalle);
+
+    return Number(detalle?.producto_id || producto?.id || 0);
+}
+
+
 function normalizarProductoConfiguracion(producto) {
     if (!producto) {
         return null;
@@ -1642,12 +1649,15 @@ function sincronizarDraftConfiguracionDesdeContexto() {
 function resumenDetallesConfiguracion(detalles, mensajeVacio) {
     const productos = detalles
         .filter(function (detalle) {
-            return detalle.producto_id && Number(detalle.cantidad || 0) > 0;
+            return (
+                idProductoDetalleConfiguracion(detalle) &&
+                Number(detalle.cantidad || 0) > 0
+            );
         })
         .map(function (detalle) {
             const producto = productoDesdeDetalleConfiguracion(detalle) || {
-                nombre: `Producto ${detalle.producto_id}`,
-                clave: detalle.producto_id
+                nombre: `Producto ${idProductoDetalleConfiguracion(detalle)}`,
+                clave: idProductoDetalleConfiguracion(detalle)
             };
 
             return (
@@ -1660,6 +1670,36 @@ function resumenDetallesConfiguracion(detalles, mensajeVacio) {
         });
 
     return productos.length ? productos.join(", ") : mensajeVacio;
+}
+
+
+function resumenResultantesCorto(detalles) {
+    const productos = detalles.filter(function (detalle) {
+        return (
+            idProductoDetalleConfiguracion(detalle) &&
+            Number(detalle.cantidad || 0) > 0
+        );
+    });
+    const totalKilos = productos.reduce(function (total, detalle) {
+        const producto = productoDesdeDetalleConfiguracion(detalle);
+        const unidad = detalle.unidad || producto?.unidad || "KILO";
+
+        return total + (
+            normalizarUnidad(unidad) === "KILO"
+                ? Number(detalle.cantidad || 0)
+                : 0
+        );
+    }, 0);
+
+    if (productos.length === 0) {
+        return "Sin productos capturados";
+    }
+
+    return (
+        `${productos.length} resultante` +
+        `${productos.length === 1 ? "" : "s"}` +
+        `${totalKilos > 0 ? ` (${formatearKg(totalKilos)})` : ""}`
+    );
 }
 
 
@@ -1710,9 +1750,8 @@ function actualizarResumenConfiguracion() {
     );
     cantidadBase.textContent = formatearKg(pesoBase);
 
-    resultantes.textContent = resumenDetallesConfiguracion(
-        obtenerResultantesEditorConfiguracion(),
-        "Sin productos capturados"
+    resultantes.textContent = resumenResultantesCorto(
+        obtenerResultantesEditorConfiguracion()
     );
 }
 
@@ -2209,7 +2248,7 @@ function renderizarEditorComponentesConfiguracion() {
         const ayuda = document.createElement("p");
         ayuda.className = "panel-help config-editor-help";
         ayuda.textContent =
-            "Agrega el producto base y los insumos desde el buscador.";
+            "Selecciona un producto desde Productos para cargar sus insumos.";
         contenedor.appendChild(ayuda);
         return;
     }
@@ -2226,7 +2265,6 @@ function renderizarEditorComponentesConfiguracion() {
             <th>Tipo</th>
             <th>Unidad</th>
             <th>Peso / cantidad</th>
-            <th></th>
         </tr>
     `;
 
@@ -2239,9 +2277,7 @@ function renderizarEditorComponentesConfiguracion() {
         const celdaTipo = document.createElement("td");
         const celdaUnidad = document.createElement("td");
         const celdaCantidad = document.createElement("td");
-        const celdaAcciones = document.createElement("td");
         const cantidad = document.createElement("input");
-        const quitar = document.createElement("button");
 
         fila.className = "config-componente-fila";
         celdaProducto.textContent = textoProductoRegistro(producto);
@@ -2264,29 +2300,12 @@ function renderizarEditorComponentesConfiguracion() {
         cantidad.dataset.orden = String(detalle.orden || indice + 1);
         cantidad.addEventListener("input", actualizarResumenConfiguracion);
 
-        quitar.type = "button";
-        quitar.textContent = esProductoBase ? "Base" : "Quitar";
-        quitar.disabled = esProductoBase;
-        quitar.addEventListener("click", function () {
-            componentesConfiguracionDraft =
-                obtenerComponentesEditorConfiguracion().filter(
-                    function (componente) {
-                        return Number(componente.producto_id) !==
-                            Number(detalle.producto_id);
-                    }
-                );
-            renderizarEditorComponentesConfiguracion();
-            actualizarResumenConfiguracion();
-        });
-
         celdaCantidad.appendChild(cantidad);
-        celdaAcciones.appendChild(quitar);
         fila.append(
             celdaProducto,
             celdaTipo,
             celdaUnidad,
-            celdaCantidad,
-            celdaAcciones
+            celdaCantidad
         );
         cuerpo.appendChild(fila);
     });
@@ -2345,7 +2364,7 @@ function renderizarEditorResultantesConfiguracion() {
         const ayuda = document.createElement("p");
         ayuda.className = "panel-help config-editor-help";
         ayuda.textContent =
-            "Agrega al menos un producto resultante desde el buscador.";
+            "Selecciona un producto desde Productos para cargar sus resultantes.";
         contenedor.appendChild(ayuda);
         return;
     }
@@ -2361,7 +2380,6 @@ function renderizarEditorResultantesConfiguracion() {
             <th>Producto</th>
             <th>Unidad</th>
             <th>Peso / cantidad</th>
-            <th></th>
         </tr>
     `;
 
@@ -2372,9 +2390,7 @@ function renderizarEditorResultantesConfiguracion() {
         const celdaProducto = document.createElement("td");
         const celdaUnidad = document.createElement("td");
         const celdaCantidad = document.createElement("td");
-        const celdaAcciones = document.createElement("td");
         const cantidad = document.createElement("input");
-        const quitar = document.createElement("button");
 
         fila.className = "config-resultante-fila";
         celdaProducto.textContent = textoProductoRegistro(producto);
@@ -2390,27 +2406,12 @@ function renderizarEditorResultantesConfiguracion() {
         );
         cantidad.dataset.orden = String(detalle.orden || indice + 1);
         cantidad.addEventListener("input", actualizarResumenConfiguracion);
-        quitar.type = "button";
-        quitar.textContent = "Quitar";
-        quitar.addEventListener("click", function () {
-            resultantesConfiguracionDraft =
-                obtenerResultantesEditorConfiguracion().filter(
-                    function (producto) {
-                        return Number(producto.producto_id) !==
-                            Number(detalle.producto_id);
-                    }
-                );
-            renderizarEditorResultantesConfiguracion();
-            actualizarResumenConfiguracion();
-        });
 
         celdaCantidad.appendChild(cantidad);
-        celdaAcciones.appendChild(quitar);
         fila.append(
             celdaProducto,
             celdaUnidad,
-            celdaCantidad,
-            celdaAcciones
+            celdaCantidad
         );
         cuerpo.appendChild(fila);
     });
@@ -2814,40 +2815,72 @@ async function guardarConfiguracionTransformacion() {
 
 
 function resumenResultantesConfiguracion(configuracion) {
-    const productos = configuracion.productos_resultantes || [];
+    const productos = (configuracion.productos_resultantes || []).filter(
+        function (detalle) {
+            return (
+                idProductoDetalleConfiguracion(detalle) &&
+                Number(detalle.cantidad || 0) > 0
+            );
+        }
+    );
 
     if (productos.length === 0) {
         return "-";
     }
 
-    return productos.map(function (detalle) {
-        return (
-            `${textoProductoRegistro(detalle.producto)} ` +
-            `(${formatearCantidadUnidad(
-                detalle.cantidad,
-                detalle.unidad
-            )})`
-        );
-    }).join(", ");
+    return resumenResultantesCorto(productos);
 }
 
 
 function resumenComponentesConfiguracion(configuracion) {
-    const componentes = configuracion.componentes || [];
+    const componentes = (configuracion.componentes || []).filter(
+        function (detalle) {
+            return (
+                idProductoDetalleConfiguracion(detalle) &&
+                Number(detalle.cantidad || 0) > 0
+            );
+        }
+    );
 
     if (componentes.length === 0) {
         return "-";
     }
 
-    return componentes.map(function (detalle) {
-        return (
-            `${textoProductoRegistro(detalle.producto)} ` +
-            `(${formatearCantidadUnidad(
-                detalle.cantidad,
-                detalle.unidad
-            )})`
+    const productosBase = componentes.filter(function (detalle) {
+        return Boolean(detalle.es_producto_base);
+    }).length;
+    const insumos = componentes.length - productosBase;
+    const partes = [];
+
+    if (insumos > 0) {
+        partes.push(
+            `${insumos} insumo${insumos === 1 ? "" : "s"}`
         );
-    }).join(", ");
+    }
+
+    if (productosBase > 0) {
+        partes.push(
+            `${productosBase} base${productosBase === 1 ? "" : "s"}`
+        );
+    }
+
+    return partes.join(" + ");
+}
+
+
+function crearCeldaConfiguracionPrincipal(configuracion) {
+    const celda = document.createElement("td");
+    const nombre = document.createElement("strong");
+    const id = document.createElement("small");
+
+    nombre.textContent = (
+        configuracion.nombre ||
+        `Configuracion ${configuracion.id}`
+    );
+    id.className = "tabla-muted";
+    id.textContent = `ID ${configuracion.id}`;
+    celda.append(nombre, id);
+    return celda;
 }
 
 
@@ -2856,14 +2889,13 @@ function crearTablaConfiguraciones(configuraciones) {
     const encabezado = document.createElement("thead");
     const cuerpo = document.createElement("tbody");
 
-    tabla.className = "productos-tabla registros-tabla";
+    tabla.className =
+        "productos-tabla registros-tabla config-lista-tabla";
     encabezado.innerHTML = `
         <tr>
-            <th>ID</th>
-            <th>Nombre</th>
+            <th>Configuracion</th>
             <th>Origen</th>
-            <th>Formula</th>
-            <th>Cantidad base</th>
+            <th>Salida base</th>
             <th>Insumos</th>
             <th>Resultantes</th>
             <th>Usuario</th>
@@ -2873,13 +2905,10 @@ function crearTablaConfiguraciones(configuraciones) {
 
     configuraciones.forEach(function (configuracion) {
         const fila = document.createElement("tr");
+        fila.appendChild(crearCeldaConfiguracionPrincipal(configuracion));
+
         const valores = [
-            configuracion.id,
-            configuracion.nombre,
             textoProductoRegistro(configuracion.producto_origen),
-            configuracion.producto_formula
-                ? textoProductoRegistro(configuracion.producto_formula)
-                : "-",
             formatearCantidadUnidad(
                 configuracion.cantidad_base,
                 configuracion.producto_origen?.unidad || "KILO"

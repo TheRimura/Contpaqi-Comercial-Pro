@@ -896,6 +896,42 @@ tbody tr:nth-child(even) {
     white-space: normal;
 }
 
+.config-lista-tabla th:last-child,
+.config-lista-tabla td:last-child {
+    min-width: 170px;
+}
+
+.config-lista-tabla td:first-child strong {
+    display: block;
+    margin-bottom: 4px;
+}
+
+.config-lista-tabla .tabla-muted {
+    display: block;
+    color: var(--gris-texto);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.config-lista-tabla th:nth-child(1),
+.config-lista-tabla td:nth-child(1) {
+    min-width: 190px;
+}
+
+.config-lista-tabla th:nth-child(2),
+.config-lista-tabla td:nth-child(2) {
+    min-width: 180px;
+}
+
+.config-lista-tabla th:nth-child(3),
+.config-lista-tabla td:nth-child(3),
+.config-lista-tabla th:nth-child(4),
+.config-lista-tabla td:nth-child(4),
+.config-lista-tabla th:nth-child(5),
+.config-lista-tabla td:nth-child(5) {
+    min-width: 120px;
+}
+
 .summary-strip {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -970,7 +1006,7 @@ tbody tr:nth-child(even) {
 .config-editor-title {
     color: var(--azul-oscuro);
     font-size: 15px;
-    margin: 12px 0 10px;
+    margin: 18px 0 10px;
 }
 
 .config-editor-tabla {
@@ -993,33 +1029,43 @@ tbody tr:nth-child(even) {
 
 .config-componentes-tabla th:nth-child(1),
 .config-componentes-tabla td:nth-child(1) {
-    width: 42%;
+    width: 52%;
 }
 
 .config-componentes-tabla th:nth-child(2),
 .config-componentes-tabla td:nth-child(2) {
-    width: 15%;
+    width: 16%;
 }
 
 .config-componentes-tabla th:nth-child(3),
 .config-componentes-tabla td:nth-child(3) {
-    width: 10%;
+    width: 12%;
 }
 
 .config-componentes-tabla th:nth-child(4),
 .config-componentes-tabla td:nth-child(4) {
-    width: 23%;
-}
-
-.config-componentes-tabla th:nth-child(5),
-.config-componentes-tabla td:nth-child(5) {
-    width: 10%;
+    width: 20%;
 }
 
 .config-componentes-tabla input,
 .config-resultantes-tabla input {
     min-width: 0;
     width: 100%;
+}
+
+.config-resultantes-tabla th:nth-child(1),
+.config-resultantes-tabla td:nth-child(1) {
+    width: 55%;
+}
+
+.config-resultantes-tabla th:nth-child(2),
+.config-resultantes-tabla td:nth-child(2) {
+    width: 15%;
+}
+
+.config-resultantes-tabla th:nth-child(3),
+.config-resultantes-tabla td:nth-child(3) {
+    width: 30%;
 }
 
 .indicadores-registros {
