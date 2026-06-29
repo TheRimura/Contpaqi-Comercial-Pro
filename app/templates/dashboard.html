@@ -239,36 +239,6 @@
             </div>
 
             <div class="panel">
-                <h3>Tipo de transformacion</h3>
-                <p class="panel-help">
-                    Elige como se va a trabajar el producto seleccionado.
-                </p>
-
-                <div class="form-grid">
-                    <div>
-                        <label for="tipoTransformacion">
-                            Forma de registro
-                        </label>
-                        <select id="tipoTransformacion" disabled>
-                            <option value="receta_configurada">
-                                Usar transformación configurada
-                            </option>
-                            <option value="producto_final">
-                                Registrar como producto final
-                            </option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label>Explicacion</label>
-                        <div id="ayudaTipoTransformacion" class="help-card">
-                            Selecciona un producto para consultar sus opciones.
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="panel">
                 <div class="section-toolbar">
                     <h3 id="tituloProductosResultantes">
                         Productos resultantes
@@ -418,6 +388,13 @@
                     </div>
 
                     <div>
+                        <span>Insumos</span>
+                        <strong id="configComponentesVista">
+                            Sin insumos capturados
+                        </strong>
+                    </div>
+
+                    <div>
                         <span>Resultantes</span>
                         <strong id="configResultantesVista">
                             Sin productos capturados
@@ -447,21 +424,35 @@
                             placeholder="Ej. 1,5 kg"
                         >
                     </div>
-
+                    
+                <div class="config-product-picker">
                     <div>
-                        <label for="configObservaciones">
-                            Observaciones
-                        </label>
-                        <input
-                            type="text"
-                            id="configObservaciones"
-                            maxlength="500"
-                            placeholder="Opcional"
-                        >
+                        <h4>Agregar productos a la configuracion</h4>
+                        <p class="panel-help">
+                            Busca productos y agregalos como origen, insumo o
+                            resultante de esta transformacion.
+                        </p>
                     </div>
 
+                    <div class="form-row">
+                        <input
+                            type="text"
+                            id="busquedaProductoConfiguracion"
+                            placeholder="Buscar producto para configurar"
+                        >
+
+                        <button
+                            type="button"
+                            onclick="buscarProductosConfiguracion()"
+                        >
+                            Buscar
+                        </button>
+                    </div>
+
+                    <div id="tablaProductosConfiguracion"></div>
                 </div>
 
+                <div id="editorComponentesConfiguracion"></div>
                 <div id="editorResultantesConfiguracion"></div>
 
                 <div class="actions">

@@ -561,6 +561,123 @@ class BaseDatos(ComandosBaseDatos):
             tuple(ids_limpios),
         )
 
+    def tabla_componentes_configuracion_existe(self):
+        fila = self.fetchone(
+            """
+            SELECT OBJECT_ID(
+                N'dbo.TransformacionesUsuarioComponente',
+                N'U'
+            ) AS tabla_id
+            """
+        )
+
+        if not fila:
+            return False
+
+        if isinstance(fila, dict):
+            return fila["tabla_id"] is not None
+
+        return fila is not None
+
+    def asegurar_tabla_componentes_configuracion(self):
+        self.command(
+            """
+            IF OBJECT_ID(
+                N'dbo.TransformacionesUsuarioComponente',
+                N'U'
+            ) IS NULL
+            BEGIN
+                CREATE TABLE dbo.TransformacionesUsuarioComponente (
+                    id_componente_usuario INT IDENTITY(1, 1) NOT NULL
+                        CONSTRAINT PK_TransformacionesUsuarioComponente
+                        PRIMARY KEY,
+                    id_transformacion_usuario INT NOT NULL,
+                    producto_componente INT NOT NULL,
+                    cantidad DECIMAL(18, 6) NOT NULL,
+                    unidad NVARCHAR(50) NOT NULL,
+                    es_producto_base BIT NOT NULL
+                        CONSTRAINT DF_TUC_es_producto_base DEFAULT 0,
+                    tipo_componente NVARCHAR(30) NOT NULL
+                        CONSTRAINT DF_TUC_tipo_componente DEFAULT 'INSUMO',
+                    participa_balance BIT NOT NULL
+                        CONSTRAINT DF_TUC_participa_balance DEFAULT 0,
+                    orden INT NOT NULL
+                        CONSTRAINT DF_TUC_orden DEFAULT 1,
+                    activa BIT NOT NULL
+                        CONSTRAINT DF_TUC_activa DEFAULT 1,
+                    fecha_creacion DATETIME NOT NULL
+                        CONSTRAINT DF_TUC_fecha_creacion DEFAULT GETDATE()
+                );
+
+                CREATE INDEX IX_TUC_transformacion_activa
+                ON dbo.TransformacionesUsuarioComponente (
+                    id_transformacion_usuario,
+                    activa,
+                    orden
+                );
+            END
+            """
+        )
+
+    def buscar_componentes_configuraciones_usuario(
+        self,
+        ids_configuraciones,
+    ):
+        if not self.tabla_componentes_configuracion_existe():
+            return []
+
+        ids_limpios = list(dict.fromkeys(
+            int(configuracion_id)
+            for configuracion_id in ids_configuraciones
+            if configuracion_id
+        ))
+
+        if not ids_limpios:
+            return []
+
+        parametros = ", ".join("?" for _ in ids_limpios)
+
+        return self.fetchall(
+            f"""
+            SELECT
+                C.id_transformacion_usuario,
+                C.id_componente_usuario,
+                C.producto_componente,
+                P.ProductID,
+                C.cantidad,
+                C.unidad,
+                C.es_producto_base,
+                C.tipo_componente,
+                C.participa_balance,
+                C.orden,
+                C.activa,
+                P.ProductKey,
+                P.ProductName,
+                P.Category1,
+                P.Unit,
+                P.CostPrice,
+                ISNULL(I.QtyPresent, 0) AS QtyPresent
+            FROM dbo.TransformacionesUsuarioComponente AS C
+            INNER JOIN dbo.orgProduct AS P
+                ON P.ProductID = C.producto_componente
+            OUTER APPLY (
+                SELECT SUM(Q.QtyPresent) AS QtyPresent
+                FROM dbo.vwLBSProductQuantityList AS Q
+                WHERE Q.ProductID = P.ProductID
+                  AND Q.DepotID = (
+                      SELECT TOP 1 almacen_id
+                      FROM dbo.ConfiguracionTransformaciones
+                      WHERE activa = 1
+                      ORDER BY id_configuracion
+                  )
+            ) AS I
+            WHERE C.id_transformacion_usuario IN ({parametros})
+              AND C.activa = 1
+            ORDER BY C.id_transformacion_usuario DESC, C.orden
+            """,
+            tuple(ids_limpios),
+        )
+
     def buscar_ingredientes_formula(self, producto_formula_id):
         return self.fetchall(
             """
@@ -585,6 +702,7 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def registrar_configuracion_usuario(self, datos, usuario_id):
+        self.asegurar_tabla_componentes_configuracion()
         detalles_json = json.dumps([
             {
                 "producto_id": detalle.producto_id,
@@ -594,6 +712,18 @@ class BaseDatos(ComandosBaseDatos):
                 "orden": detalle.orden,
             }
             for detalle in datos.productos_resultantes
+        ])
+        componentes_json = json.dumps([
+            {
+                "producto_id": componente.producto_id,
+                "cantidad": float(componente.cantidad),
+                "unidad": componente.unidad,
+                "es_producto_base": componente.es_producto_base,
+                "tipo_componente": componente.tipo_componente,
+                "participa_balance": componente.participa_balance,
+                "orden": componente.orden,
+            }
+            for componente in datos.componentes
         ])
 
         fila = self.fetchone(
@@ -642,6 +772,36 @@ class BaseDatos(ComandosBaseDatos):
                     orden INT '$.orden'
                 );
 
+                INSERT INTO dbo.TransformacionesUsuarioComponente (
+                    id_transformacion_usuario,
+                    producto_componente,
+                    cantidad,
+                    unidad,
+                    es_producto_base,
+                    tipo_componente,
+                    participa_balance,
+                    orden
+                )
+                SELECT
+                    @id,
+                    producto_id,
+                    cantidad,
+                    unidad,
+                    es_producto_base,
+                    tipo_componente,
+                    participa_balance,
+                    orden
+                FROM OPENJSON(?)
+                WITH (
+                    producto_id INT '$.producto_id',
+                    cantidad DECIMAL(18, 6) '$.cantidad',
+                    unidad NVARCHAR(50) '$.unidad',
+                    es_producto_base BIT '$.es_producto_base',
+                    tipo_componente NVARCHAR(30) '$.tipo_componente',
+                    participa_balance BIT '$.participa_balance',
+                    orden INT '$.orden'
+                );
+
                 COMMIT TRANSACTION;
 
                 SELECT @id AS id_transformacion_usuario;
@@ -666,6 +826,7 @@ class BaseDatos(ComandosBaseDatos):
                 usuario_id,
                 datos.observaciones,
                 detalles_json,
+                componentes_json,
             ),
         )
         return int(fila["id_transformacion_usuario"])
@@ -676,6 +837,7 @@ class BaseDatos(ComandosBaseDatos):
         datos,
         usuario_id,
     ):
+        self.asegurar_tabla_componentes_configuracion()
         detalles_json = json.dumps([
             {
                 "producto_id": detalle.producto_id,
@@ -685,6 +847,18 @@ class BaseDatos(ComandosBaseDatos):
                 "orden": detalle.orden,
             }
             for detalle in datos.productos_resultantes
+        ])
+        componentes_json = json.dumps([
+            {
+                "producto_id": componente.producto_id,
+                "cantidad": float(componente.cantidad),
+                "unidad": componente.unidad,
+                "es_producto_base": componente.es_producto_base,
+                "tipo_componente": componente.tipo_componente,
+                "participa_balance": componente.participa_balance,
+                "orden": componente.orden,
+            }
+            for componente in datos.componentes
         ])
 
         fila = self.fetchone(
@@ -739,6 +913,40 @@ class BaseDatos(ComandosBaseDatos):
                         participa_balance BIT '$.participa_balance',
                         orden INT '$.orden'
                     );
+
+                    UPDATE dbo.TransformacionesUsuarioComponente
+                    SET activa = 0
+                    WHERE id_transformacion_usuario = ?;
+
+                    INSERT INTO dbo.TransformacionesUsuarioComponente (
+                        id_transformacion_usuario,
+                        producto_componente,
+                        cantidad,
+                        unidad,
+                        es_producto_base,
+                        tipo_componente,
+                        participa_balance,
+                        orden
+                    )
+                    SELECT
+                        ?,
+                        producto_id,
+                        cantidad,
+                        unidad,
+                        es_producto_base,
+                        tipo_componente,
+                        participa_balance,
+                        orden
+                    FROM OPENJSON(?)
+                    WITH (
+                        producto_id INT '$.producto_id',
+                        cantidad DECIMAL(18, 6) '$.cantidad',
+                        unidad NVARCHAR(50) '$.unidad',
+                        es_producto_base BIT '$.es_producto_base',
+                        tipo_componente NVARCHAR(30) '$.tipo_componente',
+                        participa_balance BIT '$.participa_balance',
+                        orden INT '$.orden'
+                    );
                 END
 
                 COMMIT TRANSACTION;
@@ -768,6 +976,9 @@ class BaseDatos(ComandosBaseDatos):
                 configuracion_id,
                 configuracion_id,
                 detalles_json,
+                configuracion_id,
+                configuracion_id,
+                componentes_json,
             ),
         )
         return bool(fila and int(fila["actualizados"] or 0))

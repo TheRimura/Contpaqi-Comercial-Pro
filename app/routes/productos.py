@@ -91,6 +91,23 @@ def componentes_desde_formula(ingredientes, producto_base_id):
     return componentes
 
 
+def componentes_desde_configuracion(componentes):
+    return [
+        {
+            "producto_id": componente["producto_componente"],
+            "clave": componente["ProductKey"],
+            "nombre": componente["ProductName"],
+            "categoria": componente["Category1"],
+            "unidad": componente["unidad"] or componente["Unit"],
+            "cantidad": componente["cantidad"],
+            "es_producto_base": bool(componente["es_producto_base"]),
+            "tipo_componente": componente["tipo_componente"],
+            "participa_balance": bool(componente["participa_balance"]),
+        }
+        for componente in componentes
+    ]
+
+
 def respuesta_configuracion_usuario(base_datos, producto_id):
     configuracion = base_datos.buscar_configuracion_usuario_para_producto(
         producto_id
@@ -117,10 +134,13 @@ def respuesta_configuracion_usuario(base_datos, producto_id):
         "formula",
         porcentajes_merma,
     )
-    ingredientes = []
-    componentes = []
+    componentes = componentes_desde_configuracion(
+        base_datos.buscar_componentes_configuraciones_usuario([
+            configuracion["id_transformacion_usuario"]
+        ])
+    )
 
-    if configuracion["producto_formula"]:
+    if not componentes and configuracion["producto_formula"]:
         ingredientes = base_datos.buscar_ingredientes_formula(
             configuracion["producto_formula"]
         )

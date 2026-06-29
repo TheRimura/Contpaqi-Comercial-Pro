@@ -905,7 +905,7 @@ tbody tr:nth-child(even) {
 
 .config-resumen {
     display: grid;
-    grid-template-columns: 1.2fr 0.7fr 1.4fr;
+    grid-template-columns: 1.2fr 0.65fr 1.1fr 1.25fr;
     gap: 14px;
     margin-bottom: 14px;
 }
@@ -933,6 +933,33 @@ tbody tr:nth-child(even) {
     color: var(--azul-oscuro);
     font-size: 14px;
     line-height: 1.35;
+}
+
+.config-product-picker {
+    margin: 4px 0 18px;
+    padding: 16px;
+    background: #f8fafc;
+    border: 1px solid var(--gris-borde);
+    border-radius: 7px;
+}
+
+.config-product-picker h4 {
+    color: var(--azul-oscuro);
+    font-size: 15px;
+    margin-bottom: 2px;
+}
+
+.config-product-picker .form-row {
+    margin-top: 12px;
+    margin-bottom: 10px;
+}
+
+.config-productos-tabla td:last-child {
+    min-width: 250px;
+}
+
+.config-productos-tabla .acciones-tabla {
+    min-width: 250px;
 }
 
 .config-detalle {

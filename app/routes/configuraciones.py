@@ -68,7 +68,35 @@ def agrupar_detalles(filas):
     return detalles
 
 
-def formatear_configuracion(fila, detalles):
+def agrupar_componentes(filas):
+    componentes = {}
+
+    for fila in filas:
+        componentes.setdefault(
+            fila["id_transformacion_usuario"],
+            [],
+        ).append({
+            "id": fila["id_componente_usuario"],
+            "producto": producto(
+                fila["producto_componente"],
+                fila["ProductKey"],
+                fila["ProductName"],
+                fila["Category1"],
+                fila["Unit"],
+            ),
+            "cantidad": numero(fila["cantidad"]),
+            "unidad": fila["unidad"],
+            "es_producto_base": bool(fila["es_producto_base"]),
+            "tipo_componente": fila["tipo_componente"],
+            "participa_balance": bool(fila["participa_balance"]),
+            "orden": fila["orden"],
+            "activa": bool(fila["activa"]),
+        })
+
+    return componentes
+
+
+def formatear_configuracion(fila, detalles, componentes):
     return {
         "id": fila["id_transformacion_usuario"],
         "nombre": fila["nombre_transformacion"],
@@ -101,8 +129,11 @@ def formatear_configuracion(fila, detalles):
             fila["fecha_actualizacion"]
         ),
         "activa": bool(fila["activa"]),
-        "observaciones": fila["observaciones"],
         "productos_resultantes": detalles.get(
+            fila["id_transformacion_usuario"],
+            [],
+        ),
+        "componentes": componentes.get(
             fila["id_transformacion_usuario"],
             [],
         ),
@@ -115,6 +146,10 @@ def validar_productos(base_datos, datos):
         *[
             detalle.producto_id
             for detalle in datos.productos_resultantes
+        ],
+        *[
+            componente.producto_id
+            for componente in datos.componentes
         ],
     }
 
@@ -151,12 +186,18 @@ def listar_configuraciones(
             for fila in encabezados
         ])
     )
+    componentes = agrupar_componentes(
+        base_datos.buscar_componentes_configuraciones_usuario([
+            fila["id_transformacion_usuario"]
+            for fila in encabezados
+        ])
+    )
     total = base_datos.contar_configuraciones_usuario()
     total_paginas = (total + limite - 1) // limite
 
     return {
         "configuraciones": [
-            formatear_configuracion(fila, detalles)
+            formatear_configuracion(fila, detalles, componentes)
             for fila in encabezados
         ],
         "pagina": pagina,

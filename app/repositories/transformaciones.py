@@ -278,6 +278,10 @@ def validar_productos_existentes(base_datos, datos):
             producto.producto_id
             for producto in datos.productos_resultantes
         ],
+        *[
+            componente.producto_id
+            for componente in datos.componentes_formula
+        ],
     }
     existentes = base_datos.buscar_ids_productos_existentes(ids_productos)
     faltantes = ids_productos - existentes
