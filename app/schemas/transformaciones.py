@@ -104,3 +104,16 @@ class CrearTransformacion(BaseModel):
         self.peso_merma = merma_calculada
         return self
 
+    @model_validator(mode="after")
+    def calcular_merma_esperado(self):
+        if self.producto_ya_transformado:
+            self.tipo_transformacion = "producto_final"
+            self.producto_ya_transformado = False
+            nombre_producto = self.producto_seleccionado_id
+
+        raise ValueError(
+            "La merma no puede sobre pasar cierto porcentaje"
+            "la cantidad establecida"
+        )
+
+        

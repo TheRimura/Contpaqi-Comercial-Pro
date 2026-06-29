@@ -1109,6 +1109,7 @@ class BaseDatos(ComandosBaseDatos):
             comentario,
         ))
 
+
         if not partida_id:
             raise RuntimeError(
                 f"No fue posible insertar el producto {producto_id}"
@@ -1442,7 +1443,6 @@ class BaseDatos(ComandosBaseDatos):
             """,
             tuple(ids_limpios),
         )
-
 
 @cache
 def obtener_base_datos():
