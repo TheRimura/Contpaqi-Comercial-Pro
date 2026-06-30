@@ -1444,6 +1444,8 @@ class BaseDatos(ComandosBaseDatos):
             tuple(ids_limpios),
         )
 
+
+
 @cache
 def obtener_base_datos():
     return BaseDatos()
