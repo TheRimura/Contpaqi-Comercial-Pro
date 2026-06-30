@@ -268,6 +268,7 @@ def consultar_ingredientes_formula(
                 "categoria": fila["Category1"],
                 "unidad": fila["Unit"],
                 "cantidad": numero(fila["CantidadComp"]),
+
             }
             for fila in filas
         ],

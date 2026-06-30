@@ -44,3 +44,4 @@ def mostrar_dashboard(request: Request):
         return RedirectResponse("/", status_code=303)
 
     return FileResponse(RUTA_APP / "templates" / "dashboard.html")
+
