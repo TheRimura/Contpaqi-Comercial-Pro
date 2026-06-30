@@ -39,6 +39,7 @@ class CrearConfiguracionTransformacion(BaseModel):
     productos_resultantes: list[ProductoConfigurado] = Field(min_length=1)
     componentes: list[ComponenteConfigurado] = Field(default_factory=list)
 
+
     @model_validator(mode="after")
     def validar_productos(self):
         ids_resultantes = [

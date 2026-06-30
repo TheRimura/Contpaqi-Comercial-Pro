@@ -1505,6 +1505,7 @@ function crearDetalleConfiguracion(producto, cantidad = "", extras = {}) {
         producto: productoNormalizado,
         producto_id: Number(productoNormalizado?.id || 0),
         cantidad,
+        cantidad_referencia: extras.cantidad_referencia ?? cantidad,
         unidad,
         participa_balance: extras.participa_balance ?? true,
         es_producto_base: extras.es_producto_base ?? false,
@@ -1539,9 +1540,33 @@ function detalleComponenteDesdeApi(componente, indice) {
                 componente.participa_balance ??
                 Boolean(componente.es_producto_base)
             ),
+            cantidad_referencia: (
+                componente.cantidad_referencia ??
+                componente.cantidad
+            ),
             orden: componente.orden || indice + 1
         }
     );
+}
+
+
+function esDetalleProductoBaseConfiguracion(detalle, indice = 0) {
+    const tipo = String(detalle?.tipo_componente || "").toUpperCase();
+    const productoId = idProductoDetalleConfiguracion(detalle);
+    const productoOrigenId = Number(
+        configuracionEditando?.producto_origen?.id ||
+        productoOrigenSeleccionado?.id ||
+        0
+    );
+
+    return Boolean(detalle?.es_producto_base) ||
+        tipo === "PRODUCTO_BASE" ||
+        (
+            indice === 0 &&
+            productoId &&
+            productoOrigenId &&
+            Number(productoId) === productoOrigenId
+        );
 }
 
 
@@ -2228,6 +2253,150 @@ function actualizarEstadoFormularioConfiguracion() {
 }
 
 
+function obtenerInputProductoBaseConfiguracion() {
+    return Array.from(
+        document.querySelectorAll(".config-componente-cantidad")
+    ).find(function (input) {
+        return esInputProductoBaseConfiguracion(input);
+    }) || null;
+}
+
+
+function obtenerInputResultantePrincipalConfiguracion() {
+    return document.querySelector(".config-resultante-cantidad");
+}
+
+
+function esInputProductoBaseConfiguracion(input) {
+    return input.dataset.esProductoBase === "true" ||
+        String(input.dataset.tipoComponente || "").toUpperCase() ===
+            "PRODUCTO_BASE";
+}
+
+
+function obtenerFactorProductoBaseConfiguracion() {
+    const inputBase = obtenerInputProductoBaseConfiguracion();
+
+    if (!inputBase) {
+        return 1;
+    }
+
+    const unidadBase = inputBase.dataset.unidad || "KILO";
+    const cantidadReferencia = Number(
+        inputBase.dataset.cantidadReferencia || 0
+    );
+    const cantidadActual = leerCantidadUnidad(inputBase.value, unidadBase);
+
+    if (cantidadReferencia <= 0 || cantidadActual <= 0) {
+        return 1;
+    }
+
+    return cantidadActual / cantidadReferencia;
+}
+
+
+function sincronizarCantidadBaseConfiguracion(inputBase) {
+    const cantidadBase = document.getElementById("configCantidadBase");
+
+    if (!cantidadBase || !inputBase) {
+        return;
+    }
+
+    cantidadBase.value = inputBase.value;
+    cantidadBase.dataset.automatica = "0";
+}
+
+
+function escalarComponentesConfiguracion(factor, incluirProductoBase) {
+    if (!Number.isFinite(factor) || factor <= 0) {
+        return;
+    }
+
+    document.querySelectorAll(".config-componente-cantidad").forEach(
+        function (input) {
+            const esProductoBase = esInputProductoBaseConfiguracion(input);
+
+            if (esProductoBase && !incluirProductoBase) {
+                return;
+            }
+
+            const unidad = input.dataset.unidad || "KILO";
+            const cantidadReferencia = Number(
+                input.dataset.cantidadReferencia || 0
+            );
+
+            if (cantidadReferencia <= 0) {
+                return;
+            }
+
+            input.value = formatearCantidadUnidad(
+                cantidadReferencia * factor,
+                unidad
+            );
+
+            if (esProductoBase) {
+                sincronizarCantidadBaseConfiguracion(input);
+            }
+        }
+    );
+}
+
+
+function actualizarReferenciaInsumoConfiguracion(input) {
+    const unidad = input.dataset.unidad || "KILO";
+    const cantidadActual = leerCantidadUnidad(input.value, unidad);
+    const factor = obtenerFactorProductoBaseConfiguracion();
+
+    if (cantidadActual <= 0 || factor <= 0) {
+        return;
+    }
+
+    input.dataset.cantidadReferencia = String(cantidadActual / factor);
+}
+
+
+function escalarInsumosDesdeProductoBase(inputBase) {
+    const unidadBase = inputBase.dataset.unidad || "KILO";
+    const cantidadReferenciaBase = Number(
+        inputBase.dataset.cantidadReferencia || 0
+    );
+    const cantidadActualBase = leerCantidadUnidad(inputBase.value, unidadBase);
+
+    sincronizarCantidadBaseConfiguracion(inputBase);
+
+    if (cantidadReferenciaBase <= 0 || cantidadActualBase <= 0) {
+        actualizarResumenConfiguracion();
+        return;
+    }
+
+    const factor = cantidadActualBase / cantidadReferenciaBase;
+
+    escalarComponentesConfiguracion(factor, false);
+
+    actualizarResumenConfiguracion();
+}
+
+
+function escalarComponentesDesdeResultantePrincipal(inputResultante) {
+    const unidad = inputResultante.dataset.unidad || "KILO";
+    const cantidadReferencia = Number(
+        inputResultante.dataset.cantidadReferencia || 0
+    );
+    const cantidadActual = leerCantidadUnidad(inputResultante.value, unidad);
+
+    if (cantidadReferencia <= 0 || cantidadActual <= 0) {
+        actualizarResumenConfiguracion();
+        return;
+    }
+
+    escalarComponentesConfiguracion(
+        cantidadActual / cantidadReferencia,
+        true
+    );
+    actualizarResumenConfiguracion();
+}
+
+
 function renderizarEditorComponentesConfiguracion() {
     const contenedor = document.getElementById(
         "editorComponentesConfiguracion"
@@ -2272,7 +2441,10 @@ function renderizarEditorComponentesConfiguracion() {
         const fila = document.createElement("tr");
         const producto = productoDesdeDetalleConfiguracion(detalle) || {};
         const unidad = detalle.unidad || producto.unidad || "KILO";
-        const esProductoBase = Boolean(detalle.es_producto_base);
+        const esProductoBase = esDetalleProductoBaseConfiguracion(
+            detalle,
+            indice
+        );
         const celdaProducto = document.createElement("td");
         const celdaTipo = document.createElement("td");
         const celdaUnidad = document.createElement("td");
@@ -2290,6 +2462,9 @@ function renderizarEditorComponentesConfiguracion() {
         cantidad.dataset.productoId = detalle.producto_id || producto.id;
         cantidad.dataset.unidad = unidad;
         cantidad.dataset.esProductoBase = String(esProductoBase);
+        cantidad.dataset.cantidadReferencia = String(
+            detalle.cantidad_referencia ?? detalle.cantidad ?? 0
+        );
         cantidad.dataset.tipoComponente = (
             detalle.tipo_componente ||
             (esProductoBase ? "PRODUCTO_BASE" : "INSUMO")
@@ -2298,7 +2473,15 @@ function renderizarEditorComponentesConfiguracion() {
             detalle.participa_balance ?? esProductoBase
         );
         cantidad.dataset.orden = String(detalle.orden || indice + 1);
-        cantidad.addEventListener("input", actualizarResumenConfiguracion);
+        cantidad.addEventListener("input", function () {
+            if (esProductoBase) {
+                escalarInsumosDesdeProductoBase(cantidad);
+                return;
+            }
+
+            actualizarReferenciaInsumoConfiguracion(cantidad);
+            actualizarResumenConfiguracion();
+        });
 
         celdaCantidad.appendChild(cantidad);
         fila.append(
@@ -2321,11 +2504,14 @@ function obtenerComponentesEditorConfiguracion() {
     ).map(function (fila, indice) {
         const input = fila.querySelector(".config-componente-cantidad");
         const unidad = input.dataset.unidad || "KILO";
-        const esProductoBase = input.dataset.esProductoBase === "true";
+        const esProductoBase = esInputProductoBaseConfiguracion(input);
 
         return {
             producto_id: Number(input.dataset.productoId || 0),
             cantidad: leerCantidadUnidad(input.value, unidad).toFixed(4),
+            cantidad_referencia: Number(
+                input.dataset.cantidadReferencia || 0
+            ).toFixed(4),
             unidad,
             es_producto_base: esProductoBase,
             tipo_componente: (
@@ -2401,11 +2587,21 @@ function renderizarEditorResultantesConfiguracion() {
         cantidad.value = formatearCantidadUnidad(detalle.cantidad, unidad);
         cantidad.dataset.productoId = producto.id;
         cantidad.dataset.unidad = unidad;
+        cantidad.dataset.cantidadReferencia = String(
+            detalle.cantidad_referencia ?? detalle.cantidad ?? 0
+        );
         cantidad.dataset.participaBalance = String(
             detalle.participa_balance ?? true
         );
         cantidad.dataset.orden = String(detalle.orden || indice + 1);
-        cantidad.addEventListener("input", actualizarResumenConfiguracion);
+        cantidad.addEventListener("input", function () {
+            if (indice === 0) {
+                escalarComponentesDesdeResultantePrincipal(cantidad);
+                return;
+            }
+
+            actualizarResumenConfiguracion();
+        });
 
         celdaCantidad.appendChild(cantidad);
         fila.append(
@@ -2431,6 +2627,9 @@ function obtenerResultantesEditorConfiguracion() {
         return {
             producto_id: Number(input.dataset.productoId || 0),
             cantidad: leerCantidadUnidad(input.value, unidad).toFixed(4),
+            cantidad_referencia: Number(
+                input.dataset.cantidadReferencia || 0
+            ).toFixed(4),
             unidad,
             participa_balance: input.dataset.participaBalance !== "false",
             orden: Number(input.dataset.orden || indice + 1),
