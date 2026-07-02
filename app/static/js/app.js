@@ -93,7 +93,1382 @@ async function redirigirSiSesionActiva() {
 }
 
 
+function prepararConfiguracionesTransformacion() {
+    sincronizarDraftConfiguracionDesdeContexto();
+    actualizarEstadoFormularioConfiguracion();
+    renderizarEditorComponentesConfiguracion();
+    renderizarEditorResultantesConfiguracion();
+    actualizarResumenConfiguracion();
+    cargarConfiguracionesTransformacion(configuracionesPaginaActual);
+}
+
+
+function abrirModalConfiguraciones() {
+    const modal = document.getElementById("modalConfiguraciones");
+
+    if (!modal) {
+        return;
+    }
+
+    modal.classList.remove("hidden");
+    document.body.classList.add("modal-open");
+    prepararConfiguracionesTransformacion();
+}
+
+
+function cerrarModalConfiguraciones() {
+    const modal = document.getElementById("modalConfiguraciones");
+
+    if (!modal) {
+        return;
+    }
+
+    modal.classList.add("hidden");
+    document.body.classList.remove("modal-open");
+}
+
+
+const MOVIMIENTOS_MODULO = {
+    transformacion: {
+        etiqueta: "Transformacion",
+        titulo: "Producto base y resultantes",
+        descripcion: "Captura salida, entrada y merma en una sola operacion.",
+        accion: "Nueva transformacion",
+        seccion: "transformacion"
+    },
+    salida: {
+        etiqueta: "Salida",
+        titulo: "Producto padre / inventario",
+        descripcion: "Selecciona el producto que sale para iniciar el trabajo.",
+        accion: "Abrir opciones de salida",
+        seccion: "transformacion"
+    },
+    entrada: {
+        etiqueta: "Entrada",
+        titulo: "Producto resultante",
+        descripcion: "Revisa o captura el producto que entra al inventario.",
+        accion: "Capturar entrada",
+        seccion: "transformacion"
+    },
+    merma: {
+        etiqueta: "Merma",
+        titulo: "Rendimiento y perdida",
+        descripcion: "Valida el balance entre salida, entrada y merma.",
+        accion: "Capturar merma",
+        seccion: "transformacion"
+    }
+};
+
+let movimientoModuloActual = "transformacion";
+
+
+function obtenerMovimientoModulo(tipo) {
+    return MOVIMIENTOS_MODULO[tipo] || MOVIMIENTOS_MODULO.transformacion;
+}
+
+
+function seleccionarMovimientoModulo(tipo) {
+    const movimiento = obtenerMovimientoModulo(tipo);
+    const etiqueta = document.getElementById("moduloMovimientoEtiqueta");
+    const titulo = document.getElementById("moduloMovimientoTitulo");
+    const descripcion = document.getElementById(
+        "moduloMovimientoDescripcion"
+    );
+    const accionPrincipal = document.getElementById(
+        "moduloAccionPrincipal"
+    );
+
+    movimientoModuloActual = MOVIMIENTOS_MODULO[tipo]
+        ? tipo
+        : "transformacion";
+
+    document.querySelectorAll(".modulo-movimiento").forEach(
+        function (boton) {
+            boton.classList.toggle(
+                "is-active",
+                boton.dataset.movimiento === movimientoModuloActual
+            );
+        }
+    );
+
+    if (etiqueta) {
+        etiqueta.textContent = movimiento.etiqueta;
+    }
+
+    if (titulo) {
+        titulo.textContent = movimiento.titulo;
+    }
+
+    if (descripcion) {
+        descripcion.textContent = movimiento.descripcion;
+    }
+
+    if (accionPrincipal) {
+        accionPrincipal.textContent = movimiento.accion;
+    }
+}
+
+
+function obtenerProductoTrabajoMovimiento() {
+    return productoOrigenSeleccionado || productoSeleccionadoOriginal;
+}
+
+
+function mostrarEstadoMovimientoModulo(mensaje, tipo = "") {
+    const estado = document.getElementById("estadoMovimientoModulo");
+
+    if (!estado) {
+        return;
+    }
+
+    estado.className = `movimiento-status ${tipo}`.trim();
+    estado.textContent = mensaje;
+}
+
+
+function crearOpcionMovimientoModulo(opcion) {
+    const boton = document.createElement("button");
+    const titulo = document.createElement("strong");
+    const descripcion = document.createElement("span");
+
+    boton.type = "button";
+    boton.className = "movimiento-opcion";
+    boton.disabled = Boolean(opcion.deshabilitada);
+    titulo.textContent = opcion.titulo;
+    descripcion.textContent = opcion.descripcion;
+    boton.append(titulo, descripcion);
+
+    if (opcion.deshabilitada) {
+        boton.title = opcion.motivo || "Opcion no disponible";
+    } else {
+        boton.addEventListener("click", opcion.accion);
+    }
+
+    return boton;
+}
+
+
+function abrirCapturaMovimiento(opciones = {}) {
+    cerrarPanelMovimientoModulo();
+    mostrarSeccion("transformacion");
+
+    window.setTimeout(function () {
+        if (opciones.abrirMerma) {
+            const detalles = document.querySelector(".merma-opcional");
+
+            if (detalles) {
+                detalles.open = true;
+            }
+        }
+
+        if (opciones.scrollSelector) {
+            const destino = document.querySelector(opciones.scrollSelector);
+
+            if (destino) {
+                destino.scrollIntoView({
+                    behavior: "smooth",
+                    block: "center"
+                });
+            }
+        }
+
+        if (opciones.campoId) {
+            const campo = document.getElementById(opciones.campoId);
+
+            if (campo) {
+                campo.focus();
+            }
+        }
+    }, 0);
+}
+
+
+function abrirConfiguracionesDesdeMovimiento() {
+    cerrarPanelMovimientoModulo();
+    abrirModalConfiguraciones();
+}
+
+
+function verRegistrosDesdeMovimiento() {
+    cerrarPanelMovimientoModulo();
+    mostrarSeccion("registros");
+}
+
+
+function obtenerSalidaGuardada() {
+    try {
+        return JSON.parse(
+            window.localStorage.getItem(STORAGE_SALIDA_MOVIMIENTO) || "null"
+        );
+    } catch (error) {
+        console.error(error);
+        return null;
+    }
+}
+
+
+function obtenerProductoSalidaActual() {
+    return salidaProductoSeleccionado || obtenerProductoTrabajoMovimiento();
+}
+
+
+function obtenerProductosSalidaDisponibles() {
+    return leerProductosCarnicosGuardados().map(function (producto) {
+        return normalizarProductoCarnico(producto);
+    }).filter(function (producto) {
+        return producto.id;
+    });
+}
+
+
+function actualizarContextoSalida(contexto) {
+    const producto = obtenerProductoSalidaActual();
+    const label = document.createElement("span");
+    const nombre = document.createElement("strong");
+
+    label.textContent = "Producto en trabajo";
+    nombre.textContent = producto
+        ? textoProductoRegistro(producto)
+        : "Sin producto seleccionado";
+    contexto.replaceChildren(label, nombre);
+}
+
+
+function seleccionarProductoSalida(producto, fila) {
+    salidaProductoSeleccionado = normalizarProductoCarnico(producto);
+
+    document
+        .querySelectorAll("#opcionesMovimientoModulo tbody tr")
+        .forEach(function (registro) {
+            registro.classList.remove("fila-seleccionada");
+        });
+
+    if (fila) {
+        fila.classList.add("fila-seleccionada");
+    }
+
+    mostrarEstadoMovimientoModulo(
+        movimientoModuloActual === "salida"
+            ? "Producto listo. Captura cantidad y empleados para registrar salida."
+            : "Producto listo. Presiona Seleccionar producto para cargar la transformacion.",
+        "success"
+    );
+}
+
+
+function crearTablaSalidaProductos(productos) {
+    const tabla = document.createElement("table");
+    const encabezado = document.createElement("thead");
+    const cuerpo = document.createElement("tbody");
+
+    tabla.className = "salida-productos-tabla";
+    encabezado.innerHTML = `
+        <tr>
+            <th>Clave</th>
+            <th>Producto</th>
+            <th>Unidad</th>
+        </tr>
+    `;
+
+    if (!productos.length) {
+        cuerpo.appendChild(
+            crearFilaVaciaConfiguracionCarnicos(
+                "No hay productos configurados para este movimiento.",
+                3
+            )
+        );
+        tabla.append(encabezado, cuerpo);
+        return tabla;
+    }
+
+    productos.forEach(function (producto) {
+        const fila = document.createElement("tr");
+
+        if (
+            salidaProductoSeleccionado &&
+            salidaProductoSeleccionado.id === producto.id
+        ) {
+            fila.classList.add("fila-seleccionada");
+        }
+
+        fila.addEventListener("click", function () {
+            seleccionarProductoSalida(producto, fila);
+        });
+
+        [
+            producto.clave,
+            producto.nombre,
+            producto.unidad
+        ].forEach(function (valor) {
+            const celda = document.createElement("td");
+            celda.textContent = valor || "-";
+            fila.appendChild(celda);
+        });
+
+        cuerpo.appendChild(fila);
+    });
+
+    tabla.append(encabezado, cuerpo);
+    return tabla;
+}
+
+
+function renderizarEmpleadosSalida(contenedor) {
+    contenedor.replaceChildren();
+
+    if (!salidaEmpleadosMovimiento.length) {
+        const vacio = document.createElement("span");
+
+        vacio.className = "salida-chip salida-chip-empty";
+        vacio.textContent = "Sin empleados agregados";
+        contenedor.appendChild(vacio);
+        return;
+    }
+
+    salidaEmpleadosMovimiento.forEach(function (empleado, indice) {
+        const chip = document.createElement("button");
+
+        chip.type = "button";
+        chip.className = "salida-chip";
+        chip.textContent = `${empleado} x`;
+        chip.addEventListener("click", function () {
+            salidaEmpleadosMovimiento.splice(indice, 1);
+            renderizarEmpleadosSalida(contenedor);
+            mostrarEstadoMovimientoModulo(
+                "Empleado quitado del movimiento.",
+                "warning"
+            );
+        });
+        contenedor.appendChild(chip);
+    });
+}
+
+
+function agregarEmpleadoSalida(input, contenedor) {
+    const empleado = input.value.trim();
+
+    if (!empleado) {
+        mostrarEstadoMovimientoModulo(
+            "Captura el nombre del empleado.",
+            "warning"
+        );
+        return;
+    }
+
+    const yaExiste = salidaEmpleadosMovimiento.some(function (actual) {
+        return actual.toUpperCase() === empleado.toUpperCase();
+    });
+
+    if (yaExiste) {
+        mostrarEstadoMovimientoModulo(
+            "Ese empleado ya esta agregado.",
+            "warning"
+        );
+        return;
+    }
+
+    salidaEmpleadosMovimiento.push(empleado);
+    input.value = "";
+    renderizarEmpleadosSalida(contenedor);
+    mostrarEstadoMovimientoModulo(
+        "Empleado agregado al movimiento.",
+        "success"
+    );
+}
+
+
+async function seleccionarProductoSalidaActual(panelDestino = "salida") {
+    if (!salidaProductoSeleccionado) {
+        mostrarEstadoMovimientoModulo(
+            "Selecciona un producto de la tabla.",
+            "warning"
+        );
+        return;
+    }
+
+    productoSeleccionadoOriginal = salidaProductoSeleccionado;
+    productoOrigenSeleccionado = salidaProductoSeleccionado;
+    componentesConfiguracionDraft = [];
+    resultantesConfiguracionDraft = [];
+    actualizarTarjetaOrigen(salidaProductoSeleccionado);
+    reiniciarLimiteMerma();
+    await cargarProductosResultantes(salidaProductoSeleccionado.id);
+    actualizarModuloProductoActual();
+    renderizarPanelMovimientoModulo(panelDestino);
+    mostrarEstadoMovimientoModulo(
+        "Producto seleccionado para trabajar.",
+        "success"
+    );
+}
+
+
+async function registrarSalidaMovimiento() {
+    const cantidadInput = document.getElementById("salidaCantidadMovimiento");
+    const observacionesInput = document.getElementById(
+        "salidaObservacionesMovimiento"
+    );
+    const cantidad = Number(cantidadInput?.value || 0);
+
+    if (!salidaProductoSeleccionado) {
+        mostrarEstadoMovimientoModulo(
+            "Selecciona un producto de salida.",
+            "warning"
+        );
+        return;
+    }
+
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+        mostrarEstadoMovimientoModulo(
+            "Captura una cantidad valida para la salida.",
+            "warning"
+        );
+        return;
+    }
+
+    if (!salidaEmpleadosMovimiento.length) {
+        mostrarEstadoMovimientoModulo(
+            "Agrega al menos un empleado al movimiento.",
+            "warning"
+        );
+        return;
+    }
+
+    await seleccionarProductoSalidaActual();
+
+    const cantidadOrigenInput = document.getElementById("cantidadOrigen");
+
+    if (cantidadOrigenInput) {
+        cantidadOrigenInput.value = String(cantidad);
+    }
+
+    actualizarBalance();
+    window.localStorage.setItem(
+        STORAGE_SALIDA_MOVIMIENTO,
+        JSON.stringify({
+            producto: salidaProductoSeleccionado,
+            cantidad,
+            empleados: salidaEmpleadosMovimiento,
+            observaciones: observacionesInput?.value.trim() || "",
+            usuario: sesionActual?.usuario || "",
+            fecha: new Date().toISOString()
+        })
+    );
+    mostrarEstadoMovimientoModulo(
+        "Salida registrada en borrador. Continua con entrada o transformacion.",
+        "success"
+    );
+}
+
+
+function cancelarSalidaMovimiento() {
+    salidaProductoSeleccionado = null;
+    salidaEmpleadosMovimiento = [];
+    window.localStorage.removeItem(STORAGE_SALIDA_MOVIMIENTO);
+    renderizarPanelMovimientoModulo("salida");
+    mostrarEstadoMovimientoModulo("Salida cancelada.", "warning");
+}
+
+
+function crearCampoSalida(labelTexto, control) {
+    const label = document.createElement("label");
+    const span = document.createElement("span");
+
+    span.textContent = labelTexto;
+    label.append(span, control);
+    return label;
+}
+
+
+function renderizarPanelSalidaMovimiento(contenedor, contexto) {
+    const productos = obtenerProductosSalidaDisponibles();
+    const guardada = obtenerSalidaGuardada();
+    const panel = document.createElement("div");
+    const productosBloque = document.createElement("div");
+    const productosTitulo = document.createElement("h3");
+    const form = document.createElement("div");
+    const cantidad = document.createElement("input");
+    const empleado = document.createElement("input");
+    const agregarEmpleado = document.createElement("button");
+    const empleadosLista = document.createElement("div");
+    const observaciones = document.createElement("input");
+    const acciones = document.createElement("div");
+    const seleccionar = document.createElement("button");
+    const registrar = document.createElement("button");
+    const cancelar = document.createElement("button");
+
+    if (!salidaProductoSeleccionado && guardada?.producto) {
+        salidaProductoSeleccionado = guardada.producto;
+    }
+
+    if (!salidaProductoSeleccionado && obtenerProductoTrabajoMovimiento()) {
+        salidaProductoSeleccionado = normalizarProductoCarnico(
+            obtenerProductoTrabajoMovimiento()
+        );
+    }
+
+    if (!salidaEmpleadosMovimiento.length && Array.isArray(guardada?.empleados)) {
+        salidaEmpleadosMovimiento = [...guardada.empleados];
+    }
+
+    panel.className = "salida-panel";
+    productosBloque.className = "salida-bloque";
+    productosTitulo.textContent = "Seleccionar producto";
+    productosBloque.append(productosTitulo, crearTablaSalidaProductos(productos));
+
+    cantidad.type = "number";
+    cantidad.id = "salidaCantidadMovimiento";
+    cantidad.min = "0";
+    cantidad.step = "0.001";
+    cantidad.placeholder = "0.000";
+    cantidad.value = guardada?.cantidad || "";
+
+    empleado.type = "text";
+    empleado.placeholder = "Nombre del empleado";
+    agregarEmpleado.type = "button";
+    agregarEmpleado.textContent = "Agregar empleado";
+    empleadosLista.className = "salida-empleados-lista";
+    agregarEmpleado.addEventListener("click", function () {
+        agregarEmpleadoSalida(empleado, empleadosLista);
+    });
+    empleado.addEventListener("keydown", function (evento) {
+        if (evento.key === "Enter") {
+            evento.preventDefault();
+            agregarEmpleadoSalida(empleado, empleadosLista);
+        }
+    });
+
+    observaciones.type = "text";
+    observaciones.id = "salidaObservacionesMovimiento";
+    observaciones.maxLength = 180;
+    observaciones.placeholder = "Opcional";
+    observaciones.value = guardada?.observaciones || "";
+
+    form.className = "salida-form";
+    form.append(
+        crearCampoSalida("Cantidad de salida", cantidad),
+        crearCampoSalida("Empleado", empleado),
+        agregarEmpleado,
+        crearCampoSalida("Observaciones", observaciones)
+    );
+
+    renderizarEmpleadosSalida(empleadosLista);
+
+    seleccionar.type = "button";
+    seleccionar.textContent = "Seleccionar producto";
+    seleccionar.className = "modulo-accion-secundaria";
+    seleccionar.addEventListener("click", function () {
+        void seleccionarProductoSalidaActual();
+    });
+
+    registrar.type = "button";
+    registrar.textContent = "Registrar salida";
+    registrar.addEventListener("click", function () {
+        void registrarSalidaMovimiento();
+    });
+
+    cancelar.type = "button";
+    cancelar.textContent = "Cancelar salida";
+    cancelar.className = "modulo-accion-secundaria";
+    cancelar.addEventListener("click", cancelarSalidaMovimiento);
+
+    acciones.className = "salida-acciones";
+    acciones.append(seleccionar, registrar, cancelar);
+
+    panel.append(productosBloque, form, empleadosLista, acciones);
+    contenedor.replaceChildren(panel);
+    actualizarContextoSalida(contexto);
+
+    mostrarEstadoMovimientoModulo(
+        productos.length
+            ? "Selecciona un producto, captura cantidad y empleados."
+            : "No hay productos configurados. Agregalos desde Configuracion.",
+        productos.length ? "" : "warning"
+    );
+}
+
+
+function crearBotonPanelMovimiento(texto, accion, secundario = false) {
+    const boton = document.createElement("button");
+
+    boton.type = "button";
+    boton.textContent = texto;
+
+    if (secundario) {
+        boton.className = "modulo-accion-secundaria";
+    }
+
+    boton.addEventListener("click", accion);
+    return boton;
+}
+
+
+function crearBloquePanelMovimiento(tituloTexto, ...elementos) {
+    const bloque = document.createElement("div");
+    const titulo = document.createElement("h3");
+
+    bloque.className = "movimiento-bloque";
+    titulo.textContent = tituloTexto;
+    bloque.append(titulo, ...elementos);
+    return bloque;
+}
+
+
+function crearMetricaMovimiento(etiqueta, valor) {
+    const tarjeta = document.createElement("div");
+    const label = document.createElement("span");
+    const dato = document.createElement("strong");
+
+    tarjeta.className = "movimiento-metrica";
+    label.textContent = etiqueta;
+    dato.textContent = valor || "-";
+    tarjeta.append(label, dato);
+    return tarjeta;
+}
+
+
+function textoElemento(id, valorPorDefecto = "-") {
+    return document.getElementById(id)?.textContent?.trim() || valorPorDefecto;
+}
+
+
+function obtenerFilasResultantesMovimiento() {
+    return Array.from(
+        document.querySelectorAll(".producto-resultante")
+    ).map(function (fila) {
+        const select = fila.querySelector(".producto-resultante-id");
+        const cantidad = fila.querySelector(".producto-resultante-cantidad");
+        const unidad = cantidad?.dataset.unidad || "KILO";
+        const producto = obtenerProductoDisponible(select?.value);
+
+        return {
+            fila,
+            select,
+            cantidad,
+            unidad,
+            producto
+        };
+    });
+}
+
+
+function crearSelectEntradaMovimiento(selectOriginal) {
+    const select = document.createElement("select");
+
+    Array.from(selectOriginal?.options || []).forEach(function (opcion) {
+        const copia = document.createElement("option");
+
+        copia.value = opcion.value;
+        copia.textContent = opcion.textContent;
+        copia.disabled = opcion.disabled;
+        select.appendChild(copia);
+    });
+
+    select.value = selectOriginal?.value || "";
+    select.addEventListener("change", function () {
+        if (!selectOriginal) {
+            return;
+        }
+
+        selectOriginal.value = select.value;
+        selectOriginal.dispatchEvent(
+            new Event("change", { bubbles: true })
+        );
+        renderizarPanelMovimientoModulo("entrada");
+    });
+
+    return select;
+}
+
+
+function crearTablaEntradaMovimiento() {
+    const tabla = document.createElement("table");
+    const encabezado = document.createElement("thead");
+    const cuerpo = document.createElement("tbody");
+    const filas = obtenerFilasResultantesMovimiento();
+
+    tabla.className = "movimiento-tabla";
+    encabezado.innerHTML = `
+        <tr>
+            <th>Producto resultante</th>
+            <th>Unidad</th>
+            <th>Cantidad</th>
+        </tr>
+    `;
+
+    if (!filas.length) {
+        cuerpo.appendChild(
+            crearFilaVaciaConfiguracionCarnicos(
+                "Aun no hay productos resultantes capturados.",
+                3
+            )
+        );
+        tabla.append(encabezado, cuerpo);
+        return tabla;
+    }
+
+    filas.forEach(function (registro) {
+        const fila = document.createElement("tr");
+        const producto = document.createElement("td");
+        const unidad = document.createElement("td");
+        const cantidadCelda = document.createElement("td");
+        const cantidad = document.createElement("input");
+
+        cantidad.type = "text";
+        cantidad.inputMode = "decimal";
+        cantidad.value = registro.cantidad?.value || "";
+        cantidad.placeholder = "Ej. 1,5 kg";
+        cantidad.addEventListener("input", function () {
+            if (!registro.cantidad) {
+                return;
+            }
+
+            registro.cantidad.value = cantidad.value;
+            registro.cantidad.dataset.automatica = "0";
+            registro.cantidad.dispatchEvent(
+                new Event("input", { bubbles: true })
+            );
+        });
+
+        producto.appendChild(crearSelectEntradaMovimiento(registro.select));
+        unidad.textContent = registro.unidad || "KILO";
+        cantidadCelda.appendChild(cantidad);
+        fila.append(producto, unidad, cantidadCelda);
+        cuerpo.appendChild(fila);
+    });
+
+    tabla.append(encabezado, cuerpo);
+    return tabla;
+}
+
+
+function agregarEntradaMovimiento() {
+    agregarProductoResultante();
+    actualizarBalance();
+    renderizarPanelMovimientoModulo("entrada");
+    mostrarEstadoMovimientoModulo("Linea de entrada agregada.", "success");
+}
+
+
+function registrarEntradaMovimiento() {
+    const productos = obtenerProductosResultantes();
+    const incompleta = productos.length === 0 || productos.some(
+        function (producto) {
+            return !producto.producto_id || Number(producto.cantidad) <= 0;
+        }
+    );
+
+    if (!obtenerProductoTrabajoMovimiento()) {
+        mostrarEstadoMovimientoModulo(
+            "Selecciona primero un producto de salida.",
+            "warning"
+        );
+        return;
+    }
+
+    if (incompleta) {
+        mostrarEstadoMovimientoModulo(
+            "Completa producto y cantidad en cada entrada.",
+            "warning"
+        );
+        return;
+    }
+
+    actualizarBalance();
+    actualizarModuloProductoActual();
+    renderizarPanelMovimientoModulo("entrada");
+    mostrarEstadoMovimientoModulo(
+        "Entrada capturada. Revisa merma o registra la transformacion.",
+        "success"
+    );
+}
+
+
+function cancelarEntradaMovimiento() {
+    if (productoOrigenSeleccionado) {
+        renderizarProductosResultantes();
+    }
+
+    renderizarPanelMovimientoModulo("entrada");
+    mostrarEstadoMovimientoModulo(
+        "Entrada cancelada. Se restablecieron los resultantes.",
+        "warning"
+    );
+}
+
+
+function renderizarPanelEntradaMovimiento(contenedor) {
+    const panel = document.createElement("div");
+    const acciones = document.createElement("div");
+
+    panel.className = "movimiento-panel";
+    acciones.className = "movimiento-acciones";
+    acciones.append(
+        crearBotonPanelMovimiento("Agregar entrada", agregarEntradaMovimiento),
+        crearBotonPanelMovimiento(
+            "Registrar entrada",
+            registrarEntradaMovimiento
+        ),
+        crearBotonPanelMovimiento(
+            "Cancelar entrada",
+            cancelarEntradaMovimiento,
+            true
+        )
+    );
+
+    panel.append(
+        crearBloquePanelMovimiento(
+            "Productos que entran al inventario",
+            crearTablaEntradaMovimiento()
+        ),
+        acciones
+    );
+    contenedor.replaceChildren(panel);
+
+    mostrarEstadoMovimientoModulo(
+        obtenerProductoTrabajoMovimiento()
+            ? "Captura los productos resultantes y sus kilos."
+            : "Primero registra o selecciona un producto de salida.",
+        obtenerProductoTrabajoMovimiento() ? "" : "warning"
+    );
+}
+
+
+function crearResumenBalanceMovimiento() {
+    actualizarBalance();
+
+    const resumen = document.createElement("div");
+    resumen.className = "movimiento-resumen-grid";
+    resumen.append(
+        crearMetricaMovimiento("Salida / origen", textoElemento("totalOrigen", "0 kg")),
+        crearMetricaMovimiento(
+            "Entrada / resultantes",
+            textoElemento("totalResultantes", "0 kg")
+        ),
+        crearMetricaMovimiento("Merma", textoElemento("totalMerma", "0 kg")),
+        crearMetricaMovimiento(
+            "Merma estimada",
+            textoElemento("porcentajeMermaResumen", "0%")
+        )
+    );
+    return resumen;
+}
+
+
+function crearTablaLecturaResultantesMovimiento() {
+    const tabla = document.createElement("table");
+    const encabezado = document.createElement("thead");
+    const cuerpo = document.createElement("tbody");
+    const filas = obtenerFilasResultantesMovimiento();
+
+    tabla.className = "movimiento-tabla";
+    encabezado.innerHTML = `
+        <tr>
+            <th>Producto</th>
+            <th>Unidad</th>
+            <th>Cantidad</th>
+        </tr>
+    `;
+
+    if (!filas.length) {
+        cuerpo.appendChild(
+            crearFilaVaciaConfiguracionCarnicos(
+                "Aun no hay entradas capturadas.",
+                3
+            )
+        );
+    } else {
+        filas.forEach(function (registro) {
+            const fila = document.createElement("tr");
+            const producto = document.createElement("td");
+            const unidad = document.createElement("td");
+            const cantidad = document.createElement("td");
+
+            producto.textContent = registro.producto
+                ? textoProductoRegistro(registro.producto)
+                : "Producto sin seleccionar";
+            unidad.textContent = registro.unidad || "KILO";
+            cantidad.textContent = registro.cantidad?.value || "-";
+            fila.append(producto, unidad, cantidad);
+            cuerpo.appendChild(fila);
+        });
+    }
+
+    tabla.append(encabezado, cuerpo);
+    return tabla;
+}
+
+
+function crearSelectorProductoTransformacionMovimiento() {
+    const contenedor = document.createElement("div");
+    const acciones = document.createElement("div");
+    const productos = obtenerProductosSalidaDisponibles();
+    const productoTrabajo = obtenerProductoTrabajoMovimiento();
+
+    if (!salidaProductoSeleccionado && productoTrabajo) {
+        salidaProductoSeleccionado = normalizarProductoCarnico(productoTrabajo);
+    }
+
+    contenedor.className = "movimiento-selector-producto";
+    acciones.className = "movimiento-acciones movimiento-acciones-compactas";
+    acciones.append(
+        crearBotonPanelMovimiento(
+            "Seleccionar producto",
+            function () {
+                void seleccionarProductoSalidaActual("transformacion");
+            }
+        ),
+        crearBotonPanelMovimiento(
+            "Abrir configuracion",
+            function () {
+                cerrarPanelMovimientoModulo();
+                abrirPanelConfiguracionCarnicos();
+            },
+            true
+        )
+    );
+
+    contenedor.append(crearTablaSalidaProductos(productos), acciones);
+    return contenedor;
+}
+
+
+async function registrarTransformacionDesdeMovimiento() {
+    if (!obtenerProductoTrabajoMovimiento()) {
+        mostrarEstadoMovimientoModulo(
+            "Selecciona primero un producto para transformar.",
+            "warning"
+        );
+        return;
+    }
+
+    mostrarEstadoMovimientoModulo("Registrando transformacion...");
+    await registrarTransformacion();
+
+    const resultado = document.getElementById("resultadoTransformacion");
+    const esCorrecto = resultado?.classList.contains("success-card");
+    const esError = resultado?.classList.contains("error-card");
+
+    mostrarEstadoMovimientoModulo(
+        resultado?.textContent || "Proceso terminado.",
+        esCorrecto ? "success" : (esError ? "error" : "")
+    );
+}
+
+
+function renderizarPanelTransformacionMovimiento(contenedor) {
+    const panel = document.createElement("div");
+    const acciones = document.createElement("div");
+
+    panel.className = "movimiento-panel";
+    acciones.className = "movimiento-acciones";
+    acciones.append(
+        crearBotonPanelMovimiento(
+            "Editar entrada",
+            function () {
+                if (!obtenerProductoTrabajoMovimiento()) {
+                    mostrarEstadoMovimientoModulo(
+                        "Selecciona primero un producto para editar la entrada.",
+                        "warning"
+                    );
+                    return;
+                }
+
+                seleccionarMovimientoModulo("entrada");
+                renderizarPanelMovimientoModulo("entrada");
+            },
+            true
+        ),
+        crearBotonPanelMovimiento(
+            "Registrar transformacion",
+            function () {
+                void registrarTransformacionDesdeMovimiento();
+            }
+        ),
+        crearBotonPanelMovimiento(
+            "Cancelar",
+            cerrarPanelMovimientoModulo,
+            true
+        )
+    );
+
+    panel.append(
+        crearBloquePanelMovimiento(
+            "Seleccionar producto",
+            crearSelectorProductoTransformacionMovimiento()
+        ),
+        crearBloquePanelMovimiento(
+            "Resumen de la transformacion",
+            crearResumenBalanceMovimiento()
+        ),
+        crearBloquePanelMovimiento(
+            "Productos resultantes",
+            crearTablaLecturaResultantesMovimiento()
+        ),
+        acciones
+    );
+    contenedor.replaceChildren(panel);
+
+    mostrarEstadoMovimientoModulo(
+        obtenerProductoTrabajoMovimiento()
+            ? "Revisa el resumen antes de guardar la operacion."
+            : "Primero registra o selecciona un producto de salida.",
+        obtenerProductoTrabajoMovimiento() ? "" : "warning"
+    );
+}
+
+
+function crearCampoMermaMovimiento(labelTexto, control) {
+    const label = document.createElement("label");
+    const span = document.createElement("span");
+
+    span.textContent = labelTexto;
+    label.append(span, control);
+    return label;
+}
+
+
+function aplicarMermaMovimiento() {
+    actualizarBalance();
+    renderizarPanelMovimientoModulo("merma");
+    mostrarEstadoMovimientoModulo(
+        "Merma aplicada al balance de la transformacion.",
+        "success"
+    );
+}
+
+
+function cancelarMermaMovimiento() {
+    const limite = document.getElementById("porcentajeMermaEsperado");
+    const observaciones = document.getElementById("observacionesMerma");
+
+    if (limite) {
+        limite.value = "";
+    }
+
+    if (observaciones) {
+        observaciones.value = "";
+    }
+
+    actualizarBalance();
+    renderizarPanelMovimientoModulo("merma");
+    mostrarEstadoMovimientoModulo("Merma cancelada.", "warning");
+}
+
+
+function crearFormularioMermaMovimiento() {
+    const form = document.createElement("div");
+    const limiteOriginal = document.getElementById("porcentajeMermaEsperado");
+    const observacionesOriginal = document.getElementById("observacionesMerma");
+    const limite = document.createElement("input");
+    const observaciones = document.createElement("input");
+
+    form.className = "movimiento-form";
+
+    limite.type = "number";
+    limite.min = "0";
+    limite.max = "100";
+    limite.step = "0.01";
+    limite.placeholder = "Ej. 8";
+    limite.value = limiteOriginal?.value || "";
+    limite.addEventListener("input", function () {
+        if (limiteOriginal) {
+            limiteOriginal.value = limite.value;
+        }
+
+        actualizarBalance();
+    });
+
+    observaciones.type = "text";
+    observaciones.maxLength = 250;
+    observaciones.placeholder = "Observaciones o incidencia";
+    observaciones.value = observacionesOriginal?.value || "";
+    observaciones.addEventListener("input", function () {
+        if (observacionesOriginal) {
+            observacionesOriginal.value = observaciones.value;
+        }
+    });
+
+    form.append(
+        crearCampoMermaMovimiento("Limite de merma (%)", limite),
+        crearCampoMermaMovimiento("Observaciones", observaciones)
+    );
+    return form;
+}
+
+
+function renderizarPanelMermaMovimiento(contenedor) {
+    const panel = document.createElement("div");
+    const acciones = document.createElement("div");
+
+    panel.className = "movimiento-panel";
+    acciones.className = "movimiento-acciones";
+    acciones.append(
+        crearBotonPanelMovimiento("Aplicar merma", aplicarMermaMovimiento),
+        crearBotonPanelMovimiento(
+            "Registrar transformacion",
+            function () {
+                void registrarTransformacionDesdeMovimiento();
+            }
+        ),
+        crearBotonPanelMovimiento(
+            "Cancelar merma",
+            cancelarMermaMovimiento,
+            true
+        )
+    );
+
+    panel.append(
+        crearBloquePanelMovimiento(
+            "Balance de merma",
+            crearResumenBalanceMovimiento()
+        ),
+        crearBloquePanelMovimiento(
+            "Limite y observacion",
+            crearFormularioMermaMovimiento()
+        ),
+        acciones
+    );
+    contenedor.replaceChildren(panel);
+
+    mostrarEstadoMovimientoModulo(
+        obtenerProductoTrabajoMovimiento()
+            ? "Ajusta el limite u observacion de merma."
+            : "Primero registra o selecciona un producto de salida.",
+        obtenerProductoTrabajoMovimiento() ? "" : "warning"
+    );
+}
+
+
+function obtenerOpcionesMovimientoModulo(tipo) {
+    const tieneProducto = Boolean(obtenerProductoTrabajoMovimiento());
+    const requiereProducto = "Primero selecciona un producto de salida.";
+
+    if (tipo === "entrada") {
+        return [
+            {
+                titulo: "Capturar entrada",
+                descripcion: "Ve a los productos resultantes de la operacion.",
+                deshabilitada: !tieneProducto,
+                motivo: requiereProducto,
+                accion: function () {
+                    abrirCapturaMovimiento({
+                        scrollSelector: "#productosResultantes"
+                    });
+                }
+            },
+            {
+                titulo: "Agregar resultante manual",
+                descripcion: "Agrega otra linea de entrada si aplica.",
+                deshabilitada: !tieneProducto,
+                motivo: requiereProducto,
+                accion: function () {
+                    abrirCapturaMovimiento({
+                        scrollSelector: "#productosResultantes"
+                    });
+                    window.setTimeout(function () {
+                        const boton = document.getElementById(
+                            "botonAgregarResultante"
+                        );
+
+                        if (boton && !boton.hidden) {
+                            boton.click();
+                        }
+                    }, 0);
+                }
+            },
+            {
+                titulo: "Abrir configuraciones",
+                descripcion: "Edita relaciones de origen, insumos y salidas.",
+                accion: abrirConfiguracionesDesdeMovimiento
+            }
+        ];
+    }
+
+    if (tipo === "merma") {
+        return [
+            {
+                titulo: "Revisar balance",
+                descripcion: "Muestra salida, entrada y merma calculada.",
+                deshabilitada: !tieneProducto,
+                motivo: requiereProducto,
+                accion: function () {
+                    abrirCapturaMovimiento({
+                        scrollSelector: ".validation-box"
+                    });
+                }
+            },
+            {
+                titulo: "Capturar limite",
+                descripcion: "Define el porcentaje maximo permitido.",
+                deshabilitada: !tieneProducto,
+                motivo: requiereProducto,
+                accion: function () {
+                    abrirCapturaMovimiento({
+                        abrirMerma: true,
+                        campoId: "porcentajeMermaEsperado",
+                        scrollSelector: ".merma-opcional"
+                    });
+                }
+            },
+            {
+                titulo: "Agregar observacion",
+                descripcion: "Registra notas o incidencias de la merma.",
+                deshabilitada: !tieneProducto,
+                motivo: requiereProducto,
+                accion: function () {
+                    abrirCapturaMovimiento({
+                        abrirMerma: true,
+                        campoId: "observacionesMerma",
+                        scrollSelector: ".merma-opcional"
+                    });
+                }
+            },
+            {
+                titulo: "Ver registros",
+                descripcion: "Consulta mermas de movimientos anteriores.",
+                accion: verRegistrosDesdeMovimiento
+            }
+        ];
+    }
+
+    return [
+        {
+            titulo: "Nueva transformacion",
+            descripcion: "Captura salida, entrada y merma en una operacion.",
+            accion: function () {
+                abrirCapturaMovimiento({
+                    scrollSelector: "#tarjetaOrigen"
+                });
+            }
+        },
+        {
+            titulo: "Usar configuracion",
+            descripcion: "Abre recetas y relaciones guardadas.",
+            accion: abrirConfiguracionesDesdeMovimiento
+        },
+        {
+            titulo: "Ver registros",
+            descripcion: "Revisa operaciones ya registradas.",
+            accion: verRegistrosDesdeMovimiento
+        }
+    ];
+}
+
+
+function renderizarPanelMovimientoModulo(tipo) {
+    const movimiento = obtenerMovimientoModulo(tipo);
+    const etiqueta = document.getElementById("etiquetaModalMovimientoModulo");
+    const titulo = document.getElementById("tituloModalMovimientoModulo");
+    const descripcion = document.getElementById(
+        "descripcionModalMovimientoModulo"
+    );
+    const contexto = document.getElementById("contextoMovimientoModulo");
+    const opciones = document.getElementById("opcionesMovimientoModulo");
+    const productoTrabajo = obtenerProductoTrabajoMovimiento();
+
+    if (etiqueta) {
+        etiqueta.textContent = movimiento.etiqueta;
+    }
+
+    if (titulo) {
+        titulo.textContent = movimiento.titulo;
+    }
+
+    if (descripcion) {
+        descripcion.textContent = movimiento.descripcion;
+    }
+
+    if (contexto) {
+        const label = document.createElement("span");
+        const producto = document.createElement("strong");
+
+        label.textContent = "Producto en trabajo";
+        producto.textContent = productoTrabajo
+            ? textoProductoRegistro(productoTrabajo)
+            : "Sin producto seleccionado";
+        contexto.replaceChildren(label, producto);
+    }
+
+    if (opciones && contexto) {
+        if (tipo === "salida") {
+            renderizarPanelSalidaMovimiento(opciones, contexto);
+            return;
+        }
+
+        if (tipo === "entrada") {
+            renderizarPanelEntradaMovimiento(opciones);
+            return;
+        }
+
+        if (tipo === "transformacion") {
+            renderizarPanelTransformacionMovimiento(opciones);
+            return;
+        }
+
+        if (tipo === "merma") {
+            renderizarPanelMermaMovimiento(opciones);
+            return;
+        }
+    }
+
+    if (opciones) {
+        const grid = document.createElement("div");
+
+        grid.className = "movimiento-opciones-grid";
+        obtenerOpcionesMovimientoModulo(tipo).forEach(function (opcion) {
+            grid.appendChild(crearOpcionMovimientoModulo(opcion));
+        });
+        opciones.replaceChildren(grid);
+    }
+
+    mostrarEstadoMovimientoModulo(
+        productoTrabajo
+            ? "Selecciona la opcion que necesitas para continuar."
+            : "No hay producto en trabajo. Usa configuracion o selecciona un flujo disponible."
+    );
+}
+
+
+function abrirPanelMovimientoModulo(tipo) {
+    const modal = document.getElementById("modalMovimientoModulo");
+
+    if (!modal) {
+        return;
+    }
+
+    seleccionarMovimientoModulo(tipo);
+    renderizarPanelMovimientoModulo(movimientoModuloActual);
+    modal.classList.remove("hidden");
+    document.body.classList.add("modal-open");
+}
+
+
+function cerrarPanelMovimientoModulo() {
+    const modal = document.getElementById("modalMovimientoModulo");
+
+    if (!modal) {
+        return;
+    }
+
+    modal.classList.add("hidden");
+    document.body.classList.remove("modal-open");
+}
+
+
+function accionPrincipalModulo() {
+    const movimiento = obtenerMovimientoModulo(movimientoModuloActual);
+    mostrarSeccion(movimiento.seccion);
+}
+
+
 function mostrarSeccion(idSeccion) {
+    if (idSeccion === "configuraciones") {
+        abrirModalConfiguraciones();
+        return;
+    }
+
+    cerrarModalConfiguraciones();
+
     document.querySelectorAll(".section").forEach(function (seccion) {
         seccion.classList.add("hidden");
     });
@@ -127,14 +1502,6 @@ function mostrarSeccion(idSeccion) {
         cargarModuloCarnico();
     }
 
-    if (idSeccion === "configuraciones") {
-        sincronizarDraftConfiguracionDesdeContexto();
-        actualizarEstadoFormularioConfiguracion();
-        renderizarEditorComponentesConfiguracion();
-        renderizarEditorResultantesConfiguracion();
-        actualizarResumenConfiguracion();
-        cargarConfiguracionesTransformacion(configuracionesPaginaActual);
-    }
 }
 
 
@@ -156,13 +1523,22 @@ const PRODUCTOS_POR_PAGINA = 10;
 const REGISTROS_POR_PAGINA = PRODUCTOS_POR_PAGINA;
 const CONFIGURACIONES_POR_PAGINA = PRODUCTOS_POR_PAGINA;
 const PRODUCTOS_CONFIGURACION_POR_PAGINA = 6;
+const PRODUCTOS_CARNICOS_CONFIGURACION_POR_PAGINA = 6;
+const PRODUCTOS_CARNICOS_AGREGADOS_POR_PAGINA = 6;
+const TERMINOS_PRODUCTOS_CARNICOS_INICIALES = [
+    "cerdo",
+    "pollo",
+    "res local"
+];
+const STORAGE_PRODUCTOS_CARNICOS =
+    "cayal.productos_carnicos_configurados";
+const STORAGE_SALIDA_MOVIMIENTO =
+    "cayal.salida_movimiento_actual";
 const TIEMPO_LIMITE_CONSULTA_MS = 15000;
 const TIEMPO_LIMITE_REGISTRO_MS = 60000;
 const TIPO_TRANSFORMACION_CONFIGURADA = "receta_configurada";
 const TIPO_PRODUCTO_FINAL = "producto_final";
 let sesionActual = null;
-let productosBusquedaActual = "";
-let productosPaginaActual = 1;
 let registrosPaginaActual = 1;
 let configuracionesPaginaActual = 1;
 let solicitudHistorialActual = 0;
@@ -171,6 +1547,16 @@ let productoSeleccionadoOriginal = null;
 let productosResultantesDisponibles = [];
 let productosConfiguracionBusquedaActual = "";
 let productosConfiguracionPaginaActual = 1;
+let productosCarnicosConfigurados = [];
+let productosCarnicosConfiguradosPagina = 1;
+let productosCarnicosDisponibles = [];
+let productosCarnicosDisponiblesPagina = 1;
+let productoCarnicoDisponibleSeleccionado = null;
+let productoCarnicoConfiguradoSeleccionado = null;
+let productosCarnicosBusquedaActual = "";
+let productosCarnicosPaginaActual = 1;
+let salidaProductoSeleccionado = null;
+let salidaEmpleadosMovimiento = [];
 let componentesConfiguracionDraft = [];
 let resultantesConfiguracionDraft = [];
 let origenConfiguradoActual = null;
@@ -267,62 +1653,6 @@ async function consultarProductos(
 }
 
 
-function crearTablaProductos(productos) {
-    const tabla = document.createElement("table");
-    const encabezado = document.createElement("thead");
-    const cuerpo = document.createElement("tbody");
-
-    tabla.className = "productos-tabla";
-
-    encabezado.innerHTML = `
-        <tr>
-            <th>ID</th>
-            <th>Clave</th>
-            <th>Nombre</th>
-            <th>Categoría</th>
-            <th>Unidad</th>
-            <th>Existencia</th>
-        </tr>
-    `;
-
-    productos.forEach(function (producto) {
-        const fila = document.createElement("tr");
-        fila.title =
-            "Doble click para usar este producto como origen";
-
-        [
-            producto.id,
-            producto.clave,
-            producto.nombre,
-            producto.categoria,
-            producto.unidad,
-            producto.existencia
-        ].forEach(function (valor) {
-            const celda = document.createElement("td");
-            celda.textContent = valor ?? "";
-            fila.appendChild(celda);
-        });
-
-        fila.addEventListener("click", function () {
-            cuerpo.querySelectorAll("tr").forEach(function (registro) {
-                registro.classList.remove("fila-seleccionada");
-            });
-
-            fila.classList.add("fila-seleccionada");
-        });
-
-        fila.addEventListener("dblclick", function () {
-            seleccionarProductoOrigen(producto);
-        });
-
-        cuerpo.appendChild(fila);
-    });
-
-    tabla.append(encabezado, cuerpo);
-    return tabla;
-}
-
-
 function crearControlesPaginacion(
     resultado,
     etiqueta,
@@ -354,57 +1684,6 @@ function crearControlesPaginacion(
 
     controles.append(anterior, resumen, siguiente);
     return controles;
-}
-
-
-async function buscarProductos(pagina = 1) {
-    const busquedaInput = document.getElementById("busquedaProducto");
-    const contenedor = document.getElementById("tablaProductos");
-
-    if (!busquedaInput || !contenedor) {
-        return;
-    }
-
-    const termino = busquedaInput.value.trim();
-    contenedor.replaceChildren();
-
-    if (termino.length < 2) {
-        contenedor.textContent =
-            "Escribe al menos dos caracteres para buscar.";
-        return;
-    }
-
-    contenedor.textContent = "Buscando productos...";
-
-    try {
-        productosBusquedaActual = termino;
-        productosPaginaActual = pagina;
-
-        const resultado = await consultarProductos(
-            productosBusquedaActual,
-            productosPaginaActual,
-            PRODUCTOS_POR_PAGINA
-        );
-        const productos = resultado.productos;
-
-        contenedor.replaceChildren();
-
-        if (productos.length === 0) {
-            contenedor.textContent = "No se encontraron productos.";
-            return;
-        }
-
-        contenedor.appendChild(crearTablaProductos(productos));
-        contenedor.appendChild(
-            crearControlesPaginacion(
-                resultado,
-                "productos",
-                buscarProductos
-            )
-        );
-    } catch (error) {
-        contenedor.textContent = error.message;
-    }
 }
 
 
@@ -526,6 +1805,613 @@ async function buscarProductosConfiguracion(pagina = 1) {
     } catch (error) {
         contenedor.textContent = error.message;
     }
+}
+
+
+function leerProductosCarnicosGuardados() {
+    try {
+        const guardados = JSON.parse(
+            window.localStorage.getItem(STORAGE_PRODUCTOS_CARNICOS) || "[]"
+        );
+
+        return Array.isArray(guardados) ? guardados : [];
+    } catch (error) {
+        console.error(error);
+        return [];
+    }
+}
+
+
+function productoCarnicoId(producto) {
+    return String(producto.id ?? producto.producto_id ?? producto.clave ?? "");
+}
+
+
+function normalizarProductoCarnico(producto) {
+    return {
+        id: productoCarnicoId(producto),
+        clave: producto.clave || producto.ProductKey || "",
+        nombre: producto.nombre || producto.ProductName || "",
+        categoria: producto.categoria || producto.Category1 || "",
+        unidad: producto.unidad || producto.Unit || "",
+        cantidad: producto.cantidad || ""
+    };
+}
+
+
+function mostrarEstadoConfiguracionCarnicos(mensaje, tipo = "") {
+    const estado = document.getElementById("estadoConfiguracionCarnicos");
+
+    if (!estado) {
+        return;
+    }
+
+    estado.className = `config-carnicos-status ${tipo}`.trim();
+    estado.textContent = mensaje;
+}
+
+
+function crearFilaVaciaConfiguracionCarnicos(mensaje, columnas) {
+    const fila = document.createElement("tr");
+    const celda = document.createElement("td");
+
+    celda.colSpan = columnas;
+    celda.className = "tabla-vacia";
+    celda.textContent = mensaje;
+    fila.appendChild(celda);
+    return fila;
+}
+
+
+function paginarListaCarnicos(lista, pagina, limite) {
+    const total = lista.length;
+    const totalPaginas = Math.max(1, Math.ceil(total / limite));
+    const paginaSegura = Math.min(
+        Math.max(Number(pagina) || 1, 1),
+        totalPaginas
+    );
+    const inicio = (paginaSegura - 1) * limite;
+    const fin = inicio + limite;
+
+    return {
+        productos: lista.slice(inicio, fin),
+        paginacion: {
+            pagina: paginaSegura,
+            limite,
+            total,
+            total_paginas: totalPaginas
+        }
+    };
+}
+
+
+function agregarPaginacionCarnicos(
+    contenedor,
+    paginacion,
+    etiqueta,
+    cambiarPagina
+) {
+    if (paginacion.total <= paginacion.limite) {
+        return;
+    }
+
+    contenedor.appendChild(
+        crearControlesPaginacion(paginacion, etiqueta, cambiarPagina)
+    );
+}
+
+
+function seleccionarProductoCarnicoDisponible(producto, fila) {
+    productoCarnicoDisponibleSeleccionado = normalizarProductoCarnico(producto);
+
+    document
+        .querySelectorAll("#resultadosProductosCarnicosConfig tbody tr")
+        .forEach(function (registro) {
+            registro.classList.remove("fila-seleccionada");
+        });
+
+    if (fila) {
+        fila.classList.add("fila-seleccionada");
+    }
+
+    mostrarEstadoConfiguracionCarnicos(
+        "Producto seleccionado. Presiona Agregar para sumarlo al modulo.",
+        "success"
+    );
+}
+
+
+function seleccionarProductoCarnicoConfigurado(producto, fila) {
+    productoCarnicoConfiguradoSeleccionado = producto;
+
+    document
+        .querySelectorAll("#tablaProductosCarnicosConfig tbody tr")
+        .forEach(function (registro) {
+            registro.classList.remove("fila-seleccionada");
+        });
+
+    if (fila) {
+        fila.classList.add("fila-seleccionada");
+    }
+}
+
+
+function renderizarProductosCarnicosDisponibles(
+    pagina = productosCarnicosDisponiblesPagina
+) {
+    const contenedor = document.getElementById(
+        "resultadosProductosCarnicosConfig"
+    );
+
+    if (!contenedor) {
+        return;
+    }
+
+    const paginaLocal = paginarListaCarnicos(
+        productosCarnicosDisponibles,
+        pagina,
+        PRODUCTOS_CARNICOS_CONFIGURACION_POR_PAGINA
+    );
+    const seleccionadoVisible = paginaLocal.productos.some(
+        function (producto) {
+            return (
+                productoCarnicoDisponibleSeleccionado &&
+                producto.id === productoCarnicoDisponibleSeleccionado.id
+            );
+        }
+    );
+
+    if (!seleccionadoVisible) {
+        productoCarnicoDisponibleSeleccionado = null;
+    }
+
+    productosCarnicosDisponiblesPagina = paginaLocal.paginacion.pagina;
+    contenedor.replaceChildren();
+    contenedor.appendChild(
+        crearTablaResultadosProductosCarnicos(paginaLocal.productos)
+    );
+    agregarPaginacionCarnicos(
+        contenedor,
+        paginaLocal.paginacion,
+        "productos",
+        renderizarProductosCarnicosDisponibles
+    );
+}
+
+
+function renderizarProductosCarnicosConfigurados(
+    pagina = productosCarnicosConfiguradosPagina
+) {
+    const contenedor = document.getElementById("tablaProductosCarnicosConfig");
+
+    if (!contenedor) {
+        return;
+    }
+
+    const paginaLocal = paginarListaCarnicos(
+        productosCarnicosConfigurados,
+        pagina,
+        PRODUCTOS_CARNICOS_AGREGADOS_POR_PAGINA
+    );
+    const seleccionadoVisible = paginaLocal.productos.some(
+        function (producto) {
+            return (
+                productoCarnicoConfiguradoSeleccionado &&
+                producto.id === productoCarnicoConfiguradoSeleccionado.id
+            );
+        }
+    );
+
+    if (!seleccionadoVisible) {
+        productoCarnicoConfiguradoSeleccionado = null;
+    }
+
+    productosCarnicosConfiguradosPagina = paginaLocal.paginacion.pagina;
+    contenedor.replaceChildren();
+
+    const tabla = document.createElement("table");
+    const encabezado = document.createElement("thead");
+    const cuerpo = document.createElement("tbody");
+
+    tabla.className = "config-carnicos-tabla";
+    encabezado.innerHTML = `
+        <tr>
+            <th>Clave</th>
+            <th>Nombre producto</th>
+            <th>Cantidad</th>
+        </tr>
+    `;
+
+    if (productosCarnicosConfigurados.length === 0) {
+        cuerpo.appendChild(
+            crearFilaVaciaConfiguracionCarnicos(
+                "No hay productos agregados.",
+                3
+            )
+        );
+        tabla.append(encabezado, cuerpo);
+        contenedor.appendChild(tabla);
+        return;
+    }
+
+    paginaLocal.productos.forEach(function (producto) {
+        const fila = document.createElement("tr");
+        const clave = document.createElement("td");
+        const nombre = document.createElement("td");
+        const cantidadCelda = document.createElement("td");
+        const cantidad = document.createElement("input");
+
+        clave.textContent = producto.clave || "-";
+        nombre.textContent = producto.nombre || "-";
+        fila.tabIndex = 0;
+
+        if (
+            productoCarnicoConfiguradoSeleccionado &&
+            productoCarnicoConfiguradoSeleccionado.id === producto.id
+        ) {
+            fila.classList.add("fila-seleccionada");
+        }
+
+        fila.addEventListener("click", function () {
+            seleccionarProductoCarnicoConfigurado(producto, fila);
+        });
+
+        cantidad.type = "text";
+        cantidad.value = producto.cantidad || "";
+        cantidad.placeholder = producto.unidad || "Cantidad";
+        cantidad.addEventListener("click", function () {
+            seleccionarProductoCarnicoConfigurado(producto, fila);
+        });
+        cantidad.addEventListener("input", function () {
+            producto.cantidad = cantidad.value;
+        });
+
+        cantidadCelda.appendChild(cantidad);
+        fila.append(clave, nombre, cantidadCelda);
+        cuerpo.appendChild(fila);
+    });
+
+    tabla.append(encabezado, cuerpo);
+    contenedor.appendChild(tabla);
+    agregarPaginacionCarnicos(
+        contenedor,
+        paginaLocal.paginacion,
+        "productos agregados",
+        renderizarProductosCarnicosConfigurados
+    );
+}
+
+
+function agregarProductoCarnicoSeleccionado() {
+    if (!productoCarnicoDisponibleSeleccionado) {
+        mostrarEstadoConfiguracionCarnicos(
+            "Selecciona primero un producto de la lista disponible.",
+            "warning"
+        );
+        return;
+    }
+
+    agregarProductoCarnicoConfiguracion(productoCarnicoDisponibleSeleccionado);
+}
+
+
+function agregarProductoCarnicoConfiguracion(producto) {
+    const productoNormalizado = normalizarProductoCarnico(producto);
+
+    if (!productoNormalizado.id) {
+        mostrarEstadoConfiguracionCarnicos("Producto no valido.", "error");
+        return;
+    }
+
+    const yaExiste = productosCarnicosConfigurados.some(function (actual) {
+        return actual.id === productoNormalizado.id;
+    });
+
+    if (yaExiste) {
+        mostrarEstadoConfiguracionCarnicos(
+            "Ese producto ya esta en la configuracion.",
+            "warning"
+        );
+        return;
+    }
+
+    productosCarnicosConfigurados.push(productoNormalizado);
+    productoCarnicoConfiguradoSeleccionado = productoNormalizado;
+    productosCarnicosConfiguradosPagina = Math.ceil(
+        productosCarnicosConfigurados.length /
+            PRODUCTOS_CARNICOS_AGREGADOS_POR_PAGINA
+    );
+    renderizarProductosCarnicosConfigurados(
+        productosCarnicosConfiguradosPagina
+    );
+    mostrarEstadoConfiguracionCarnicos(
+        "Producto agregado. Presiona Guardar para conservar cambios.",
+        "success"
+    );
+}
+
+
+function eliminarProductoCarnicoSeleccionado() {
+    if (!productoCarnicoConfiguradoSeleccionado) {
+        mostrarEstadoConfiguracionCarnicos(
+            "Selecciona primero un producto agregado para eliminarlo.",
+            "warning"
+        );
+        return;
+    }
+
+    quitarProductoCarnicoConfiguracion(productoCarnicoConfiguradoSeleccionado.id);
+}
+
+
+function quitarProductoCarnicoConfiguracion(productoId) {
+    const productoIdTexto = String(productoId);
+
+    productosCarnicosConfigurados = productosCarnicosConfigurados.filter(
+        function (producto) {
+            return producto.id !== productoIdTexto;
+        }
+    );
+    if (
+        productoCarnicoConfiguradoSeleccionado &&
+        productoCarnicoConfiguradoSeleccionado.id === productoIdTexto
+    ) {
+        productoCarnicoConfiguradoSeleccionado = null;
+    }
+    renderizarProductosCarnicosConfigurados(
+        productosCarnicosConfiguradosPagina
+    );
+    mostrarEstadoConfiguracionCarnicos(
+        "Producto eliminado. Presiona Guardar para conservar cambios.",
+        "warning"
+    );
+}
+
+
+function crearTablaResultadosProductosCarnicos(productos) {
+    const tabla = document.createElement("table");
+    const encabezado = document.createElement("thead");
+    const cuerpo = document.createElement("tbody");
+
+    tabla.className = "productos-tabla config-carnicos-resultados-tabla";
+    encabezado.innerHTML = `
+        <tr>
+            <th>Clave</th>
+            <th>Nombre producto</th>
+            <th>Unidad</th>
+        </tr>
+    `;
+
+    if (!productos.length) {
+        cuerpo.appendChild(
+            crearFilaVaciaConfiguracionCarnicos(
+                "No hay productos para mostrar.",
+                3
+            )
+        );
+        tabla.append(encabezado, cuerpo);
+        return tabla;
+    }
+
+    productos.forEach(function (producto) {
+        const fila = document.createElement("tr");
+        const productoNormalizado = normalizarProductoCarnico(producto);
+
+        fila.tabIndex = 0;
+
+        if (
+            productoCarnicoDisponibleSeleccionado &&
+            productoCarnicoDisponibleSeleccionado.id === productoNormalizado.id
+        ) {
+            fila.classList.add("fila-seleccionada");
+        }
+
+        fila.addEventListener("click", function () {
+            seleccionarProductoCarnicoDisponible(productoNormalizado, fila);
+        });
+
+        fila.addEventListener("dblclick", function () {
+            seleccionarProductoCarnicoDisponible(productoNormalizado, fila);
+            agregarProductoCarnicoSeleccionado();
+        });
+
+        [
+            productoNormalizado.clave,
+            productoNormalizado.nombre,
+            productoNormalizado.unidad
+        ].forEach(function (valor) {
+            const celda = document.createElement("td");
+            celda.textContent = valor || "-";
+            fila.appendChild(celda);
+        });
+        cuerpo.appendChild(fila);
+    });
+
+    tabla.append(encabezado, cuerpo);
+    return tabla;
+}
+
+
+function obtenerProductosUnicosCarnicos(listaProductos) {
+    const productos = [];
+    const ids = new Set();
+
+    listaProductos.forEach(function (producto) {
+        const normalizado = normalizarProductoCarnico(producto);
+
+        if (!normalizado.id || ids.has(normalizado.id)) {
+            return;
+        }
+
+        ids.add(normalizado.id);
+        productos.push(normalizado);
+    });
+
+    return productos;
+}
+
+
+async function cargarListaInicialProductosCarnicos() {
+    const contenedor = document.getElementById(
+        "resultadosProductosCarnicosConfig"
+    );
+
+    if (!contenedor) {
+        return;
+    }
+
+    contenedor.replaceChildren();
+    contenedor.textContent = "Cargando lista de productos...";
+    productoCarnicoDisponibleSeleccionado = null;
+
+    try {
+        const respuestas = await Promise.all(
+            TERMINOS_PRODUCTOS_CARNICOS_INICIALES.map(function (termino) {
+                return consultarProductos(
+                    termino,
+                    1,
+                    PRODUCTOS_CARNICOS_CONFIGURACION_POR_PAGINA
+                );
+            })
+        );
+        const productos = obtenerProductosUnicosCarnicos(
+            respuestas.flatMap(function (respuesta) {
+                return respuesta.productos || [];
+            })
+        );
+
+        productosCarnicosDisponibles = productos;
+        productosCarnicosDisponiblesPagina = 1;
+        renderizarProductosCarnicosDisponibles();
+
+        if (productos.length) {
+            mostrarEstadoConfiguracionCarnicos(
+                "Lista inicial cargada. Puedes agregar productos a la tabla.",
+                "success"
+            );
+        }
+    } catch (error) {
+        productosCarnicosDisponibles = [];
+        productosCarnicosDisponiblesPagina = 1;
+        renderizarProductosCarnicosDisponibles();
+        mostrarEstadoConfiguracionCarnicos(error.message, "error");
+    }
+}
+
+
+async function buscarProductosCarnicosConfiguracion(pagina = 1) {
+    const busquedaInput = document.getElementById(
+        "busquedaProductoCarnicoConfig"
+    );
+    const contenedor = document.getElementById(
+        "resultadosProductosCarnicosConfig"
+    );
+
+    if (!busquedaInput || !contenedor) {
+        return;
+    }
+
+    const termino = busquedaInput.value.trim();
+    contenedor.replaceChildren();
+    productoCarnicoDisponibleSeleccionado = null;
+
+    if (termino.length < 2) {
+        productosCarnicosBusquedaActual = "";
+        productosCarnicosPaginaActual = 1;
+        await cargarListaInicialProductosCarnicos();
+        return;
+    }
+
+    contenedor.textContent = "Buscando productos...";
+
+    try {
+        productosCarnicosBusquedaActual = termino;
+        productosCarnicosPaginaActual = pagina;
+
+        const resultado = await consultarProductos(
+            productosCarnicosBusquedaActual,
+            productosCarnicosPaginaActual,
+            PRODUCTOS_CARNICOS_CONFIGURACION_POR_PAGINA
+        );
+        const productos = resultado.productos || [];
+
+        contenedor.replaceChildren();
+        productoCarnicoDisponibleSeleccionado = null;
+
+        if (productos.length === 0) {
+            contenedor.textContent = "No se encontraron productos.";
+            return;
+        }
+
+        contenedor.appendChild(
+            crearTablaResultadosProductosCarnicos(productos)
+        );
+        contenedor.appendChild(
+            crearControlesPaginacion(
+                resultado,
+                "productos",
+                buscarProductosCarnicosConfiguracion
+            )
+        );
+    } catch (error) {
+        contenedor.textContent = error.message;
+    }
+}
+
+
+function abrirPanelConfiguracionCarnicos() {
+    const modal = document.getElementById("modalConfiguracionCarnicos");
+
+    if (!modal) {
+        return;
+    }
+
+    productosCarnicosConfigurados = leerProductosCarnicosGuardados();
+    productosCarnicosConfiguradosPagina = 1;
+    productosCarnicosDisponiblesPagina = 1;
+    productoCarnicoDisponibleSeleccionado = null;
+    productoCarnicoConfiguradoSeleccionado = null;
+    renderizarProductosCarnicosConfigurados(1);
+    mostrarEstadoConfiguracionCarnicos("");
+    modal.classList.remove("hidden");
+    document.body.classList.add("modal-open");
+    void cargarListaInicialProductosCarnicos();
+}
+
+
+function cerrarPanelConfiguracionCarnicos() {
+    const modal = document.getElementById("modalConfiguracionCarnicos");
+
+    if (!modal) {
+        return;
+    }
+
+    modal.classList.add("hidden");
+    document.body.classList.remove("modal-open");
+}
+
+
+function guardarProductosCarnicosConfiguracion() {
+    window.localStorage.setItem(
+        STORAGE_PRODUCTOS_CARNICOS,
+        JSON.stringify(productosCarnicosConfigurados)
+    );
+    mostrarEstadoConfiguracionCarnicos(
+        "Configuracion guardada correctamente.",
+        "success"
+    );
+}
+
+
+function limpiarProductosCarnicosConfiguracion() {
+    productosCarnicosConfigurados = [];
+    productosCarnicosConfiguradosPagina = 1;
+    productoCarnicoConfiguradoSeleccionado = null;
+    renderizarProductosCarnicosConfigurados(1);
+    mostrarEstadoConfiguracionCarnicos(
+        "Lista limpia. Presiona Guardar para conservar cambios.",
+        "warning"
+    );
 }
 
 
@@ -1886,7 +3772,7 @@ function renderizarUltimosRegistrosModulo(registros) {
     const lista = document.createElement("div");
     lista.className = "modulo-registros-lista";
 
-    registros.slice(0, 5).forEach(function (registro) {
+    registros.slice(0, 3).forEach(function (registro) {
         lista.appendChild(crearRegistroModulo(registro));
     });
 
@@ -1962,7 +3848,7 @@ function actualizarModuloProductoActual() {
     abrirConfiguracion.textContent = "Guardar configuracion";
     abrirConfiguracion.className = "modulo-accion-secundaria";
     abrirConfiguracion.addEventListener("click", function () {
-        mostrarSeccion("configuraciones");
+        abrirModalConfiguraciones();
     });
 
     acciones.append(abrirCaptura, abrirConfiguracion);
@@ -3011,8 +4897,6 @@ async function guardarConfiguracionTransformacion() {
         }
     }
 }
-
-
 function resumenResultantesConfiguracion(configuracion) {
     const productos = (configuracion.productos_resultantes || []).filter(
         function (detalle) {
@@ -3065,6 +4949,7 @@ function resumenComponentesConfiguracion(configuracion) {
 
     return partes.join(" + ");
 }
+
 
 
 function crearCeldaConfiguracionPrincipal(configuracion) {
@@ -3765,19 +5650,63 @@ document.addEventListener("DOMContentLoaded", function () {
                 return;
             }
 
+            seleccionarMovimientoModulo(movimientoModuloActual);
             actualizarModuloProductoActual();
             cargarModuloCarnico();
         });
     }
 
-    const busquedaProducto =
-        document.getElementById("busquedaProducto");
-    if (busquedaProducto) {
-        busquedaProducto.addEventListener(
+    const modalConfiguraciones =
+        document.getElementById("modalConfiguraciones");
+    const modalConfiguracionCarnicos =
+        document.getElementById("modalConfiguracionCarnicos");
+    const modalMovimientoModulo =
+        document.getElementById("modalMovimientoModulo");
+
+    if (modalConfiguraciones) {
+        modalConfiguraciones.addEventListener("click", function (evento) {
+            if (evento.target === modalConfiguraciones) {
+                cerrarModalConfiguraciones();
+            }
+        });
+    }
+
+    if (modalConfiguracionCarnicos) {
+        modalConfiguracionCarnicos.addEventListener(
+            "click",
+            function (evento) {
+                if (evento.target === modalConfiguracionCarnicos) {
+                    cerrarPanelConfiguracionCarnicos();
+                }
+            }
+        );
+    }
+
+    if (modalMovimientoModulo) {
+        modalMovimientoModulo.addEventListener("click", function (evento) {
+            if (evento.target === modalMovimientoModulo) {
+                cerrarPanelMovimientoModulo();
+            }
+        });
+    }
+
+    document.addEventListener("keydown", function (evento) {
+        if (evento.key === "Escape") {
+            cerrarModalConfiguraciones();
+            cerrarPanelConfiguracionCarnicos();
+            cerrarPanelMovimientoModulo();
+        }
+    });
+
+    const busquedaProductoCarnicoConfig = document.getElementById(
+        "busquedaProductoCarnicoConfig"
+    );
+    if (busquedaProductoCarnicoConfig) {
+        busquedaProductoCarnicoConfig.addEventListener(
             "keydown",
             function (evento) {
                 if (evento.key === "Enter") {
-                    buscarProductos();
+                    buscarProductosCarnicosConfiguracion();
                 }
             }
         );

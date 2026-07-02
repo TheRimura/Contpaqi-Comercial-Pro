@@ -1,13 +1,16 @@
 import json
 from functools import cache
 from platform import node
+from typing import Optional, List
 
 from cayal.comandos_base_datos import ComandosBaseDatos
+from sentry_sdk.client import module_not_found_error
 
 
 class BaseDatos(ComandosBaseDatos):
     def __init__(self):
         super().__init__(servidor=node())
+        self.base_de_datos = None
 
     @staticmethod
     def valor_escalar(fila, campo):
@@ -1443,9 +1446,7 @@ class BaseDatos(ComandosBaseDatos):
             """,
             tuple(ids_limpios),
         )
-
-
-
+    
 @cache
 def obtener_base_datos():
     return BaseDatos()

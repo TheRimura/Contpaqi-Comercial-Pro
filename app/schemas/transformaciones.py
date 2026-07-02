@@ -109,7 +109,7 @@ class CrearTransformacion(BaseModel):
         if self.producto_ya_transformado:
             self.tipo_transformacion = "producto_final"
             self.producto_ya_transformado = False
-            nombre_producto = self.producto_seleccionado_id
+            van = self.producto_seleccionado_id
 
         raise ValueError(
             "La merma no puede sobre pasar cierto porcentaje"
