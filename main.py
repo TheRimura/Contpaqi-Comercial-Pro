@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.routes.configuraciones import router as configuraciones_router
+from app.routes.documentos_erp import router as documentos_erp_router
 from app.routes.login import router as login_router
 from app.routes.productos import router as productos_router
 from app.routes.transformaciones import router as transformaciones_router
@@ -35,6 +36,7 @@ app.include_router(login_router)
 app.include_router(productos_router)
 app.include_router(transformaciones_router)
 app.include_router(configuraciones_router)
+app.include_router(documentos_erp_router)
 
 
 def responder_template(nombre_archivo: str) -> HTMLResponse:

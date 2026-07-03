@@ -8,6 +8,15 @@ from cayal.comandos_base_datos import ComandosBaseDatos
 
 
 class BaseDatos(ComandosBaseDatos):
+    MODULO_ENTRADA = 202
+    MODULO_SALIDA = 203
+    MOVIMIENTOS_ENTRADA_RELACIONABLES = (
+        0, 3, 5, 7, 13, 14, 16, 17, 19, 24, 26, 31
+    )
+    MOVIMIENTOS_SALIDA_RELACIONABLES = (
+        0, 2, 6, 8, 9, 10, 12, 13, 14, 21, 23, 28
+    )
+
     def __init__(self):
         super().__init__(servidor=node())
         self.base_de_datos = None
@@ -1446,6 +1455,512 @@ class BaseDatos(ComandosBaseDatos):
             """,
             tuple(ids_limpios),
         )
+
+    def documento_previamente_relacionado(self, document_id):
+        relacionado = self.fetchone(
+            """
+            SELECT CASE
+                WHEN ISNULL(SourceDocumentID, 0) <> 0
+                  OR ISNULL(DestinationDocumentID, 0) <> 0
+                  OR ISNULL(Custom1, '') <> ''
+                THEN 1
+                ELSE 0
+            END AS Relacionado
+            FROM dbo.docDocument
+            WHERE DocumentID = ?
+            """,
+            (int(document_id),),
+        )
+
+        return int(self.valor_escalar(relacionado, "Relacionado") or 0) == 1
+
+    def buscar_folio_documento(self, document_id):
+        folio = self.fetchone(
+            """
+            SELECT ISNULL(FolioPrefix, '') + ISNULL(Folio, '') AS Folio
+            FROM dbo.docDocument
+            WHERE DocumentID = ?
+            """,
+            (int(document_id),),
+        )
+
+        return self.valor_escalar(folio, "Folio") or ""
+
+    def buscar_tipo_movimiento_documento(self, document_id):
+        movimiento_id = self.fetchone(
+            """
+            SELECT ISNULL(CustomCbo, 0) AS MovimientoID
+            FROM dbo.docDocument
+            WHERE DocumentID = ?
+            """,
+            (int(document_id),),
+        )
+
+        return int(self.valor_escalar(movimiento_id, "MovimientoID") or 0)
+
+    def movimiento_es_relacionable(self, tipo_movimiento_id, module_id):
+        module_id = int(module_id or 0)
+        tipo_movimiento_id = int(tipo_movimiento_id or 0)
+
+        if module_id == self.MODULO_ENTRADA:
+            return tipo_movimiento_id in self.MOVIMIENTOS_ENTRADA_RELACIONABLES
+
+        if module_id == self.MODULO_SALIDA:
+            return tipo_movimiento_id in self.MOVIMIENTOS_SALIDA_RELACIONABLES
+
+        return False
+
+    def buscar_tipo_movimiento_modulo(self, module_id, incluir_todos=False):
+        module_id = int(module_id or 0)
+
+        if module_id == self.MODULO_ENTRADA:
+            filtro = "" if incluir_todos else """
+                AND ItemData IN (3, 5, 7, 13, 14, 16, 17, 19, 24, 26, 31)
+            """
+            grupo = "Tipo de entrada"
+        elif module_id == self.MODULO_SALIDA:
+            filtro = "" if incluir_todos else """
+                AND ItemData IN (2, 6, 8, 9, 10, 12, 13, 14, 21, 23, 28)
+            """
+            grupo = "Tipo de salida"
+        else:
+            return []
+
+        return self.fetchall(
+            f"""
+            SELECT ItemData, ItemValue
+            FROM
+            (
+                SELECT ItemData, ItemValue
+                FROM dbo.engRefCombo
+                WHERE CboGroupName = ?
+                  {filtro}
+
+                UNION ALL
+
+                SELECT 0 AS ItemData, 'NO CLASIFICADO' AS ItemValue
+            ) AS Tabla
+            ORDER BY ItemValue
+            """,
+            (grupo,),
+        )
+
+    def buscar_documentos_relacionables(self, module_id):
+        module_id = int(module_id or 0)
+
+        if module_id == self.MODULO_ENTRADA:
+            target_module = self.MODULO_SALIDA
+            movimientos = self.MOVIMIENTOS_SALIDA_RELACIONABLES
+        elif module_id == self.MODULO_SALIDA:
+            target_module = self.MODULO_ENTRADA
+            movimientos = self.MOVIMIENTOS_ENTRADA_RELACIONABLES
+        else:
+            return []
+
+        movimientos_sql = ", ".join(str(movimiento) for movimiento in movimientos)
+
+        return self.fetchall(
+            f"""
+            SELECT
+                D.DocumentID,
+                D.ModuleID,
+                ISNULL(D.FolioPrefix, '') + ISNULL(D.Folio, '') AS DocFolio,
+                ISNULL(U.UserName, '') AS UserName,
+                CAST(D.CreatedOn AS DATE) AS CreatedOn,
+                CASE WHEN D.CancelledOn IS NULL THEN 0 ELSE 1 END AS Cancelled,
+                ISNULL(D.SourceDocumentID, 0) AS SourceDocumentID,
+                ISNULL(D.DestinationDocumentID, 0) AS DestinationDocumentID,
+                ISNULL(D.CustomCbo, 0) AS CustomCbo,
+                ISNULL(D.Custom1, '') AS Custom1
+            FROM dbo.docDocument D
+            LEFT JOIN dbo.engUser U
+                ON U.UserID = D.CreatedBy
+            WHERE D.ModuleID = ?
+              AND D.DeletedOn IS NULL
+              AND D.CancelledOn IS NULL
+              AND ISNULL(D.SourceDocumentID, 0) = 0
+              AND ISNULL(D.DestinationDocumentID, 0) = 0
+              AND ISNULL(D.Custom1, '') = ''
+              AND ISNULL(D.CustomCbo, 0) IN ({movimientos_sql})
+              AND CAST(D.CreatedOn AS DATE) = CAST(GETDATE() AS DATE)
+            ORDER BY D.CreatedOn DESC
+            """,
+            (target_module,),
+        )
+
+    def obtener_proveedores_documentos(self):
+        return self.fetchall(
+            """
+            SELECT DISTINCT
+                S.BusinessEntityID,
+                E.OfficialName
+            FROM dbo.docDocument D
+            INNER JOIN dbo.orgBusinessEntity E
+                ON D.BusinessEntityID = E.BusinessEntityID
+            INNER JOIN dbo.orgSupplier S
+                ON E.BusinessEntityID = S.BusinessEntityID
+            WHERE S.DeletedOn IS NULL
+              AND D.ModuleID = 152
+              AND D.CancelledOn IS NULL
+              AND D.DeletedOn IS NULL
+              AND S.SupplierID IS NOT NULL
+            ORDER BY E.OfficialName
+            """,
+            (),
+        )
+
+    def obtener_usuarios_fisicos(self):
+        return self.fetchall(
+            """
+            SELECT
+                UserID,
+                OfficialName
+            FROM dbo.zvwEmpleadosCayalMenu
+            ORDER BY OfficialName
+            """,
+            (),
+        )
+
+    def obtener_relacion_documento(self, document_id):
+        filas = self.fetchall(
+            """
+            SELECT TOP 1
+                D.DocumentID,
+                D.ModuleID,
+                ISNULL(D.Custom1, '') AS FolioRelacionadoCustom1,
+                S.DocumentID AS SourceDocumentID,
+                E.DocumentID AS DestinationDocumentID,
+                ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '') AS SourceFolio,
+                ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '') AS DestinationFolio,
+                ISNULL(S.CustomCbo, 0) AS TipoMovimientoOrigenID,
+                ISNULL(E.CustomCbo, 0) AS TipoMovimientoDestinoID,
+                ISNULL(US.UserName, '') AS SourceUserName,
+                ISNULL(UE.UserName, '') AS DestinationUserName,
+                R.DocumentWarehouseRelationID,
+                R.SupplierID,
+                R.PhysicalUserID,
+                R.MovementDate,
+                R.ERPUserID,
+                R.SourceBrandID,
+                R.DestinationBrandID,
+                ISNULL(BS.BrandName, '') AS SourceBrandName,
+                ISNULL(BD.BrandName, '') AS DestinationBrandName,
+                ISNULL(PROV.OfficialName, '') AS SupplierName,
+                ISNULL(EMP.OfficialName, '') AS PhysicalUserName
+            FROM dbo.docDocument D
+            OUTER APPLY
+            (
+                SELECT TOP 1 R.*
+                FROM dbo.docDocumentWarehouseRelation R
+                WHERE R.SourceDocumentID = D.DocumentID
+                   OR R.DestinationDocumentID = D.DocumentID
+                ORDER BY R.DocumentWarehouseRelationID DESC
+            ) R
+            LEFT JOIN dbo.docDocument S
+                ON S.DocumentID = CASE
+                    WHEN R.SourceDocumentID IS NOT NULL THEN R.SourceDocumentID
+                    WHEN D.ModuleID = 203 THEN D.DocumentID
+                    WHEN D.ModuleID = 202 THEN D.SourceDocumentID
+                    ELSE D.SourceDocumentID
+                END
+               AND S.ModuleID = 203
+            LEFT JOIN dbo.docDocument E
+                ON E.DocumentID = CASE
+                    WHEN R.DestinationDocumentID IS NOT NULL THEN R.DestinationDocumentID
+                    WHEN D.ModuleID = 202 THEN D.DocumentID
+                    WHEN D.ModuleID = 203 THEN D.DestinationDocumentID
+                    ELSE D.DestinationDocumentID
+                END
+               AND E.ModuleID = 202
+            LEFT JOIN dbo.orgBusinessEntity PROV
+                ON PROV.BusinessEntityID = R.SupplierID
+            LEFT JOIN dbo.zvwEmpleadosCayalMenu EMP
+                ON EMP.UserID = R.PhysicalUserID
+            LEFT JOIN dbo.catBrand BS
+                ON BS.BrandID = R.SourceBrandID
+            LEFT JOIN dbo.catBrand BD
+                ON BD.BrandID = R.DestinationBrandID
+            LEFT JOIN dbo.engUser US
+                ON US.UserID = S.CreatedBy
+            LEFT JOIN dbo.engUser UE
+                ON UE.UserID = E.CreatedBy
+            WHERE D.DocumentID = ?
+            """,
+            (int(document_id),),
+        )
+
+        return filas[0] if filas else None
+
+    def relacionar_documentos_erp(
+        self,
+        source_document_id,
+        destination_document_id,
+        folio_source_document_id,
+        folio_destination_document_id,
+        tipo_movimiento_origen_id,
+        tipo_movimiento_destino_id,
+        proveedor_id,
+        usuario_fisico_id,
+        fecha_movimiento,
+        user_id_erp,
+        source_brand_id=None,
+        destination_brand_id=None,
+    ):
+        self.command(
+            """
+            DECLARE @Origen INT = ?;
+            DECLARE @FolioOrigen NVARCHAR(125) = ?;
+            DECLARE @Destino INT = ?;
+            DECLARE @FolioDestino NVARCHAR(125) = ?;
+            DECLARE @TipoMovimientoIDOrigen INT = ?;
+            DECLARE @TipoMovimientoIDDestino INT = ?;
+            DECLARE @ProveedorID INT = ?;
+            DECLARE @UsuarioFisicoID INT = ?;
+            DECLARE @FechaMovimiento DATE = ?;
+            DECLARE @UserIDERP INT = ?;
+            DECLARE @SourceBrandID INT = ?;
+            DECLARE @DestinationBrandID INT = ?;
+
+            UPDATE dbo.docDocument
+            SET
+                DestinationDocumentID = @Destino,
+                CustomCbo = @TipoMovimientoIDOrigen,
+                Custom1 = @FolioDestino
+            WHERE DocumentID = @Origen
+              AND ModuleID = 203;
+
+            UPDATE dbo.docDocument
+            SET
+                SourceDocumentID = @Origen,
+                CustomCbo = @TipoMovimientoIDDestino,
+                Custom1 = @FolioOrigen
+            WHERE DocumentID = @Destino
+              AND ModuleID = 202;
+
+            INSERT INTO dbo.docDocumentWarehouseRelation
+            (
+                SourceDocumentID,
+                DestinationDocumentID,
+                SupplierID,
+                PhysicalUserID,
+                MovementDate,
+                ERPUserID,
+                SourceBrandID,
+                DestinationBrandID,
+                CreatedOn
+            )
+            SELECT
+                @Origen,
+                @Destino,
+                @ProveedorID,
+                @UsuarioFisicoID,
+                @FechaMovimiento,
+                @UserIDERP,
+                @SourceBrandID,
+                @DestinationBrandID,
+                GETDATE()
+            WHERE NOT EXISTS
+            (
+                SELECT 1
+                FROM dbo.docDocumentWarehouseRelation
+                WHERE SourceDocumentID = @Origen
+                  AND DestinationDocumentID = @Destino
+            );
+            """,
+            (
+                int(source_document_id),
+                folio_source_document_id,
+                int(destination_document_id),
+                folio_destination_document_id,
+                int(tipo_movimiento_origen_id),
+                int(tipo_movimiento_destino_id),
+                int(proveedor_id),
+                int(usuario_fisico_id),
+                fecha_movimiento,
+                int(user_id_erp),
+                source_brand_id,
+                destination_brand_id,
+            ),
+        )
+
+    def buscar_document_id_por_folio(self, folio, module_id=None):
+        if not folio:
+            return 0
+
+        folio = str(folio).strip().upper()
+        consulta = self.fetchone(
+            """
+            SELECT TOP 1
+                DocumentID
+            FROM dbo.docDocument
+            WHERE DeletedOn IS NULL
+              AND CancelledOn IS NULL
+              AND ISNULL(FolioPrefix, '') + ISNULL(Folio, '') = ?
+              AND (? IS NULL OR ModuleID = ?)
+            ORDER BY DocumentID DESC
+            """,
+            (folio, module_id, module_id),
+        )
+
+        return int(self.valor_escalar(consulta, "DocumentID") or 0)
+
+    def homologar_tipo_movimiento_documento(self, document_id):
+        self.command(
+            """
+            DECLARE @DocumentID INT = ?;
+            DECLARE @ModuleID INT;
+            DECLARE @Custom1 NVARCHAR(125);
+            DECLARE @Custom1Normalizado NVARCHAR(125);
+
+            SELECT
+                @ModuleID = ModuleID,
+                @Custom1 = LTRIM(RTRIM(ISNULL(Custom1, '')))
+            FROM dbo.docDocument
+            WHERE DocumentID = @DocumentID;
+
+            SET @Custom1Normalizado = UPPER(@Custom1);
+            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, ' ', '');
+            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, '-', '');
+            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, '_', '');
+            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, '.', '');
+            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, '/', '');
+            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, '\\', '');
+            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, CHAR(9), '');
+            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, CHAR(10), '');
+            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, CHAR(13), '');
+
+            IF ISNULL(@Custom1Normalizado, '') = ''
+                RETURN;
+
+            DECLARE @EntradaDocumentID INT = 0;
+            DECLARE @SalidaDocumentID INT = 0;
+
+            IF @ModuleID = 202
+            BEGIN
+                SET @EntradaDocumentID = @DocumentID;
+
+                SELECT TOP 1
+                    @SalidaDocumentID = S.DocumentID
+                FROM dbo.docDocument S
+                WHERE S.ModuleID = 203
+                  AND S.DeletedOn IS NULL
+                  AND S.CancelledOn IS NULL
+                  AND UPPER(
+                        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                            ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, ''),
+                            ' ', ''), '-', ''), '_', ''), '.', ''), '/', ''), '\\', ''),
+                            CHAR(9), ''), CHAR(10), ''), CHAR(13), '')
+                      ) = @Custom1Normalizado
+                ORDER BY S.DocumentID DESC;
+            END
+            ELSE IF @ModuleID = 203
+            BEGIN
+                SET @SalidaDocumentID = @DocumentID;
+
+                SELECT TOP 1
+                    @EntradaDocumentID = E.DocumentID
+                FROM dbo.docDocument E
+                WHERE E.ModuleID = 202
+                  AND E.DeletedOn IS NULL
+                  AND E.CancelledOn IS NULL
+                  AND UPPER(
+                        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                            ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, ''),
+                            ' ', ''), '-', ''), '_', ''), '.', ''), '/', ''), '\\', ''),
+                            CHAR(9), ''), CHAR(10), ''), CHAR(13), '')
+                      ) = @Custom1Normalizado
+                ORDER BY E.DocumentID DESC;
+            END
+            ELSE
+            BEGIN
+                RETURN;
+            END;
+
+            IF ISNULL(@EntradaDocumentID, 0) = 0
+               OR ISNULL(@SalidaDocumentID, 0) = 0
+                RETURN;
+
+            DECLARE @EntradaFolio NVARCHAR(125);
+            DECLARE @SalidaFolio NVARCHAR(125);
+
+            SELECT
+                @EntradaFolio = ISNULL(FolioPrefix, '') + ISNULL(Folio, '')
+            FROM dbo.docDocument
+            WHERE DocumentID = @EntradaDocumentID
+              AND ModuleID = 202;
+
+            SELECT
+                @SalidaFolio = ISNULL(FolioPrefix, '') + ISNULL(Folio, '')
+            FROM dbo.docDocument
+            WHERE DocumentID = @SalidaDocumentID
+              AND ModuleID = 203;
+
+            UPDATE dbo.docDocument
+            SET
+                SourceDocumentID = @SalidaDocumentID,
+                DestinationDocumentID = 0,
+                Custom1 = @SalidaFolio
+            WHERE DocumentID = @EntradaDocumentID
+              AND ModuleID = 202
+              AND (
+                    ISNULL(SourceDocumentID, 0) = 0
+                 OR ISNULL(Custom1, '') <> ISNULL(@SalidaFolio, '')
+              );
+
+            UPDATE dbo.docDocument
+            SET
+                SourceDocumentID = 0,
+                DestinationDocumentID = @EntradaDocumentID,
+                Custom1 = @EntradaFolio
+            WHERE DocumentID = @SalidaDocumentID
+              AND ModuleID = 203
+              AND (
+                    ISNULL(DestinationDocumentID, 0) = 0
+                 OR ISNULL(Custom1, '') <> ISNULL(@EntradaFolio, '')
+              );
+            """,
+            (int(document_id),),
+        )
+
+    def obtener_marcas_por_categoria(self, categoria):
+        return self.fetchall(
+            """
+            SELECT
+                B.BrandID,
+                B.BrandName
+            FROM catProductBrandCategory C
+            INNER JOIN catProductBrandCategoryRelation R
+                ON R.ProductBrandCategoryID = C.ProductBrandCategoryID
+            INNER JOIN catBrand B
+                ON B.BrandID = R.BrandID
+            WHERE C.ProductBrandCategoryName = ?
+              AND C.DeletedOn IS NULL
+              AND R.DeletedOn IS NULL
+              AND B.DeletedOn IS NULL
+            ORDER BY B.BrandName
+            """,
+            (categoria,),
+        )
+
+    def obtener_partidas_documento_erp(self, document_id):
+        partidas = self.buscar_partidas_documento(int(document_id))
+        nuevas_partidas = []
+
+        for partida in partidas:
+            cantidad = float(partida.get("Quantity") or 0)
+            costo = float(partida.get("CostPrice") or 0)
+            total = float(partida.get("total") or cantidad * costo)
+            nuevas_partidas.append({
+                "ProductID": partida.get("ProductID"),
+                "Category": partida.get("Category1"),
+                "ProductKey": partida.get("ProductKey"),
+                "ProductName": partida.get("ProductName"),
+                "Quantity": cantidad,
+                "CostPrice": costo,
+                "total": total,
+            })
+
+        return nuevas_partidas
 
 @cache
 def obtener_base_datos():

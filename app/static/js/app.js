@@ -829,6 +829,7 @@ function renderizarPanelSalidaMovimiento(contenedor, contexto) {
     const form = document.createElement("div");
     const cantidad = document.createElement("input");
     const empleado = document.createElement("input");
+    const empleadosOpciones = document.createElement("datalist");
     const agregarEmpleado = document.createElement("button");
     const empleadosLista = document.createElement("div");
     const observaciones = document.createElement("input");
@@ -864,7 +865,9 @@ function renderizarPanelSalidaMovimiento(contenedor, contexto) {
     cantidad.value = guardada?.cantidad || "";
 
     empleado.type = "text";
+    empleado.setAttribute("list", "empleadosMovimientoOpciones");
     empleado.placeholder = "Nombre del empleado";
+    empleadosOpciones.id = "empleadosMovimientoOpciones";
     agregarEmpleado.type = "button";
     agregarEmpleado.textContent = "Agregar empleado";
     empleadosLista.className = "salida-empleados-lista";
@@ -888,9 +891,11 @@ function renderizarPanelSalidaMovimiento(contenedor, contexto) {
     form.append(
         crearCampoSalida("Cantidad de salida", cantidad),
         crearCampoSalida("Empleado", empleado),
+        empleadosOpciones,
         agregarEmpleado,
         crearCampoSalida("Observaciones", observaciones)
     );
+    void cargarEmpleadosMovimiento("empleadosMovimientoOpciones");
 
     renderizarEmpleadosSalida(empleadosLista);
 
@@ -1809,6 +1814,10 @@ let productosCarnicosDisponiblesPagina = 1;
 let productoCarnicoDisponibleSeleccionado = null;
 let productoCarnicoConfiguradoSeleccionado = null;
 let productoCarnicoFormularioSeleccionado = null;
+let proveedoresCarnicosCatalogo = [];
+let proveedoresCarnicosPromesa = null;
+let empleadosMovimientoCatalogo = [];
+let empleadosMovimientoPromesa = null;
 let productosCarnicosBusquedaActual = "";
 let productosCarnicosPaginaActual = 1;
 let salidaProductoSeleccionado = null;
@@ -1993,6 +2002,101 @@ async function consultarProductos(
     }
 
     return datos;
+}
+
+
+async function consultarCatalogoDocumentosERP(ruta) {
+    const { respuesta, datos } = await solicitarJson(
+        ruta,
+        {
+            credentials: "same-origin"
+        }
+    );
+
+    if (!respuesta.ok) {
+        throw new Error(
+            datos.detail || "No fue posible consultar catalogo ERP"
+        );
+    }
+
+    return datos;
+}
+
+
+function llenarDatalist(id, registros, obtenerValor) {
+    const lista = document.getElementById(id);
+
+    if (!lista) {
+        return;
+    }
+
+    lista.replaceChildren();
+    registros.forEach(function (registro) {
+        const valor = obtenerValor(registro);
+
+        if (!valor) {
+            return;
+        }
+
+        const opcion = document.createElement("option");
+
+        opcion.value = valor;
+        lista.appendChild(opcion);
+    });
+}
+
+
+async function cargarProveedoresCarnicos() {
+    if (!proveedoresCarnicosPromesa) {
+        proveedoresCarnicosPromesa = consultarCatalogoDocumentosERP(
+            "/documentos-erp/proveedores"
+        )
+            .then(function (datos) {
+                proveedoresCarnicosCatalogo = datos.proveedores || [];
+                return proveedoresCarnicosCatalogo;
+            })
+            .catch(function (error) {
+                console.error(error);
+                proveedoresCarnicosCatalogo = [];
+                return proveedoresCarnicosCatalogo;
+            });
+    }
+
+    const proveedores = await proveedoresCarnicosPromesa;
+    llenarDatalist(
+        "proveedoresCarnicosOpciones",
+        proveedores,
+        function (proveedor) {
+            return proveedor.OfficialName || proveedor.nombre || "";
+        }
+    );
+}
+
+
+async function cargarEmpleadosMovimiento(datalistId) {
+    if (!empleadosMovimientoPromesa) {
+        empleadosMovimientoPromesa = consultarCatalogoDocumentosERP(
+            "/documentos-erp/empleados"
+        )
+            .then(function (datos) {
+                empleadosMovimientoCatalogo = datos.empleados || [];
+                return empleadosMovimientoCatalogo;
+            })
+            .catch(function (error) {
+                console.error(error);
+                empleadosMovimientoCatalogo = [];
+                return empleadosMovimientoCatalogo;
+            });
+    }
+
+    const empleados = await empleadosMovimientoPromesa;
+    llenarDatalist(
+        datalistId,
+        empleados,
+        function (empleado) {
+            return empleado.OfficialName || empleado.nombre || "";
+        }
+    );
 }
 
 
@@ -2573,6 +2677,7 @@ function abrirFormularioProductoCarnico(producto) {
     mostrarEstadoFormularioProductoCarnico("");
     modal.classList.remove("hidden");
     document.body.classList.add("modal-open");
+    void cargarProveedoresCarnicos();
     proveedor.focus();
 }
 
