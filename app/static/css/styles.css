@@ -1117,12 +1117,25 @@ textarea:focus {
     border-color: var(--brand-red);
 }
 
+.configuracion-boton:disabled,
+.configuracion-boton.is-disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+    background-color: #f8fafc;
+    border-color: var(--border-color);
+    color: var(--text-muted);
+}
+
 .modal-open {
     overflow: hidden;
 }
 
 .config-carnicos-modal {
     max-width: 1080px;
+}
+
+.config-producto-modal {
+    max-width: 680px;
 }
 
 .config-carnicos-toolbar {
@@ -1239,7 +1252,8 @@ textarea:focus {
     text-align: center;
 }
 
-.config-carnicos-tabla input {
+.config-carnicos-tabla input,
+.config-carnicos-tabla select {
     min-width: 120px;
 }
 
@@ -1262,10 +1276,62 @@ textarea:focus {
     color: var(--color-danger);
 }
 
+.producto-carnico-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+.producto-carnico-form label {
+    display: grid;
+    gap: 0.35rem;
+    color: var(--text-main);
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.producto-carnico-form label span {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+}
+
+.config-producto-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+}
+
+.config-producto-actions button {
+    min-height: 40px;
+    padding: 0.55rem 1rem;
+    background-color: var(--brand-red);
+    border: none;
+    border-radius: 8px;
+    color: var(--surface);
+    cursor: pointer;
+    font-weight: 800;
+}
+
+.config-producto-actions .modulo-accion-secundaria {
+    background-color: #f1f5f9;
+    color: var(--text-main);
+}
+
+.config-producto-actions button:hover {
+    background-color: var(--brand-red-hover);
+}
+
+.config-producto-actions .modulo-accion-secundaria:hover {
+    background-color: #e2e8f0;
+}
+
 @media (max-width: 760px) {
     .config-carnicos-toolbar,
     .config-carnicos-search,
     .config-carnicos-actions,
+    .producto-carnico-form,
     .salida-form,
     .movimiento-form,
     .movimiento-resumen-grid {

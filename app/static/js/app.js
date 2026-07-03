@@ -73,6 +73,8 @@ async function cargarSesionActual() {
         usuarioActivo.textContent = datos.usuario || "Usuario";
     }
 
+    actualizarPermisoConfiguracionCarnicos();
+
     return datos;
 }
 
@@ -316,7 +318,7 @@ function obtenerProductosSalidaDisponibles() {
     return leerProductosCarnicosGuardados().map(function (producto) {
         return normalizarProductoCarnico(producto);
     }).filter(function (producto) {
-        return producto.id;
+        return producto.id && productoCarnicoEstaActivo(producto);
     });
 }
 
@@ -1772,6 +1774,17 @@ const STORAGE_PRODUCTOS_CARNICOS =
     "cayal.productos_carnicos_configurados";
 const STORAGE_SALIDA_MOVIMIENTO =
     "cayal.salida_movimiento_actual";
+const USUARIOS_CONFIGURACION_CARNICOS = (
+    window.CAYAL_USUARIOS_CONFIGURACION_CARNICOS || ["ABRAHAM"]
+).map(function (usuario) {
+    return String(usuario).trim().toUpperCase();
+});
+const PERMISOS_CONFIGURACION_CARNICOS = [
+    "ADMIN",
+    "ADMINISTRADOR",
+    "CONFIGURACION_CARNICOS",
+    "MODULO_CARNICO_CONFIGURACION"
+];
 const TIEMPO_LIMITE_CONSULTA_MS = 15000;
 const TIEMPO_LIMITE_REGISTRO_MS = 60000;
 const TIPO_TRANSFORMACION_CONFIGURADA = "receta_configurada";
@@ -1795,6 +1808,7 @@ let productosCarnicosDisponibles = [];
 let productosCarnicosDisponiblesPagina = 1;
 let productoCarnicoDisponibleSeleccionado = null;
 let productoCarnicoConfiguradoSeleccionado = null;
+let productoCarnicoFormularioSeleccionado = null;
 let productosCarnicosBusquedaActual = "";
 let productosCarnicosPaginaActual = 1;
 let salidaProductoSeleccionado = null;
@@ -1820,6 +1834,93 @@ function crearIdOperacion() {
         `${Date.now()}-${Math.random().toString(16).slice(2)}` +
         `-${Math.random().toString(16).slice(2)}`
     );
+}
+
+
+function normalizarPermiso(valor) {
+    return String(valor || "").trim().toUpperCase();
+}
+
+
+function obtenerPermisosSesion() {
+    if (!sesionActual) {
+        return [];
+    }
+
+    const permisos = [];
+    const camposTexto = [
+        "rol",
+        "perfil",
+        "grupo",
+        "group_name",
+        "GroupName",
+        "tipo_usuario"
+    ];
+
+    camposTexto.forEach(function (campo) {
+        if (sesionActual[campo]) {
+            permisos.push(normalizarPermiso(sesionActual[campo]));
+        }
+    });
+
+    if (Array.isArray(sesionActual.permisos)) {
+        sesionActual.permisos.forEach(function (permiso) {
+            permisos.push(normalizarPermiso(permiso));
+        });
+    }
+
+    if (
+        sesionActual.es_admin ||
+        sesionActual.admin ||
+        sesionActual.administrador
+    ) {
+        permisos.push("ADMIN");
+    }
+
+    return permisos;
+}
+
+
+function usuarioPuedeConfigurarCarnicos() {
+    if (!sesionActual) {
+        return false;
+    }
+
+    const usuario = normalizarPermiso(sesionActual.usuario);
+
+    if (USUARIOS_CONFIGURACION_CARNICOS.includes(usuario)) {
+        return true;
+    }
+
+    if (sesionActual.puede_configurar_carnicos === true) {
+        return true;
+    }
+
+    return obtenerPermisosSesion().some(function (permiso) {
+        return PERMISOS_CONFIGURACION_CARNICOS.includes(permiso);
+    });
+}
+
+
+function actualizarPermisoConfiguracionCarnicos() {
+    const boton = document.getElementById("botonConfiguracionCarnicos");
+
+    if (!boton) {
+        return;
+    }
+
+    const permitido = usuarioPuedeConfigurarCarnicos();
+    boton.disabled = !permitido;
+    boton.classList.toggle("is-disabled", !permitido);
+    boton.setAttribute("aria-disabled", String(!permitido));
+    boton.title = permitido
+        ? "Abrir configuracion de productos carnicos"
+        : "Solo administradores o usuarios permitidos pueden configurar productos";
+}
+
+
+function mostrarPermisoConfiguracionCarnicosDenegado() {
+    alert("Solo administradores o usuarios permitidos pueden abrir configuracion.");
 }
 
 
@@ -2065,21 +2166,83 @@ function leerProductosCarnicosGuardados() {
 
 
 function productoCarnicoId(producto) {
-    return String(producto.id ?? producto.producto_id ?? producto.clave ?? "");
+    return String(
+        producto.id ??
+        producto.producto_id ??
+        producto.ProductID ??
+        producto.clave ??
+        ""
+    );
 }
 
 
 function normalizarProductoCarnico(producto) {
+    const datos = producto || {};
+    const mermaEstimada = datos.merma_estimada || null;
+    const porcentajeMerma = datos.porcentaje_merma ??
+        mermaEstimada?.porcentaje ??
+        "";
+    const activo = datos.activo ?? datos.oculto !== true;
+
     return {
-        id: productoCarnicoId(producto),
-        clave: producto.clave || producto.ProductKey || "",
-        nombre: producto.nombre || producto.ProductName || "",
-        categoria: producto.categoria || producto.Category1 || "",
-        unidad: producto.unidad || producto.Unit || "",
-        cantidad: producto.cantidad || "",
-        existencia: producto.existencia || producto.Stock || "",
-        merma_estimada: producto.merma_estimada || null
+        id: productoCarnicoId(datos),
+        clave: datos.clave || datos.ProductKey || "",
+        proveedor: datos.proveedor || datos.ProviderName || "",
+        nombre: datos.nombre || datos.ProductName || "",
+        categoria: datos.categoria || datos.Category1 || "",
+        unidad: datos.unidad || datos.Unit || "",
+        cantidad: datos.cantidad || "",
+        existencia: datos.existencia || datos.Stock || "",
+        porcentaje_merma: porcentajeMerma,
+        merma_estimada: mermaEstimada || (
+            porcentajeMerma !== ""
+                ? {
+                    porcentaje: Number(porcentajeMerma) || 0,
+                    descripcion: "Referencia definida en configuracion",
+                    fuente: "configuracion_usuario"
+                }
+                : null
+        ),
+        activo: Boolean(activo),
+        oculto: datos.oculto === true || activo === false
     };
+}
+
+
+function productoCarnicoEstaActivo(producto) {
+    return producto && producto.activo !== false && producto.oculto !== true;
+}
+
+
+function productosCarnicosActivos() {
+    return productosCarnicosConfigurados.filter(productoCarnicoEstaActivo);
+}
+
+
+function crearSelectorUnidadProductoCarnico(unidadActual = "") {
+    const selector = document.createElement("select");
+    const unidades = ["KILO", "LITRO", "PIEZA", "CAJA", "PAQUETE", "UNIDAD"];
+    const unidadNormalizada = String(unidadActual || "KILO").trim().toUpperCase();
+
+    unidades.forEach(function (unidad) {
+        const opcion = document.createElement("option");
+
+        opcion.value = unidad;
+        opcion.textContent = unidad;
+        opcion.selected = unidad === unidadNormalizada;
+        selector.appendChild(opcion);
+    });
+
+    if (!unidades.includes(unidadNormalizada) && unidadNormalizada) {
+        const opcion = document.createElement("option");
+
+        opcion.value = unidadNormalizada;
+        opcion.textContent = unidadNormalizada;
+        opcion.selected = true;
+        selector.appendChild(opcion);
+    }
+
+    return selector;
 }
 
 
@@ -2232,8 +2395,9 @@ function renderizarProductosCarnicosConfigurados(
         return;
     }
 
+    const productosActivosLista = productosCarnicosActivos();
     const paginaLocal = paginarListaCarnicos(
-        productosCarnicosConfigurados,
+        productosActivosLista,
         pagina,
         PRODUCTOS_CARNICOS_AGREGADOS_POR_PAGINA
     );
@@ -2261,16 +2425,18 @@ function renderizarProductosCarnicosConfigurados(
     encabezado.innerHTML = `
         <tr>
             <th>Clave</th>
+            <th>Proveedor</th>
             <th>Nombre producto</th>
-            <th>Cantidad</th>
+            <th>Unidad</th>
+            <th>Merma %</th>
         </tr>
     `;
 
-    if (productosCarnicosConfigurados.length === 0) {
+    if (productosActivosLista.length === 0) {
         cuerpo.appendChild(
             crearFilaVaciaConfiguracionCarnicos(
                 "No hay productos agregados.",
-                3
+                5
             )
         );
         tabla.append(encabezado, cuerpo);
@@ -2281,12 +2447,16 @@ function renderizarProductosCarnicosConfigurados(
     paginaLocal.productos.forEach(function (producto) {
         const fila = document.createElement("tr");
         const clave = document.createElement("td");
-        const nombre = document.createElement("td");
-        const cantidadCelda = document.createElement("td");
-        const cantidad = document.createElement("input");
+        const proveedorCelda = document.createElement("td");
+        const nombreCelda = document.createElement("td");
+        const unidadCelda = document.createElement("td");
+        const mermaCelda = document.createElement("td");
+        const proveedor = document.createElement("input");
+        const nombre = document.createElement("input");
+        const unidad = crearSelectorUnidadProductoCarnico(producto.unidad);
+        const merma = document.createElement("input");
 
         clave.textContent = producto.clave || "-";
-        nombre.textContent = producto.nombre || "-";
         fila.tabIndex = 0;
 
         if (
@@ -2300,18 +2470,50 @@ function renderizarProductosCarnicosConfigurados(
             seleccionarProductoCarnicoConfigurado(producto, fila);
         });
 
-        cantidad.type = "text";
-        cantidad.value = producto.cantidad || "";
-        cantidad.placeholder = producto.unidad || "Cantidad";
-        cantidad.addEventListener("click", function () {
-            seleccionarProductoCarnicoConfigurado(producto, fila);
-        });
-        cantidad.addEventListener("input", function () {
-            producto.cantidad = cantidad.value;
+        proveedor.type = "text";
+        proveedor.value = producto.proveedor || "";
+        proveedor.placeholder = "Proveedor";
+        proveedor.addEventListener("input", function () {
+            producto.proveedor = proveedor.value.trim();
         });
 
-        cantidadCelda.appendChild(cantidad);
-        fila.append(clave, nombre, cantidadCelda);
+        nombre.type = "text";
+        nombre.value = producto.nombre || "";
+        nombre.placeholder = "Nombre";
+        nombre.addEventListener("input", function () {
+            producto.nombre = nombre.value.trim();
+        });
+
+        unidad.addEventListener("change", function () {
+            producto.unidad = unidad.value;
+        });
+
+        merma.type = "number";
+        merma.min = "0";
+        merma.max = "100";
+        merma.step = "0.01";
+        merma.value = producto.porcentaje_merma || "";
+        merma.placeholder = "0";
+        merma.addEventListener("input", function () {
+            producto.porcentaje_merma = merma.value;
+            producto.merma_estimada = {
+                porcentaje: Number(merma.value || 0),
+                descripcion: "Referencia definida en configuracion",
+                fuente: "configuracion_usuario"
+            };
+        });
+
+        [proveedor, nombre, unidad, merma].forEach(function (control) {
+            control.addEventListener("click", function () {
+                seleccionarProductoCarnicoConfigurado(producto, fila);
+            });
+        });
+
+        proveedorCelda.appendChild(proveedor);
+        nombreCelda.appendChild(nombre);
+        unidadCelda.appendChild(unidad);
+        mermaCelda.appendChild(merma);
+        fila.append(clave, proveedorCelda, nombreCelda, unidadCelda, mermaCelda);
         cuerpo.appendChild(fila);
     });
 
@@ -2335,26 +2537,161 @@ function agregarProductoCarnicoSeleccionado() {
         return;
     }
 
-    agregarProductoCarnicoConfiguracion(productoCarnicoDisponibleSeleccionado);
+    abrirFormularioProductoCarnico(productoCarnicoDisponibleSeleccionado);
+}
+
+
+function mostrarEstadoFormularioProductoCarnico(mensaje, tipo = "") {
+    const estado = document.getElementById("estadoFormularioProductoCarnico");
+
+    if (!estado) {
+        return;
+    }
+
+    estado.className = `config-carnicos-status ${tipo}`.trim();
+    estado.textContent = mensaje;
+}
+
+
+function abrirFormularioProductoCarnico(producto) {
+    const modal = document.getElementById("modalFormularioProductoCarnico");
+    const proveedor = document.getElementById("productoCarnicoProveedor");
+    const nombre = document.getElementById("productoCarnicoNombre");
+    const unidad = document.getElementById("productoCarnicoUnidad");
+    const merma = document.getElementById("productoCarnicoMerma");
+    const productoNormalizado = normalizarProductoCarnico(producto);
+
+    if (!modal || !proveedor || !nombre || !unidad || !merma) {
+        return;
+    }
+
+    productoCarnicoFormularioSeleccionado = productoNormalizado;
+    proveedor.value = productoNormalizado.proveedor || "";
+    nombre.value = productoNormalizado.nombre || "";
+    unidad.value = productoNormalizado.unidad || "KILO";
+    merma.value = productoNormalizado.porcentaje_merma || "";
+    mostrarEstadoFormularioProductoCarnico("");
+    modal.classList.remove("hidden");
+    document.body.classList.add("modal-open");
+    proveedor.focus();
+}
+
+
+function cerrarFormularioProductoCarnico() {
+    const modal = document.getElementById("modalFormularioProductoCarnico");
+
+    if (!modal) {
+        return;
+    }
+
+    modal.classList.add("hidden");
+    productoCarnicoFormularioSeleccionado = null;
+    mostrarEstadoFormularioProductoCarnico("");
+
+    if (
+        document.getElementById("modalConfiguracionCarnicos")
+            ?.classList.contains("hidden")
+    ) {
+        document.body.classList.remove("modal-open");
+    }
+}
+
+
+function guardarFormularioProductoCarnico() {
+    const proveedor = document.getElementById("productoCarnicoProveedor");
+    const nombre = document.getElementById("productoCarnicoNombre");
+    const unidad = document.getElementById("productoCarnicoUnidad");
+    const merma = document.getElementById("productoCarnicoMerma");
+
+    if (
+        !productoCarnicoFormularioSeleccionado ||
+        !proveedor ||
+        !nombre ||
+        !unidad ||
+        !merma
+    ) {
+        return;
+    }
+
+    const nombreProducto = nombre.value.trim();
+    const porcentajeMerma = Number(merma.value || 0);
+
+    if (!nombreProducto) {
+        mostrarEstadoFormularioProductoCarnico(
+            "Captura el nombre del producto.",
+            "warning"
+        );
+        return;
+    }
+
+    if (
+        !Number.isFinite(porcentajeMerma) ||
+        porcentajeMerma < 0 ||
+        porcentajeMerma > 100
+    ) {
+        mostrarEstadoFormularioProductoCarnico(
+            "La merma debe estar entre 0 y 100.",
+            "warning"
+        );
+        return;
+    }
+
+    agregarProductoCarnicoConfiguracion({
+        ...productoCarnicoFormularioSeleccionado,
+        proveedor: proveedor.value.trim(),
+        nombre: nombreProducto,
+        unidad: unidad.value,
+        porcentaje_merma: merma.value || "0",
+        merma_estimada: {
+            porcentaje: porcentajeMerma,
+            descripcion: "Referencia definida en configuracion",
+            fuente: "configuracion_usuario"
+        },
+        activo: true,
+        oculto: false
+    });
+    cerrarFormularioProductoCarnico();
 }
 
 
 function agregarProductoCarnicoConfiguracion(producto) {
-    const productoNormalizado = normalizarProductoCarnico(producto);
+    const productoNormalizado = {
+        ...normalizarProductoCarnico(producto),
+        activo: true,
+        oculto: false
+    };
 
     if (!productoNormalizado.id) {
         mostrarEstadoConfiguracionCarnicos("Producto no valido.", "error");
         return;
     }
 
-    const yaExiste = productosCarnicosConfigurados.some(function (actual) {
-        return actual.id === productoNormalizado.id;
-    });
+    const indiceExistente = productosCarnicosConfigurados.findIndex(
+        function (actual) {
+            return actual.id === productoNormalizado.id;
+        }
+    );
 
-    if (yaExiste) {
+    if (indiceExistente >= 0) {
+        productosCarnicosConfigurados[indiceExistente] = {
+            ...productosCarnicosConfigurados[indiceExistente],
+            ...productoNormalizado
+        };
+        productoCarnicoConfiguradoSeleccionado =
+            productosCarnicosConfigurados[indiceExistente];
+        productosCarnicosConfiguradosPagina = Math.max(
+            1,
+            Math.ceil(
+                productosCarnicosActivos().length /
+                    PRODUCTOS_CARNICOS_AGREGADOS_POR_PAGINA
+            )
+        );
+        renderizarProductosCarnicosConfigurados(
+            productosCarnicosConfiguradosPagina
+        );
         mostrarEstadoConfiguracionCarnicos(
-            "Ese producto ya esta en la configuracion.",
-            "warning"
+            "Producto actualizado. Presiona Guardar para conservar cambios.",
+            "success"
         );
         return;
     }
@@ -2362,7 +2699,7 @@ function agregarProductoCarnicoConfiguracion(producto) {
     productosCarnicosConfigurados.push(productoNormalizado);
     productoCarnicoConfiguradoSeleccionado = productoNormalizado;
     productosCarnicosConfiguradosPagina = Math.ceil(
-        productosCarnicosConfigurados.length /
+        productosCarnicosActivos().length /
             PRODUCTOS_CARNICOS_AGREGADOS_POR_PAGINA
     );
     renderizarProductosCarnicosConfigurados(
@@ -2390,12 +2727,31 @@ function eliminarProductoCarnicoSeleccionado() {
 
 function quitarProductoCarnicoConfiguracion(productoId) {
     const productoIdTexto = String(productoId);
+    let ocultado = false;
 
-    productosCarnicosConfigurados = productosCarnicosConfigurados.filter(
+    productosCarnicosConfigurados = productosCarnicosConfigurados.map(
         function (producto) {
-            return producto.id !== productoIdTexto;
+            if (producto.id !== productoIdTexto) {
+                return producto;
+            }
+
+            ocultado = true;
+            return {
+                ...producto,
+                activo: false,
+                oculto: true
+            };
         }
     );
+
+    if (!ocultado) {
+        mostrarEstadoConfiguracionCarnicos(
+            "No se encontro el producto seleccionado.",
+            "warning"
+        );
+        return;
+    }
+
     if (
         productoCarnicoConfiguradoSeleccionado &&
         productoCarnicoConfiguradoSeleccionado.id === productoIdTexto
@@ -2406,7 +2762,7 @@ function quitarProductoCarnicoConfiguracion(productoId) {
         productosCarnicosConfiguradosPagina
     );
     mostrarEstadoConfiguracionCarnicos(
-        "Producto eliminado. Presiona Guardar para conservar cambios.",
+        "Producto oculto. Presiona Guardar para conservar cambios.",
         "warning"
     );
 }
@@ -2603,14 +2959,30 @@ async function buscarProductosCarnicosConfiguracion(pagina = 1) {
 }
 
 
-function abrirPanelConfiguracionCarnicos() {
+async function abrirPanelConfiguracionCarnicos() {
     const modal = document.getElementById("modalConfiguracionCarnicos");
 
     if (!modal) {
         return;
     }
 
-    productosCarnicosConfigurados = leerProductosCarnicosGuardados();
+    if (!sesionActual) {
+        const sesion = await cargarSesionActual();
+
+        if (!sesion) {
+            return;
+        }
+    }
+
+    if (!usuarioPuedeConfigurarCarnicos()) {
+        actualizarPermisoConfiguracionCarnicos();
+        mostrarPermisoConfiguracionCarnicosDenegado();
+        return;
+    }
+
+    productosCarnicosConfigurados = leerProductosCarnicosGuardados().map(
+        normalizarProductoCarnico
+    );
     productosCarnicosConfiguradosPagina = 1;
     productosCarnicosDisponiblesPagina = 1;
     productoCarnicoDisponibleSeleccionado = null;
@@ -2630,12 +3002,16 @@ function cerrarPanelConfiguracionCarnicos() {
         return;
     }
 
+    cerrarFormularioProductoCarnico();
     modal.classList.add("hidden");
     document.body.classList.remove("modal-open");
 }
 
 
 function guardarProductosCarnicosConfiguracion() {
+    productosCarnicosConfigurados = productosCarnicosConfigurados.map(
+        normalizarProductoCarnico
+    );
     window.localStorage.setItem(
         STORAGE_PRODUCTOS_CARNICOS,
         JSON.stringify(productosCarnicosConfigurados)
@@ -2648,12 +3024,20 @@ function guardarProductosCarnicosConfiguracion() {
 
 
 function limpiarProductosCarnicosConfiguracion() {
-    productosCarnicosConfigurados = [];
+    productosCarnicosConfigurados = productosCarnicosConfigurados.map(
+        function (producto) {
+            return {
+                ...producto,
+                activo: false,
+                oculto: true
+            };
+        }
+    );
     productosCarnicosConfiguradosPagina = 1;
     productoCarnicoConfiguradoSeleccionado = null;
     renderizarProductosCarnicosConfigurados(1);
     mostrarEstadoConfiguracionCarnicos(
-        "Lista limpia. Presiona Guardar para conservar cambios.",
+        "Productos ocultos. Presiona Guardar para conservar cambios.",
         "warning"
     );
 }
@@ -5904,6 +6288,9 @@ document.addEventListener("DOMContentLoaded", function () {
         document.getElementById("modalConfiguraciones");
     const modalConfiguracionCarnicos =
         document.getElementById("modalConfiguracionCarnicos");
+    const modalFormularioProductoCarnico = document.getElementById(
+        "modalFormularioProductoCarnico"
+    );
     const modalMovimientoModulo =
         document.getElementById("modalMovimientoModulo");
 
@@ -5926,6 +6313,17 @@ document.addEventListener("DOMContentLoaded", function () {
         );
     }
 
+    if (modalFormularioProductoCarnico) {
+        modalFormularioProductoCarnico.addEventListener(
+            "click",
+            function (evento) {
+                if (evento.target === modalFormularioProductoCarnico) {
+                    cerrarFormularioProductoCarnico();
+                }
+            }
+        );
+    }
+
     if (modalMovimientoModulo) {
         modalMovimientoModulo.addEventListener("click", function (evento) {
             if (evento.target === modalMovimientoModulo) {
@@ -5936,6 +6334,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     document.addEventListener("keydown", function (evento) {
         if (evento.key === "Escape") {
+            cerrarFormularioProductoCarnico();
             cerrarModalConfiguraciones();
             cerrarPanelConfiguracionCarnicos();
             cerrarPanelMovimientoModulo();
@@ -6017,4 +6416,7 @@ window.addEventListener("pageshow", function (evento) {
             }
         });
     }
+
+    
+
 });

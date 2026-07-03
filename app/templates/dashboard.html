@@ -47,6 +47,7 @@
 
             <button
                 type="button"
+                id="botonConfiguracionCarnicos"
                 class="configuracion-boton"
                 onclick="abrirPanelConfiguracionCarnicos()"
             >
@@ -489,6 +490,105 @@
     </div>
 </div>
 
+<div
+    id="modalFormularioProductoCarnico"
+    class="modal-overlay hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="tituloFormularioProductoCarnico"
+>
+    <div class="config-modal config-producto-modal">
+        <div class="config-modal-header">
+            <div>
+                <p class="eyebrow">Producto carnico</p>
+                <h2 id="tituloFormularioProductoCarnico">
+                    Agregar producto al modulo
+                </h2>
+                <p class="ayuda">
+                    Captura los datos operativos del producto antes de
+                    guardarlo en la configuracion.
+                </p>
+            </div>
+
+            <button
+                type="button"
+                class="modal-close"
+                onclick="cerrarFormularioProductoCarnico()"
+            >
+                Cerrar
+            </button>
+        </div>
+
+        <div class="config-modal-content">
+            <div class="producto-carnico-form">
+                <label>
+                    <span>Proveedor</span>
+                    <input
+                        type="text"
+                        id="productoCarnicoProveedor"
+                        placeholder="Proveedor"
+                    >
+                </label>
+
+                <label>
+                    <span>Nombre del producto</span>
+                    <input
+                        type="text"
+                        id="productoCarnicoNombre"
+                        placeholder="Nombre del producto"
+                    >
+                </label>
+
+                <label>
+                    <span>Unidad de medida</span>
+                    <select id="productoCarnicoUnidad">
+                        <option value="KILO">KILO</option>
+                        <option value="LITRO">LITRO</option>
+                        <option value="PIEZA">PIEZA</option>
+                        <option value="CAJA">CAJA</option>
+                        <option value="PAQUETE">PAQUETE</option>
+                        <option value="UNIDAD">UNIDAD</option>
+                    </select>
+                </label>
+
+                <label>
+                    <span>Porcentaje de merma</span>
+                    <input
+                        type="number"
+                        id="productoCarnicoMerma"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        placeholder="0"
+                    >
+                </label>
+            </div>
+
+            <div class="config-producto-actions">
+                <button
+                    type="button"
+                    class="modulo-accion-secundaria"
+                    onclick="cerrarFormularioProductoCarnico()"
+                >
+                    Cancelar
+                </button>
+                <button
+                    type="button"
+                    onclick="guardarFormularioProductoCarnico()"
+                >
+                    Guardar producto
+                </button>
+            </div>
+
+            <div
+                id="estadoFormularioProductoCarnico"
+                class="config-carnicos-status"
+                aria-live="polite"
+            ></div>
+        </div>
+    </div>
+</div>
+
 <!-- VENTANA MODAL: CONTROL DE CONFIGURACIONES PREESTABLECIDAS -->
 <div
     id="modalConfiguraciones"
@@ -585,7 +685,7 @@
                         type="button"
                         onclick="cargarConfiguracionesTransformacion(configuracionesPaginaActual)"
                     >
-                        🔄 Actualizar
+                         Actualizar
                     </button>
                 </div>
 
