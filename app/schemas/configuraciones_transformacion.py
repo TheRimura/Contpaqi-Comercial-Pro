@@ -2,9 +2,6 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.routes.productos import componentes_desde_configuracion
-
-
 class ProductoConfigurado(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

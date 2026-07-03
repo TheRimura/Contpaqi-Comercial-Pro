@@ -1,10 +1,10 @@
 import json
 from functools import cache
 from platform import node
-from typing import Optional, List
+
 
 from cayal.comandos_base_datos import ComandosBaseDatos
-from sentry_sdk.client import module_not_found_error
+
 
 
 class BaseDatos(ComandosBaseDatos):
@@ -1446,7 +1446,7 @@ class BaseDatos(ComandosBaseDatos):
             """,
             tuple(ids_limpios),
         )
-    
+
 @cache
 def obtener_base_datos():
     return BaseDatos()

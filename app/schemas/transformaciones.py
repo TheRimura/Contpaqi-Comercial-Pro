@@ -115,5 +115,3 @@ class CrearTransformacion(BaseModel):
             "La merma no puede sobre pasar cierto porcentaje"
             "la cantidad establecida"
         )
-
-        

@@ -413,6 +413,160 @@ function crearTablaSalidaProductos(productos) {
 }
 
 
+function seleccionarProductoTransformacion(producto, fila) {
+    salidaProductoSeleccionado = normalizarProductoCarnico(producto);
+
+    document
+        .querySelectorAll("#resultadosProductoTransformacionMovimiento tbody tr")
+        .forEach(function (registro) {
+            registro.classList.remove("fila-seleccionada");
+        });
+
+    if (fila) {
+        fila.classList.add("fila-seleccionada");
+    }
+
+    mostrarEstadoMovimientoModulo(
+        "Producto listo. Presiona Seleccionar producto para cargar la transformacion.",
+        "success"
+    );
+}
+
+
+function crearTablaProductosTransformacion(productos) {
+    const tabla = document.createElement("table");
+    const encabezado = document.createElement("thead");
+    const cuerpo = document.createElement("tbody");
+
+    tabla.className = "movimiento-productos-tabla";
+    encabezado.innerHTML = `
+        <tr>
+            <th>Clave</th>
+            <th>Producto</th>
+            <th>Unidad</th>
+        </tr>
+    `;
+
+    if (!productos.length) {
+        cuerpo.appendChild(
+            crearFilaVaciaConfiguracionCarnicos(
+                "No se encontraron productos.",
+                3
+            )
+        );
+        tabla.append(encabezado, cuerpo);
+        return tabla;
+    }
+
+    productos.forEach(function (producto) {
+        const productoNormalizado = normalizarProductoCarnico(producto);
+        const fila = document.createElement("tr");
+
+        if (
+            salidaProductoSeleccionado &&
+            salidaProductoSeleccionado.id === productoNormalizado.id
+        ) {
+            fila.classList.add("fila-seleccionada");
+        }
+
+        fila.addEventListener("click", function () {
+            seleccionarProductoTransformacion(productoNormalizado, fila);
+        });
+
+        fila.addEventListener("dblclick", function () {
+            seleccionarProductoTransformacion(productoNormalizado, fila);
+            void seleccionarProductoSalidaActual("transformacion");
+        });
+
+        [
+            productoNormalizado.clave,
+            productoNormalizado.nombre,
+            productoNormalizado.unidad
+        ].forEach(function (valor) {
+            const celda = document.createElement("td");
+
+            celda.textContent = valor || "-";
+            fila.appendChild(celda);
+        });
+
+        cuerpo.appendChild(fila);
+    });
+
+    tabla.append(encabezado, cuerpo);
+    return tabla;
+}
+
+
+async function buscarProductosTransformacionMovimiento(pagina = 1) {
+    const busquedaInput = document.getElementById(
+        "busquedaProductoTransformacionMovimiento"
+    );
+    const contenedor = document.getElementById(
+        "resultadosProductoTransformacionMovimiento"
+    );
+
+    if (!busquedaInput || !contenedor) {
+        return;
+    }
+
+    const termino = busquedaInput.value.trim();
+    contenedor.replaceChildren();
+
+    if (termino.length < 2) {
+        contenedor.textContent =
+            "Escribe al menos dos caracteres para buscar.";
+        mostrarEstadoMovimientoModulo(
+            "Escribe una clave o nombre de producto para buscar.",
+            "warning"
+        );
+        return;
+    }
+
+    contenedor.textContent = "Buscando productos...";
+
+    try {
+        productosTransformacionBusquedaActual = termino;
+        productosTransformacionPaginaActual = pagina;
+
+        const resultado = await consultarProductos(
+            productosTransformacionBusquedaActual,
+            productosTransformacionPaginaActual,
+            PRODUCTOS_TRANSFORMACION_POR_PAGINA
+        );
+        const productos = resultado.productos || [];
+
+        contenedor.replaceChildren();
+        contenedor.appendChild(crearTablaProductosTransformacion(productos));
+        contenedor.appendChild(
+            crearControlesPaginacion(
+                resultado,
+                "productos",
+                buscarProductosTransformacionMovimiento
+            )
+        );
+        mostrarEstadoMovimientoModulo(
+            productos.length
+                ? "Selecciona una fila y presiona Seleccionar producto."
+                : "No se encontraron productos con esa busqueda.",
+            productos.length ? "" : "warning"
+        );
+    } catch (error) {
+        contenedor.textContent = error.message;
+        mostrarEstadoMovimientoModulo(error.message, "error");
+    }
+}
+
+
+async function seleccionarProductoTransformacionActual() {
+    if (!salidaProductoSeleccionado) {
+        await buscarProductosTransformacionMovimiento(1);
+        return;
+    }
+
+    await seleccionarProductoSalidaActual("transformacion");
+}
+
+
 function renderizarEmpleadosSalida(contenedor) {
     contenedor.replaceChildren();
 
@@ -1000,8 +1154,10 @@ function crearTablaLecturaResultantesMovimiento() {
 
 function crearSelectorProductoTransformacionMovimiento() {
     const contenedor = document.createElement("div");
+    const busqueda = document.createElement("div");
+    const input = document.createElement("input");
+    const resultados = document.createElement("div");
     const acciones = document.createElement("div");
-    const productos = obtenerProductosSalidaDisponibles();
     const productoTrabajo = obtenerProductoTrabajoMovimiento();
 
     if (!salidaProductoSeleccionado && productoTrabajo) {
@@ -1009,25 +1165,38 @@ function crearSelectorProductoTransformacionMovimiento() {
     }
 
     contenedor.className = "movimiento-selector-producto";
+    busqueda.className = "movimiento-busqueda-producto";
+    input.type = "text";
+    input.id = "busquedaProductoTransformacionMovimiento";
+    input.placeholder = "Buscar por clave o nombre del producto";
+    input.value = productosTransformacionBusquedaActual;
+    input.addEventListener("input", function () {
+        salidaProductoSeleccionado = null;
+    });
+    input.addEventListener("keydown", function (evento) {
+        if (evento.key === "Enter") {
+            evento.preventDefault();
+            void buscarProductosTransformacionMovimiento(1);
+        }
+    });
+    busqueda.appendChild(input);
+
+    resultados.id = "resultadosProductoTransformacionMovimiento";
+    resultados.className = "movimiento-resultados-productos";
+    resultados.textContent =
+        "Escribe una clave o nombre y presiona Seleccionar producto para buscar.";
+
     acciones.className = "movimiento-acciones movimiento-acciones-compactas";
     acciones.append(
         crearBotonPanelMovimiento(
             "Seleccionar producto",
             function () {
-                void seleccionarProductoSalidaActual("transformacion");
+                void seleccionarProductoTransformacionActual();
             }
-        ),
-        crearBotonPanelMovimiento(
-            "Abrir configuracion",
-            function () {
-                cerrarPanelMovimientoModulo();
-                abrirPanelConfiguracionCarnicos();
-            },
-            true
         )
     );
 
-    contenedor.append(crearTablaSalidaProductos(productos), acciones);
+    contenedor.append(busqueda, resultados, acciones);
     return contenedor;
 }
 
@@ -1523,6 +1692,7 @@ const PRODUCTOS_POR_PAGINA = 10;
 const REGISTROS_POR_PAGINA = PRODUCTOS_POR_PAGINA;
 const CONFIGURACIONES_POR_PAGINA = PRODUCTOS_POR_PAGINA;
 const PRODUCTOS_CONFIGURACION_POR_PAGINA = 6;
+const PRODUCTOS_TRANSFORMACION_POR_PAGINA = 6;
 const PRODUCTOS_CARNICOS_CONFIGURACION_POR_PAGINA = 6;
 const PRODUCTOS_CARNICOS_AGREGADOS_POR_PAGINA = 6;
 const TERMINOS_PRODUCTOS_CARNICOS_INICIALES = [
@@ -1547,6 +1717,8 @@ let productoSeleccionadoOriginal = null;
 let productosResultantesDisponibles = [];
 let productosConfiguracionBusquedaActual = "";
 let productosConfiguracionPaginaActual = 1;
+let productosTransformacionBusquedaActual = "";
+let productosTransformacionPaginaActual = 1;
 let productosCarnicosConfigurados = [];
 let productosCarnicosConfiguradosPagina = 1;
 let productosCarnicosDisponibles = [];
@@ -1834,7 +2006,9 @@ function normalizarProductoCarnico(producto) {
         nombre: producto.nombre || producto.ProductName || "",
         categoria: producto.categoria || producto.Category1 || "",
         unidad: producto.unidad || producto.Unit || "",
-        cantidad: producto.cantidad || ""
+        cantidad: producto.cantidad || "",
+        existencia: producto.existencia || producto.Stock || "",
+        merma_estimada: producto.merma_estimada || null
     };
 }
 

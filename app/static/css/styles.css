@@ -778,19 +778,23 @@ tr:hover td {
 }
 
 .salida-productos-tabla,
+.movimiento-productos-tabla,
 .movimiento-tabla {
     background-color: var(--surface);
 }
 
-.salida-productos-tabla tbody tr {
+.salida-productos-tabla tbody tr,
+.movimiento-productos-tabla tbody tr {
     cursor: pointer;
 }
 
-.salida-productos-tabla tbody tr:hover td {
+.salida-productos-tabla tbody tr:hover td,
+.movimiento-productos-tabla tbody tr:hover td {
     background-color: #f8fafc;
 }
 
-.salida-productos-tabla tbody tr.fila-seleccionada td {
+.salida-productos-tabla tbody tr.fila-seleccionada td,
+.movimiento-productos-tabla tbody tr.fila-seleccionada td {
     background-color: var(--brand-red-light);
     box-shadow: inset 4px 0 0 var(--brand-red);
 }
@@ -911,6 +915,37 @@ tr:hover td {
 .movimiento-selector-producto {
     display: grid;
     gap: 0.75rem;
+}
+
+.movimiento-busqueda-producto input {
+    width: 100%;
+    min-height: 42px;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: var(--surface);
+    color: var(--text-main);
+}
+
+.movimiento-busqueda-producto input:focus {
+    outline: none;
+    border-color: var(--brand-red);
+    box-shadow: 0 0 0 3px rgba(153, 27, 27, 0.1);
+}
+
+.movimiento-resultados-productos {
+    min-height: 72px;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: var(--surface);
+    color: var(--text-muted);
+    font-weight: 700;
+    overflow-x: auto;
+}
+
+.movimiento-resultados-productos table {
+    margin-top: 0;
 }
 
 .movimiento-acciones-compactas {
