@@ -414,7 +414,7 @@ function crearTablaSalidaProductos(productos) {
 
 
 function seleccionarProductoTransformacion(producto, fila) {
-    salidaProductoSeleccionado = normalizarProductoCarnico(producto);
+    productoTransformacionSeleccionado = normalizarProductoCarnico(producto);
 
     document
         .querySelectorAll("#resultadosProductoTransformacionMovimiento tbody tr")
@@ -463,8 +463,8 @@ function crearTablaProductosTransformacion(productos) {
         const fila = document.createElement("tr");
 
         if (
-            salidaProductoSeleccionado &&
-            salidaProductoSeleccionado.id === productoNormalizado.id
+            productoTransformacionSeleccionado &&
+            productoTransformacionSeleccionado.id === productoNormalizado.id
         ) {
             fila.classList.add("fila-seleccionada");
         }
@@ -557,12 +557,97 @@ async function buscarProductosTransformacionMovimiento(pagina = 1) {
 }
 
 
-async function seleccionarProductoTransformacionActual() {
-    if (!salidaProductoSeleccionado) {
-        await buscarProductosTransformacionMovimiento(1);
+function renderizarProductosTransformacionDisponibles(
+    pagina = productosTransformacionPaginaActual
+) {
+    const contenedor = document.getElementById(
+        "resultadosProductoTransformacionMovimiento"
+    );
+
+    if (!contenedor) {
         return;
     }
 
+    const paginaLocal = paginarListaCarnicos(
+        productosTransformacionDisponibles,
+        pagina,
+        PRODUCTOS_TRANSFORMACION_POR_PAGINA
+    );
+
+    productosTransformacionPaginaActual = paginaLocal.paginacion.pagina;
+    contenedor.replaceChildren();
+    contenedor.appendChild(
+        crearTablaProductosTransformacion(paginaLocal.productos)
+    );
+    agregarPaginacionCarnicos(
+        contenedor,
+        paginaLocal.paginacion,
+        "productos",
+        renderizarProductosTransformacionDisponibles
+    );
+}
+
+
+async function cargarTablaProductosTransformacion() {
+    const contenedor = document.getElementById(
+        "resultadosProductoTransformacionMovimiento"
+    );
+
+    if (!contenedor) {
+        return;
+    }
+
+    contenedor.textContent = "Cargando productos...";
+    productoTransformacionSeleccionado = null;
+
+    try {
+        const respuestas = await Promise.all(
+            TERMINOS_PRODUCTOS_CARNICOS_INICIALES.map(function (termino) {
+                return consultarProductos(
+                    termino,
+                    1,
+                    PRODUCTOS_TRANSFORMACION_CARGA_INICIAL
+                );
+            })
+        );
+
+        productosTransformacionDisponibles = obtenerProductosUnicosCarnicos(
+            respuestas.flatMap(function (respuesta) {
+                return respuesta.productos || [];
+            })
+        );
+        productosTransformacionPaginaActual = 1;
+        renderizarProductosTransformacionDisponibles(1);
+        mostrarEstadoMovimientoModulo(
+            productosTransformacionDisponibles.length
+                ? "Selecciona una fila y vuelve a presionar Seleccionar producto."
+                : "No se encontraron productos para transformar.",
+            productosTransformacionDisponibles.length ? "" : "warning"
+        );
+    } catch (error) {
+        productosTransformacionDisponibles = [];
+        productosTransformacionPaginaActual = 1;
+        contenedor.textContent = error.message;
+        mostrarEstadoMovimientoModulo(error.message, "error");
+    }
+}
+
+
+async function seleccionarProductoTransformacionActual() {
+    if (!productoTransformacionSeleccionado) {
+        if (productosTransformacionDisponibles.length) {
+            mostrarEstadoMovimientoModulo(
+                "Selecciona primero un producto de la tabla.",
+                "warning"
+            );
+            return;
+        }
+
+        await cargarTablaProductosTransformacion();
+        return;
+    }
+
+    salidaProductoSeleccionado = productoTransformacionSeleccionado;
     await seleccionarProductoSalidaActual("transformacion");
 }
 
@@ -1154,37 +1239,23 @@ function crearTablaLecturaResultantesMovimiento() {
 
 function crearSelectorProductoTransformacionMovimiento() {
     const contenedor = document.createElement("div");
-    const busqueda = document.createElement("div");
-    const input = document.createElement("input");
     const resultados = document.createElement("div");
     const acciones = document.createElement("div");
-    const productoTrabajo = obtenerProductoTrabajoMovimiento();
-
-    if (!salidaProductoSeleccionado && productoTrabajo) {
-        salidaProductoSeleccionado = normalizarProductoCarnico(productoTrabajo);
-    }
 
     contenedor.className = "movimiento-selector-producto";
-    busqueda.className = "movimiento-busqueda-producto";
-    input.type = "text";
-    input.id = "busquedaProductoTransformacionMovimiento";
-    input.placeholder = "Buscar por clave o nombre del producto";
-    input.value = productosTransformacionBusquedaActual;
-    input.addEventListener("input", function () {
-        salidaProductoSeleccionado = null;
-    });
-    input.addEventListener("keydown", function (evento) {
-        if (evento.key === "Enter") {
-            evento.preventDefault();
-            void buscarProductosTransformacionMovimiento(1);
-        }
-    });
-    busqueda.appendChild(input);
-
     resultados.id = "resultadosProductoTransformacionMovimiento";
     resultados.className = "movimiento-resultados-productos";
-    resultados.textContent =
-        "Escribe una clave o nombre y presiona Seleccionar producto para buscar.";
+
+    if (productosTransformacionDisponibles.length) {
+        window.setTimeout(function () {
+            renderizarProductosTransformacionDisponibles(
+                productosTransformacionPaginaActual
+            );
+        }, 0);
+    } else {
+        resultados.textContent =
+            "Presiona Seleccionar producto para mostrar la tabla.";
+    }
 
     acciones.className = "movimiento-acciones movimiento-acciones-compactas";
     acciones.append(
@@ -1196,7 +1267,7 @@ function crearSelectorProductoTransformacionMovimiento() {
         )
     );
 
-    contenedor.append(busqueda, resultados, acciones);
+    contenedor.append(resultados, acciones);
     return contenedor;
 }
 
@@ -1266,10 +1337,6 @@ function renderizarPanelTransformacionMovimiento(contenedor) {
             crearSelectorProductoTransformacionMovimiento()
         ),
         crearBloquePanelMovimiento(
-            "Resumen de la transformacion",
-            crearResumenBalanceMovimiento()
-        ),
-        crearBloquePanelMovimiento(
             "Productos resultantes",
             crearTablaLecturaResultantesMovimiento()
         ),
@@ -1279,7 +1346,7 @@ function renderizarPanelTransformacionMovimiento(contenedor) {
 
     mostrarEstadoMovimientoModulo(
         obtenerProductoTrabajoMovimiento()
-            ? "Revisa el resumen antes de guardar la operacion."
+            ? "Revisa los productos resultantes antes de guardar la operacion."
             : "Primero registra o selecciona un producto de salida.",
         obtenerProductoTrabajoMovimiento() ? "" : "warning"
     );
@@ -1693,6 +1760,7 @@ const REGISTROS_POR_PAGINA = PRODUCTOS_POR_PAGINA;
 const CONFIGURACIONES_POR_PAGINA = PRODUCTOS_POR_PAGINA;
 const PRODUCTOS_CONFIGURACION_POR_PAGINA = 6;
 const PRODUCTOS_TRANSFORMACION_POR_PAGINA = 6;
+const PRODUCTOS_TRANSFORMACION_CARGA_INICIAL = 50;
 const PRODUCTOS_CARNICOS_CONFIGURACION_POR_PAGINA = 6;
 const PRODUCTOS_CARNICOS_AGREGADOS_POR_PAGINA = 6;
 const TERMINOS_PRODUCTOS_CARNICOS_INICIALES = [
@@ -1719,6 +1787,8 @@ let productosConfiguracionBusquedaActual = "";
 let productosConfiguracionPaginaActual = 1;
 let productosTransformacionBusquedaActual = "";
 let productosTransformacionPaginaActual = 1;
+let productosTransformacionDisponibles = [];
+let productoTransformacionSeleccionado = null;
 let productosCarnicosConfigurados = [];
 let productosCarnicosConfiguradosPagina = 1;
 let productosCarnicosDisponibles = [];
