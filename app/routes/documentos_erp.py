@@ -326,3 +326,4 @@ def crear_relacion_documentos(
         "tipo_movimiento_origen_id": tipo_salida,
         "tipo_movimiento_destino_id": tipo_entrada,
     }
+
