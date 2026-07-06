@@ -55,7 +55,6 @@ def crear_movimientos_entrada(registro):
 
     return movimientos
 
-
 def listar_movimientos_inventario(tipo=TIPO_TODOS):
     tipo_normalizado = str(tipo or TIPO_TODOS).strip().lower()
 

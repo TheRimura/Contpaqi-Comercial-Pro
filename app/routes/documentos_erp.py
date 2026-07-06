@@ -180,7 +180,6 @@ def listar_empleados(
         ],
     }
 
-
 @router.get("/{document_id}/relacion")
 def consultar_relacion_documento(
     document_id: int,

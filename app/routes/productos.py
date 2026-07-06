@@ -191,7 +191,6 @@ def respuesta_formula_producto(base_datos, producto_id):
 
     if not ingredientes:
         return None
-
     porcentajes_merma = base_datos.buscar_porcentajes_merma()
     categorias_modulo = set(porcentajes_merma)
     bases = [
