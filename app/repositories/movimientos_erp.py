@@ -220,3 +220,6 @@ class IntegracionMovimientosERP:
             "almacen": configuracion["almacen"],
             "estado": "pendiente_afectacion",
         }
+
+
+

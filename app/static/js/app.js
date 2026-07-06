@@ -1738,6 +1738,7 @@ function mostrarSeccion(idSeccion) {
 
     if (idSeccion === "registros") {
         cargarHistorialTransformaciones();
+        cargarMovimientosInventario();
     }
 
     if (idSeccion === "moduloCarnico") {
@@ -1764,6 +1765,7 @@ async function cerrarSesion() {
 
 const PRODUCTOS_POR_PAGINA = 10;
 const REGISTROS_POR_PAGINA = PRODUCTOS_POR_PAGINA;
+const MOVIMIENTOS_INVENTARIO_POR_PAGINA = PRODUCTOS_POR_PAGINA;
 const CONFIGURACIONES_POR_PAGINA = PRODUCTOS_POR_PAGINA;
 const PRODUCTOS_CONFIGURACION_POR_PAGINA = 6;
 const PRODUCTOS_TRANSFORMACION_POR_PAGINA = 6;
@@ -1796,8 +1798,11 @@ const TIPO_TRANSFORMACION_CONFIGURADA = "receta_configurada";
 const TIPO_PRODUCTO_FINAL = "producto_final";
 let sesionActual = null;
 let registrosPaginaActual = 1;
+let movimientosInventarioPaginaActual = 1;
+let movimientosInventarioTipoActual = "todos";
 let configuracionesPaginaActual = 1;
 let solicitudHistorialActual = 0;
+let solicitudMovimientosInventarioActual = 0;
 let productoOrigenSeleccionado = null;
 let productoSeleccionadoOriginal = null;
 let productosResultantesDisponibles = [];
@@ -4715,6 +4720,201 @@ function renderizarIndicadoresRegistros(indicadores) {
         )
     );
     contenedor.hidden = false;
+}
+
+
+function renderizarIndicadoresMovimientosInventario(indicadores) {
+    const contenedor = document.getElementById(
+        "indicadoresMovimientosInventario"
+    );
+
+    if (!contenedor) {
+        return;
+    }
+
+    contenedor.replaceChildren(
+        crearIndicadorRegistro(
+            "Salidas",
+            String(indicadores.salidas || 0)
+        ),
+        crearIndicadorRegistro(
+            "Entradas",
+            String(indicadores.entradas || 0)
+        ),
+        crearIndicadorRegistro(
+            "Kilos de salida",
+            formatearKg(indicadores.kilos_salida)
+        ),
+        crearIndicadorRegistro(
+            "Kilos de entrada",
+            formatearKg(indicadores.kilos_entrada)
+        ),
+        crearIndicadorRegistro(
+            "Pendientes ERP",
+            String(indicadores.pendientes || 0)
+        )
+    );
+    contenedor.hidden = false;
+}
+
+
+function textoTipoMovimientoInventario(tipo) {
+    return tipo === "entrada" ? "Entrada" : "Salida";
+}
+
+
+function textoDocumentoMovimientoInventario(movimiento) {
+    return movimiento.folio_documento ||
+        movimiento.documento_id ||
+        "Pendiente";
+}
+
+
+function actualizarFiltrosMovimientosInventario() {
+    document.querySelectorAll("[data-tipo-movimiento]").forEach(
+        function (boton) {
+            boton.classList.toggle(
+                "is-active",
+                boton.dataset.tipoMovimiento === movimientosInventarioTipoActual
+            );
+        }
+    );
+}
+
+
+function crearTablaMovimientosInventario(movimientos) {
+    const tabla = document.createElement("table");
+    const encabezado = document.createElement("thead");
+    const cuerpo = document.createElement("tbody");
+
+    tabla.className = "productos-tabla registros-tabla movimientos-tabla";
+    encabezado.innerHTML = `
+        <tr>
+            <th>Folio trans.</th>
+            <th>Tipo</th>
+            <th>Fecha</th>
+            <th>Usuario</th>
+            <th>Producto</th>
+            <th>Cantidad</th>
+            <th>Documento ERP</th>
+            <th>Almacen</th>
+            <th>Estado</th>
+        </tr>
+    `;
+
+    movimientos.forEach(function (movimiento) {
+        const fila = document.createElement("tr");
+        const tipo = document.createElement("span");
+        const estado = document.createElement("span");
+        const valores = [
+            movimiento.folio_transformacion,
+            tipo,
+            movimiento.fecha,
+            movimiento.usuario || "-",
+            textoProductoRegistro(movimiento.producto),
+            formatearCantidadUnidad(
+                movimiento.cantidad,
+                movimiento.unidad
+            ),
+            textoDocumentoMovimientoInventario(movimiento),
+            movimiento.almacen || "-",
+            estado
+        ];
+
+        tipo.className = `movimiento-tipo-badge ${movimiento.tipo}`;
+        tipo.textContent = textoTipoMovimientoInventario(movimiento.tipo);
+        estado.className = `estado-badge ${claseEstadoErp(
+            movimiento.estado_erp
+        )}`;
+        estado.textContent = textoEstadoErp(movimiento.estado_erp);
+
+        valores.forEach(function (valor) {
+            const celda = document.createElement("td");
+
+            if (valor instanceof Node) {
+                celda.appendChild(valor);
+            } else {
+                celda.textContent = valor ?? "";
+            }
+
+            fila.appendChild(celda);
+        });
+
+        cuerpo.appendChild(fila);
+    });
+
+    tabla.append(encabezado, cuerpo);
+    return tabla;
+}
+
+
+async function cargarMovimientosInventario(
+    pagina = movimientosInventarioPaginaActual
+) {
+    const contenedor = document.getElementById("tablaMovimientosInventario");
+    const idSolicitud = ++solicitudMovimientosInventarioActual;
+
+    if (!contenedor) {
+        return;
+    }
+
+    contenedor.textContent = "Cargando movimientos...";
+    actualizarFiltrosMovimientosInventario();
+
+    try {
+        const parametros = new URLSearchParams({
+            tipo: movimientosInventarioTipoActual,
+            pagina: String(pagina),
+            limite: String(MOVIMIENTOS_INVENTARIO_POR_PAGINA)
+        });
+        const { respuesta, datos } = await solicitarJson(
+            `/movimientos-inventario/?${parametros}`,
+            {
+                credentials: "same-origin"
+            }
+        );
+
+        if (idSolicitud !== solicitudMovimientosInventarioActual) {
+            return;
+        }
+
+        if (!respuesta.ok) {
+            throw new Error(
+                datos.detail || "No fue posible consultar movimientos"
+            );
+        }
+
+        const movimientos = datos.movimientos || [];
+        movimientosInventarioPaginaActual = datos.pagina;
+        contenedor.replaceChildren();
+        renderizarIndicadoresMovimientosInventario(datos.indicadores || {});
+
+        if (movimientos.length === 0) {
+            contenedor.textContent =
+                "Aun no hay salidas o entradas registradas.";
+            return;
+        }
+
+        contenedor.appendChild(crearTablaMovimientosInventario(movimientos));
+        contenedor.appendChild(
+            crearControlesPaginacion(
+                datos,
+                "movimientos",
+                cargarMovimientosInventario
+            )
+        );
+    } catch (error) {
+        if (idSolicitud === solicitudMovimientosInventarioActual) {
+            contenedor.textContent = error.message;
+        }
+    }
+}
+
+
+function cambiarFiltroMovimientosInventario(tipo) {
+    movimientosInventarioTipoActual = tipo;
+    movimientosInventarioPaginaActual = 1;
+    cargarMovimientosInventario(1);
 }
 
 

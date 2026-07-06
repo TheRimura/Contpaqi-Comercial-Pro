@@ -299,6 +299,54 @@
                 </p>
             </div>
 
+            <div class="panel movimientos-inventario-panel">
+                <div
+                    id="indicadoresMovimientosInventario"
+                    class="summary-strip indicadores-registros"
+                    hidden
+                ></div>
+
+                <div class="section-toolbar">
+                    <div>
+                        <h3>Registros de salidas y entradas</h3>
+                        <p class="panel-help">
+                            Lista separada de movimientos de inventario.
+                        </p>
+                    </div>
+
+                    <div class="movimientos-filtros" role="group">
+                        <button
+                            type="button"
+                            class="movimiento-filtro is-active"
+                            data-tipo-movimiento="todos"
+                            onclick="cambiarFiltroMovimientosInventario('todos')"
+                        >
+                            Todos
+                        </button>
+                        <button
+                            type="button"
+                            class="movimiento-filtro"
+                            data-tipo-movimiento="salida"
+                            onclick="cambiarFiltroMovimientosInventario('salida')"
+                        >
+                            Salidas
+                        </button>
+                        <button
+                            type="button"
+                            class="movimiento-filtro"
+                            data-tipo-movimiento="entrada"
+                            onclick="cambiarFiltroMovimientosInventario('entrada')"
+                        >
+                            Entradas
+                        </button>
+                    </div>
+                </div>
+
+                <div id="tablaMovimientosInventario" class="result-container">
+                    Aun no hay salidas o entradas registradas.
+                </div>
+            </div>
+
             <div class="panel">
                 <div
                     id="indicadoresRegistros"
@@ -496,7 +544,7 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="tituloFormularioProductoCarnico"
->
+
     <div class="config-modal config-producto-modal">
         <div class="config-modal-header">
             <div>
