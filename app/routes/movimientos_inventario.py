@@ -41,7 +41,6 @@ def listar_movimientos(
     total_paginas = (total + limite - 1) // limite
     inicio = (pagina - 1) * limite
     fin = inicio + limite
-
     return {
         "movimientos": movimientos[inicio:fin],
         "pagina": pagina,

@@ -72,7 +72,6 @@ def listar_movimientos_inventario(tipo=TIPO_TODOS):
 
     return movimientos
 
-
 def calcular_indicadores(movimientos):
     salidas = [
         movimiento
