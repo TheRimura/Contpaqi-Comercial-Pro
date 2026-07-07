@@ -225,6 +225,24 @@ class BaseDatos(ComandosBaseDatos):
             (configuracion["grupo_llave_maestra"],),
         )
 
+    def buscar_nombre_grupo_usuario(self, user_group_id):
+        if not user_group_id:
+            return None
+
+        fila = self.fetchone(
+            """
+            SELECT TOP 1 GroupName
+            FROM dbo.engUserGroup
+            WHERE UserGroupID = ?
+            """,
+            (int(user_group_id),),
+        )
+
+        if not fila:
+            return None
+
+        return self.valor_escalar(fila, "GroupName")
+
     def buscar_porcentajes_merma(self):
         return {
             str(fila["categoria"]).strip().upper(): (
@@ -408,12 +426,15 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def buscar_configuracion_usuario_para_producto(self, producto_id):
+        self.asegurar_metadatos_configuracion_usuario()
         configuracion = self.buscar_configuracion_transformaciones()
         filas = self.fetchall(
             """
             SELECT TOP 1
                 TU.id_transformacion_usuario,
                 TU.nombre_transformacion,
+                TU.proveedor_id,
+                TU.proveedor_nombre,
                 TU.producto_origen,
                 TU.producto_formula,
                 TU.cantidad_base,
@@ -474,6 +495,7 @@ class BaseDatos(ComandosBaseDatos):
         return filas[0] if filas else None
 
     def contar_configuraciones_usuario(self):
+        self.asegurar_metadatos_configuracion_usuario()
         fila = self.fetchone(
             """
             SELECT COUNT(*) AS total
@@ -491,6 +513,7 @@ class BaseDatos(ComandosBaseDatos):
         return int(fila)
 
     def buscar_configuraciones_usuario(self, pagina=1, limite=10):
+        self.asegurar_metadatos_configuracion_usuario()
         inicio = (int(pagina) - 1) * int(limite)
 
         return self.fetchall(
@@ -498,6 +521,8 @@ class BaseDatos(ComandosBaseDatos):
             SELECT
                 TU.id_transformacion_usuario,
                 TU.nombre_transformacion,
+                TU.proveedor_id,
+                TU.proveedor_nombre,
                 TU.producto_origen,
                 PO.ProductKey AS origen_clave,
                 PO.ProductName AS origen_nombre,
@@ -644,6 +669,107 @@ class BaseDatos(ComandosBaseDatos):
             """
         )
 
+    def asegurar_metadatos_configuracion_usuario(self):
+        self.asegurar_tabla_componentes_configuracion()
+        self.command(
+            """
+            IF COL_LENGTH(
+                'dbo.TransformacionesUsuario',
+                'proveedor_id'
+            ) IS NULL
+            BEGIN
+                ALTER TABLE dbo.TransformacionesUsuario
+                ADD proveedor_id INT NULL;
+            END;
+
+            IF COL_LENGTH(
+                'dbo.TransformacionesUsuario',
+                'proveedor_nombre'
+            ) IS NULL
+            BEGIN
+                ALTER TABLE dbo.TransformacionesUsuario
+                ADD proveedor_nombre NVARCHAR(250) NULL;
+            END;
+
+            IF OBJECT_ID(
+                N'dbo.TransformacionesUsuarioBitacora',
+                N'U'
+            ) IS NULL
+            BEGIN
+                CREATE TABLE dbo.TransformacionesUsuarioBitacora (
+                    id_bitacora INT IDENTITY(1, 1) NOT NULL
+                        CONSTRAINT PK_TransformacionesUsuarioBitacora
+                        PRIMARY KEY,
+                    id_transformacion_usuario INT NOT NULL,
+                    accion NVARCHAR(50) NOT NULL,
+                    usuario_id BIGINT NULL,
+                    usuario_confirmacion_nombre NVARCHAR(150) NULL,
+                    detalle NVARCHAR(500) NULL,
+                    fecha DATETIME2 NOT NULL
+                        CONSTRAINT DF_TUB_fecha DEFAULT GETDATE()
+                );
+
+                CREATE INDEX IX_TUB_configuracion_fecha
+                ON dbo.TransformacionesUsuarioBitacora (
+                    id_transformacion_usuario,
+                    fecha DESC
+                );
+            END;
+            """,
+            (),
+        )
+
+    def registrar_bitacora_configuracion(
+        self,
+        configuracion_id,
+        accion,
+        usuario_id,
+        usuario_confirmacion_nombre=None,
+        detalle=None,
+    ):
+        self.asegurar_metadatos_configuracion_usuario()
+        self.command(
+            """
+            INSERT INTO dbo.TransformacionesUsuarioBitacora (
+                id_transformacion_usuario,
+                accion,
+                usuario_id,
+                usuario_confirmacion_nombre,
+                detalle
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                int(configuracion_id),
+                accion,
+                usuario_id,
+                usuario_confirmacion_nombre,
+                detalle,
+            ),
+        )
+
+    def buscar_bitacora_configuraciones(self, limite=50):
+        self.asegurar_metadatos_configuracion_usuario()
+        return self.fetchall(
+            """
+            SELECT TOP (?)
+                B.id_bitacora,
+                B.id_transformacion_usuario,
+                B.accion,
+                B.usuario_id,
+                B.usuario_confirmacion_nombre,
+                B.detalle,
+                B.fecha,
+                U.nombre_transformacion
+            FROM dbo.TransformacionesUsuarioBitacora AS B
+            LEFT JOIN dbo.TransformacionesUsuario AS U
+                ON U.id_transformacion_usuario =
+                    B.id_transformacion_usuario
+            ORDER BY B.fecha DESC, B.id_bitacora DESC
+            """,
+            (int(limite),),
+        )
+
     def buscar_componentes_configuraciones_usuario(
         self,
         ids_configuraciones,
@@ -727,7 +853,7 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def registrar_configuracion_usuario(self, datos, usuario_id):
-        self.asegurar_tabla_componentes_configuracion()
+        self.asegurar_metadatos_configuracion_usuario()
         detalles_json = json.dumps([
             {
                 "producto_id": detalle.producto_id,
@@ -762,6 +888,8 @@ class BaseDatos(ComandosBaseDatos):
 
                 INSERT INTO dbo.TransformacionesUsuario (
                     nombre_transformacion,
+                    proveedor_id,
+                    proveedor_nombre,
                     producto_origen,
                     producto_formula,
                     cantidad_base,
@@ -769,7 +897,7 @@ class BaseDatos(ComandosBaseDatos):
                     usuario_creacion,
                     observaciones
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?);
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
                 SET @id = CONVERT(INT, SCOPE_IDENTITY());
 
@@ -840,6 +968,8 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (
                 datos.nombre_transformacion.strip(),
+                datos.proveedor_id,
+                datos.proveedor_nombre.strip(),
                 datos.producto_origen_id,
                 datos.producto_formula_id,
                 float(datos.cantidad_base),
@@ -854,7 +984,17 @@ class BaseDatos(ComandosBaseDatos):
                 componentes_json,
             ),
         )
-        return int(self.valor_escalar(fila, "id_transformacion_usuario"))
+        configuracion_id = int(
+            self.valor_escalar(fila, "id_transformacion_usuario")
+        )
+        self.registrar_bitacora_configuracion(
+            configuracion_id,
+            "creacion",
+            usuario_id,
+            datos.usuario_confirmacion_nombre,
+            "Configuracion creada",
+        )
+        return configuracion_id
 
     def actualizar_configuracion_usuario(
         self,
@@ -862,7 +1002,7 @@ class BaseDatos(ComandosBaseDatos):
         datos,
         usuario_id,
     ):
-        self.asegurar_tabla_componentes_configuracion()
+        self.asegurar_metadatos_configuracion_usuario()
         detalles_json = json.dumps([
             {
                 "producto_id": detalle.producto_id,
@@ -897,6 +1037,8 @@ class BaseDatos(ComandosBaseDatos):
 
                 UPDATE dbo.TransformacionesUsuario
                 SET nombre_transformacion = ?,
+                    proveedor_id = ?,
+                    proveedor_nombre = ?,
                     producto_origen = ?,
                     producto_formula = ?,
                     cantidad_base = ?,
@@ -987,6 +1129,8 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (
                 datos.nombre_transformacion.strip(),
+                datos.proveedor_id,
+                datos.proveedor_nombre.strip(),
                 datos.producto_origen_id,
                 datos.producto_formula_id,
                 float(datos.cantidad_base),
@@ -1006,7 +1150,18 @@ class BaseDatos(ComandosBaseDatos):
                 componentes_json,
             ),
         )
-        return bool(int(self.valor_escalar(fila, "actualizados") or 0))
+        actualizada = bool(int(self.valor_escalar(fila, "actualizados") or 0))
+
+        if actualizada:
+            self.registrar_bitacora_configuracion(
+                configuracion_id,
+                "actualizacion",
+                usuario_id,
+                datos.usuario_confirmacion_nombre,
+                "Configuracion actualizada",
+            )
+
+        return actualizada
 
     def buscar_tipo_movimiento(self, tipo, nombre):
         configuracion = self.buscar_configuracion_transformaciones()
@@ -1183,6 +1338,131 @@ class BaseDatos(ComandosBaseDatos):
         )
         return filas[0]["Folio"] if filas else None
 
+    def asegurar_tabla_relacion_documentos_erp(self):
+        self.command(
+            """
+            IF OBJECT_ID(
+                N'dbo.docDocumentWarehouseRelation',
+                N'U'
+            ) IS NULL
+            BEGIN
+                CREATE TABLE dbo.docDocumentWarehouseRelation (
+                    DocumentWarehouseRelationID INT IDENTITY(1, 1)
+                        CONSTRAINT PK_docDocumentWarehouseRelation
+                        PRIMARY KEY,
+                    SourceDocumentID INT NOT NULL,
+                    DestinationDocumentID INT NOT NULL,
+                    SupplierID INT NULL,
+                    PhysicalUserID INT NULL,
+                    MovementDate DATE NULL,
+                    ERPUserID INT NULL,
+                    SourceBrandID INT NULL,
+                    DestinationBrandID INT NULL,
+                    CreatedOn DATETIME2 NOT NULL
+                        CONSTRAINT DF_docDocumentWarehouseRelation_CreatedOn
+                        DEFAULT SYSUTCDATETIME()
+                );
+
+                CREATE UNIQUE INDEX UX_docDocumentWarehouseRelation_pair
+                    ON dbo.docDocumentWarehouseRelation (
+                        SourceDocumentID,
+                        DestinationDocumentID
+                    );
+            END
+            """,
+            (),
+        )
+
+    def buscar_movimientos_inventario_independientes(self, tipo="todos"):
+        self.asegurar_tabla_relacion_documentos_erp()
+
+        tipo_normalizado = str(tipo or "todos").strip().lower()
+        condiciones_tipo = []
+
+        if tipo_normalizado in {"todos", "salida"}:
+            condiciones_tipo.append(
+                "(D.ModuleID = 203 AND TRY_CONVERT(INT, D.CustomCbo) "
+                f"IN ({', '.join(str(m) for m in self.MOVIMIENTOS_SALIDA_RELACIONABLES)}))"
+            )
+
+        if tipo_normalizado in {"todos", "entrada"}:
+            condiciones_tipo.append(
+                "(D.ModuleID = 202 AND TRY_CONVERT(INT, D.CustomCbo) "
+                f"IN ({', '.join(str(m) for m in self.MOVIMIENTOS_ENTRADA_RELACIONABLES)}))"
+            )
+
+        if not condiciones_tipo:
+            return []
+
+        filtro_tipo = " OR ".join(condiciones_tipo)
+
+        return self.fetchall(
+            f"""
+            SELECT TOP 500
+                D.DocumentID,
+                D.ModuleID,
+                ISNULL(D.FolioPrefix, '') + ISNULL(D.Folio, '') AS Folio,
+                D.CreatedOn,
+                D.DateDocument,
+                D.CreatedBy,
+                ISNULL(U.UserName, '') AS UserName,
+                TRY_CONVERT(INT, D.CustomCbo) AS TipoMovimientoID,
+                ISNULL(C.ItemValue, '') AS TipoMovimiento,
+                D.DepotID,
+                ISNULL(A.DepotName, '') AS DepotName,
+                D.SourceDocumentID,
+                D.DestinationDocumentID,
+                ISNULL(D.Custom1, '') AS Custom1,
+                I.DocumentItemID,
+                I.ProductID,
+                I.Quantity,
+                P.ProductKey,
+                P.ProductName,
+                P.Category1,
+                ISNULL(I.Unit, P.Unit) AS Unit,
+                R.SupplierID,
+                ISNULL(PROV.OfficialName, '') AS SupplierName,
+                R.PhysicalUserID,
+                ISNULL(EMP.OfficialName, '') AS PhysicalUserName,
+                R.MovementDate
+            FROM dbo.docDocument AS D
+            LEFT JOIN dbo.docDocumentItem AS I
+                ON I.DocumentID = D.DocumentID
+               AND I.DeletedOn IS NULL
+            LEFT JOIN dbo.orgProduct AS P
+                ON P.ProductID = I.ProductID
+            LEFT JOIN dbo.engUser AS U
+                ON U.UserID = D.CreatedBy
+            LEFT JOIN dbo.orgDepot AS A
+                ON A.DepotID = D.DepotID
+            LEFT JOIN dbo.engRefCombo AS C
+                ON C.ItemData = TRY_CONVERT(INT, D.CustomCbo)
+               AND C.CboGroupName = CASE
+                    WHEN D.ModuleID = 202 THEN 'Tipo de entrada'
+                    WHEN D.ModuleID = 203 THEN 'Tipo de salida'
+                    ELSE ''
+               END
+            OUTER APPLY
+            (
+                SELECT TOP 1 Rel.*
+                FROM dbo.docDocumentWarehouseRelation AS Rel
+                WHERE Rel.SourceDocumentID = D.DocumentID
+                   OR Rel.DestinationDocumentID = D.DocumentID
+                ORDER BY Rel.DocumentWarehouseRelationID DESC
+            ) AS R
+            LEFT JOIN dbo.orgBusinessEntity AS PROV
+                ON PROV.BusinessEntityID = R.SupplierID
+            LEFT JOIN dbo.zvwEmpleadosCayalMenu AS EMP
+                ON EMP.UserID = R.PhysicalUserID
+            WHERE D.ModuleID IN (202, 203)
+              AND D.DeletedOn IS NULL
+              AND D.CancelledOn IS NULL
+              AND ({filtro_tipo})
+            ORDER BY D.CreatedOn DESC, D.DocumentID DESC, I.DocumentItemID
+            """,
+            (),
+        )
+
     def registrar_transformacion(
         self,
         producto_origen_id,
@@ -1242,6 +1522,7 @@ class BaseDatos(ComandosBaseDatos):
         ))
 
     def buscar_historial_transformaciones(self, transformacion_id=None):
+        self.asegurar_tabla_relacion_documentos_erp()
         filtro = ""
         parametros = ()
 
@@ -1298,6 +1579,11 @@ class BaseDatos(ComandosBaseDatos):
                 P.ProductName AS origen_nombre,
                 P.Category1 AS origen_categoria,
                 P.Unit AS origen_unidad,
+                R.SupplierID,
+                ISNULL(PROV.OfficialName, '') AS SupplierName,
+                R.PhysicalUserID,
+                ISNULL(EMP.OfficialName, '') AS PhysicalUserName,
+                R.MovementDate,
                 M.peso_merma,
                 M.motivo
             FROM dbo.Transformaciones AS T
@@ -1309,6 +1595,24 @@ class BaseDatos(ComandosBaseDatos):
                 ON DS.DocumentID = T.documento_salida
             LEFT JOIN dbo.docDocument AS DE
                 ON DE.DocumentID = T.documento_entrada
+            OUTER APPLY
+            (
+                SELECT TOP 1 Rel.*
+                FROM dbo.docDocumentWarehouseRelation AS Rel
+                WHERE (
+                        T.documento_salida IS NOT NULL
+                    AND Rel.SourceDocumentID = T.documento_salida
+                )
+                   OR (
+                        T.documento_entrada IS NOT NULL
+                    AND Rel.DestinationDocumentID = T.documento_entrada
+                )
+                ORDER BY Rel.DocumentWarehouseRelationID DESC
+            ) AS R
+            LEFT JOIN dbo.orgBusinessEntity AS PROV
+                ON PROV.BusinessEntityID = R.SupplierID
+            LEFT JOIN dbo.zvwEmpleadosCayalMenu AS EMP
+                ON EMP.UserID = R.PhysicalUserID
             OUTER APPLY (
                 SELECT TOP 1
                     merma.peso_merma,
@@ -1706,6 +2010,7 @@ class BaseDatos(ComandosBaseDatos):
         source_brand_id=None,
         destination_brand_id=None,
     ):
+        self.asegurar_tabla_relacion_documentos_erp()
         self.command(
             """
             DECLARE @Origen INT = ?;

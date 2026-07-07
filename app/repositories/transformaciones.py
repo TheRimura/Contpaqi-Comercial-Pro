@@ -198,6 +198,17 @@ def construir_registros(
                 encabezado["origen_categoria"],
                 encabezado["origen_unidad"],
             ),
+            "proveedor": {
+                "id": encabezado["SupplierID"],
+                "nombre": encabezado["SupplierName"],
+            } if encabezado["SupplierID"] else None,
+            "empleado_movimiento": {
+                "id": encabezado["PhysicalUserID"],
+                "nombre": encabezado["PhysicalUserName"],
+            } if encabezado["PhysicalUserID"] else None,
+            "fecha_movimiento": formatear_fecha(
+                encabezado["MovementDate"]
+            ),
             "cantidad_origen": cantidad_origen,
             "producto_base_formula": producto_base_formula,
             "ingredientes_formula": ingredientes_formula,

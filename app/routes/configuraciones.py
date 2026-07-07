@@ -14,6 +14,27 @@ router = APIRouter(
     tags=["Configuraciones de transformacion"],
 )
 
+USUARIOS_BITACORA_CONFIGURACIONES = set()
+GRUPOS_BITACORA_CONFIGURACIONES = {
+    "ADMIN",
+    "ADMINS",
+    "ADMINISTRADOR",
+    "ADMINISTRADORES",
+    "SUPER_ADMIN",
+    "SUPER_ADMINISTRADOR",
+    "SUPER_ADMINISTRADORES",
+    "SUPERADMIN",
+    "SUPERADMINS",
+}
+PERMISOS_BITACORA_CONFIGURACIONES = {
+    "ADMIN",
+    "ADMINISTRADOR",
+    "SUPER_ADMIN",
+    "SUPERADMIN",
+    "CONFIGURACION_CARNICOS",
+    "MODULO_CARNICO_CONFIGURACION",
+}
+
 
 def numero(valor):
     if isinstance(valor, Decimal):
@@ -40,6 +61,42 @@ def formatear_fecha(fecha):
         return fecha.strftime("%Y-%m-%d %H:%M:%S")
 
     return str(fecha or "")
+
+
+def normalizar_permiso(valor):
+    texto = str(valor or "").strip().upper()
+    reemplazos = {
+        "Á": "A",
+        "É": "E",
+        "Í": "I",
+        "Ó": "O",
+        "Ú": "U",
+        "Ñ": "N",
+    }
+
+    for origen, destino in reemplazos.items():
+        texto = texto.replace(origen, destino)
+
+    return texto.replace("-", "_").replace(" ", "_")
+
+
+def puede_ver_bitacora_configuracion(sesion, base_datos):
+    usuario = normalizar_permiso(sesion.get("usuario"))
+    grupo = normalizar_permiso(
+        base_datos.buscar_nombre_grupo_usuario(
+            sesion.get("user_group_id")
+        )
+    )
+    permisos = {
+        normalizar_permiso(permiso)
+        for permiso in sesion.get("permisos", [])
+    }
+
+    return (
+        usuario in USUARIOS_BITACORA_CONFIGURACIONES
+        or grupo in GRUPOS_BITACORA_CONFIGURACIONES
+        or bool(permisos & PERMISOS_BITACORA_CONFIGURACIONES)
+    )
 
 
 def agrupar_detalles(filas):
@@ -100,6 +157,10 @@ def formatear_configuracion(fila, detalles, componentes):
     return {
         "id": fila["id_transformacion_usuario"],
         "nombre": fila["nombre_transformacion"],
+        "proveedor": {
+            "id": fila["proveedor_id"],
+            "nombre": fila["proveedor_nombre"],
+        },
         "producto_origen": producto(
             fila["producto_origen"],
             fila["origen_clave"],
@@ -207,6 +268,40 @@ def listar_configuraciones(
     }
 
 
+@router.get("/bitacora")
+def listar_bitacora_configuraciones(
+    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
+    limite: int = Query(default=50, ge=1, le=200),
+):
+    base_datos = obtener_base_datos()
+
+    if not puede_ver_bitacora_configuracion(sesion, base_datos):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para consultar esta bitacora.",
+        )
+
+    return {
+        "registros": [
+            {
+                "id": fila["id_bitacora"],
+                "configuracion_id": fila["id_transformacion_usuario"],
+                "configuracion": fila["nombre_transformacion"],
+                "accion": fila["accion"],
+                "usuario_id": fila["usuario_id"],
+                "usuario_confirmacion_nombre": (
+                    fila["usuario_confirmacion_nombre"]
+                ),
+                "detalle": fila["detalle"],
+                "fecha": formatear_fecha(fila["fecha"]),
+            }
+            for fila in base_datos.buscar_bitacora_configuraciones(
+                limite
+            )
+        ]
+    }
+
+
 @router.post("/")
 def crear_configuracion(
     datos: CrearConfiguracionTransformacion,
@@ -232,6 +327,12 @@ def actualizar_configuracion(
     sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     base_datos = obtener_base_datos()
+    if not (datos.usuario_confirmacion_nombre or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Confirma el cambio con el nombre del usuario.",
+        )
+
     validar_productos(base_datos, datos)
     actualizada = base_datos.actualizar_configuracion_usuario(
         configuracion_id,

@@ -38,7 +38,7 @@ def listar_movimientos(
         ) from error
 
     total = len(movimientos)
-    total_paginas = (total + limite - 1) // limite
+    total_paginas = max(1, (total + limite - 1) // limite)
     inicio = (pagina - 1) * limite
     fin = inicio + limite
     return {

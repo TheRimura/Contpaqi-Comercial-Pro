@@ -191,6 +191,10 @@
                 </div>
 
                 <div id="productosResultantes"></div>
+                <div
+                    id="referenciaProveedorTransformacion"
+                    class="referencia-proveedor hidden"
+                ></div>
             </div>
 
             <!-- Área de Balances Visuales Absolutos (Kilos y Mermas Gigantes) -->
@@ -695,6 +699,19 @@
                 <input type="hidden" id="configNombre">
                 <input type="hidden" id="configCantidadBase">
 
+                <div class="config-operacion-grid">
+                    <label>
+                        <span>Proveedor</span>
+                        <input
+                            type="text"
+                            id="configProveedor"
+                            list="proveedoresConfiguracionOpciones"
+                            placeholder="Proveedor obligatorio"
+                        >
+                        <datalist id="proveedoresConfiguracionOpciones"></datalist>
+                    </label>
+                </div>
+
                 <div id="editorComponentesConfiguracion"></div>
                 <div id="editorResultantesConfiguracion"></div>
 
@@ -737,6 +754,22 @@
                 </div>
 
                 <div id="ingredientesConfiguracion"></div>
+            </div>
+
+            <div class="panel">
+                <div class="section-toolbar">
+                    <h3>Bitacora de configuraciones</h3>
+                    <button
+                        type="button"
+                        onclick="cargarBitacoraConfiguraciones()"
+                    >
+                        Actualizar
+                    </button>
+                </div>
+
+                <div id="bitacoraConfiguraciones" class="result-container">
+                    Solo usuarios permitidos pueden consultar esta bitacora.
+                </div>
             </div>
         </div>
     </div>

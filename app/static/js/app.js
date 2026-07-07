@@ -101,7 +101,9 @@ function prepararConfiguracionesTransformacion() {
     renderizarEditorComponentesConfiguracion();
     renderizarEditorResultantesConfiguracion();
     actualizarResumenConfiguracion();
+    void cargarProveedoresCarnicos("proveedoresConfiguracionOpciones");
     cargarConfiguracionesTransformacion(configuracionesPaginaActual);
+    cargarBitacoraConfiguraciones();
 }
 
 
@@ -3728,6 +3730,30 @@ async function consultarProductosResultantes(productoId) {
 }
 
 
+function renderizarReferenciaProveedorTransformacion() {
+    const contenedor = document.getElementById(
+        "referenciaProveedorTransformacion"
+    );
+    const proveedor = configuracionUsuarioActual?.proveedor;
+
+    if (!contenedor) {
+        return;
+    }
+
+    if (!proveedor?.nombre) {
+        contenedor.classList.add("hidden");
+        contenedor.replaceChildren();
+        return;
+    }
+
+    contenedor.classList.remove("hidden");
+    contenedor.innerHTML = `
+        <span>Proveedor de referencia</span>
+        ${proveedor.nombre}
+    `;
+}
+
+
 async function cargarProductosResultantes(productoId) {
     const contenedor = document.getElementById("productosResultantes");
 
@@ -3742,6 +3768,7 @@ async function cargarProductosResultantes(productoId) {
     tipoRelacionActual = null;
     tipoTransformacionActual = TIPO_TRANSFORMACION_CONFIGURADA;
     componentesFormulaActual = [];
+    renderizarReferenciaProveedorTransformacion();
     contenedor.replaceChildren();
     contenedor.textContent = "Cargando productos resultantes...";
 
@@ -3752,11 +3779,13 @@ async function cargarProductosResultantes(productoId) {
         configuracionUsuarioActual = datos.configuracion || null;
         tipoRelacionActual = datos.tipo_relacion || null;
         componentesFormulaActual = datos.componentes || [];
+        renderizarReferenciaProveedorTransformacion();
         configurarTipoTransformacion(
             productosResultantesDisponibles.length > 0
         );
         renderizarProductosResultantes();
     } catch (error) {
+        renderizarReferenciaProveedorTransformacion();
         contenedor.textContent = error.message;
     }
 }
@@ -4732,6 +4761,7 @@ function crearRegistroModulo(registro) {
     producto.textContent = textoProductoRegistro(registro.producto_origen);
 
     [
+        ["Proveedor", registro.proveedor?.nombre || "-"],
         ["Salida", formatearKg(registro.cantidad_origen)],
         ["Entrada", formatearKg(registro.total_entrada)],
         ["Merma", formatearKg(registro.peso_merma)],
@@ -4923,7 +4953,9 @@ function textoEstadoErp(estado) {
         pendiente_afectacion: "En Producción",
         procesando: "Procesando",
         error: "Error de integración",
-        sin_movimientos: "Sin movimientos"
+        sin_movimientos: "Sin movimientos",
+        relacionado: "Relacionado",
+        sin_relacion: "Sin relacion"
     };
 
     return estados[estado] || estado || "Sin estado";
@@ -5050,14 +5082,16 @@ function crearTablaMovimientosInventario(movimientos) {
     tabla.className = "productos-tabla registros-tabla movimientos-tabla";
     encabezado.innerHTML = `
         <tr>
-            <th>Folio trans.</th>
+            <th>Documento</th>
             <th>Tipo</th>
             <th>Fecha</th>
             <th>Usuario</th>
             <th>Producto</th>
             <th>Cantidad</th>
-            <th>Documento ERP</th>
-            <th>Alamacen</th>
+            <th>Movimiento</th>
+            <th>Proveedor</th>
+            <th>Empleado</th>
+            <th>Almacen</th>
             <th>Estado</th>
         </tr>
     `;
@@ -5067,7 +5101,7 @@ function crearTablaMovimientosInventario(movimientos) {
         const tipo = document.createElement("span");
         const estado = document.createElement("span");
         const valores = [
-            movimiento.folio_transformacion,
+            textoDocumentoMovimientoInventario(movimiento),
             tipo,
             movimiento.fecha,
             movimiento.usuario || "-",
@@ -5076,7 +5110,9 @@ function crearTablaMovimientosInventario(movimientos) {
                 movimiento.cantidad,
                 movimiento.unidad
             ),
-            textoDocumentoMovimientoInventario(movimiento),
+            movimiento.tipo_movimiento || "-",
+            movimiento.proveedor?.nombre || "-",
+            movimiento.empleado_movimiento?.nombre || "-",
             movimiento.almacen || "-",
             estado
         ];
@@ -5190,6 +5226,7 @@ function crearTablaRegistros(registros) {
             <th>Tipo</th>
             <th>Fecha</th>
             <th>Usuario</th>
+            <th>Proveedor</th>
             <th>Producto origen</th>
             <th>Salida</th>
             <th>Entrada</th>
@@ -5209,6 +5246,7 @@ function crearTablaRegistros(registros) {
                 : "Transformación configurada",
             registro.fecha,
             registro.usuario || "-",
+            registro.proveedor?.nombre || "-",
             textoProductoRegistro(registro.producto_origen),
             formatearKg(registro.cantidad_origen),
             formatearKg(registro.total_entrada),
@@ -5723,6 +5761,7 @@ function obtenerResultantesEditorConfiguracion() {
 function cancelarEdicionConfiguracion() {
     const nombre = document.getElementById("configNombre");
     const cantidadBase = document.getElementById("configCantidadBase");
+    const proveedor = document.getElementById("configProveedor");
     const observaciones = document.getElementById("configObservaciones");
     const resultado = document.getElementById("resultadoConfiguracion");
 
@@ -5741,6 +5780,10 @@ function cancelarEdicionConfiguracion() {
 
     if (observaciones) {
         observaciones.value = "";
+    }
+
+    if (proveedor) {
+        proveedor.value = "";
     }
 
     if (resultado) {
@@ -5826,6 +5869,10 @@ function editarConfiguracionTransformacion(configuracion) {
         nombre.value = configuracion.nombre || "";
     }
 
+    if (proveedor) {
+        proveedor.value = configuracion.proveedor?.nombre || "";
+    }
+
     if (cantidadBase) {
         cantidadBase.dataset.automatica = "0";
         cantidadBase.value = formatearCantidadUnidad(
@@ -5854,6 +5901,14 @@ function editarConfiguracionTransformacion(configuracion) {
 function validarConfiguracion(datos) {
     if (datos.nombre_transformacion.length < 3) {
         return "Captura un nombre para la configuracion.";
+    }
+
+    if (!datos.proveedor_nombre) {
+        return "Selecciona el proveedor de la configuracion.";
+    }
+
+    if (!datos.proveedor_id) {
+        return "Selecciona un proveedor valido del catalogo.";
     }
 
     if (!datos.producto_origen_id) {
@@ -5953,9 +6008,10 @@ async function guardarConfiguracionTransformacion() {
     const nombre = document.getElementById("configNombre");
     const cantidadOrigen = document.getElementById("cantidadOrigen");
     const cantidadBase = document.getElementById("configCantidadBase");
+    const proveedorInput = document.getElementById("configProveedor");
     const observaciones = document.getElementById("configObservaciones");
 
-    if (!resultado || !nombre || !cantidadOrigen) {
+    if (!resultado || !nombre || !cantidadOrigen || !proveedorInput) {
         return;
     }
 
@@ -5970,24 +6026,47 @@ async function guardarConfiguracionTransformacion() {
     sincronizarDraftConfiguracionDesdeContexto();
     componentesConfiguracionDraft = obtenerComponentesEditorConfiguracion();
     resultantesConfiguracionDraft = obtenerResultantesEditorConfiguracion();
+    await cargarProveedoresCarnicos("proveedoresConfiguracionOpciones");
+
+    const proveedorConfiguracion = resolverProveedorMovimiento(
+        proveedorInput.value
+    );
+    const estaEditando = Boolean(configuracionEditando);
+    const usuarioConfirmacion = estaEditando
+        ? window.prompt(
+            "Confirma el cambio escribiendo el nombre del usuario:"
+        )
+        : null;
     const cantidadBaseValor = leerCantidadUnidad(
         cantidadBase?.value || cantidadOrigen.value || "0",
         unidadBase
     ).toFixed(4);
     const datos = {
         nombre_transformacion: nombre.value.trim(),
+        proveedor_id: proveedorConfiguracion?.id || null,
+        proveedor_nombre: proveedorConfiguracion?.nombre ||
+            proveedorInput.value.trim(),
         producto_origen_id: Number(productoBase?.id || 0),
         producto_formula_id: productoFormula?.id || null,
         cantidad_base: cantidadBaseValor,
         porcentaje_merma: configuracionEditando?.porcentaje_merma ?? null,
         observaciones: observaciones?.value.trim() || null,
+        usuario_confirmacion_nombre:
+            usuarioConfirmacion?.trim() || null,
         productos_resultantes: obtenerResultantesParaConfiguracion(),
         componentes: obtenerComponentesParaConfiguracion(
             cantidadBaseValor,
             unidadBase
         )
     };
-    const estaEditando = Boolean(configuracionEditando);
+
+    if (estaEditando && !datos.usuario_confirmacion_nombre) {
+        resultado.className = "error-card";
+        resultado.textContent =
+            "Confirma el cambio con el nombre del usuario.";
+        return;
+    }
+
     const mensaje = validarConfiguracion(datos);
 
     if (mensaje) {
@@ -6058,6 +6137,10 @@ async function guardarConfiguracionTransformacion() {
             if (observaciones) {
                 observaciones.value = "";
             }
+
+            if (proveedorInput) {
+                proveedorInput.value = "";
+            }
         } else {
             componentesConfiguracionDraft = [];
             resultantesConfiguracionDraft = [];
@@ -6065,6 +6148,10 @@ async function guardarConfiguracionTransformacion() {
 
             if (observaciones) {
                 observaciones.value = "";
+            }
+
+            if (proveedorInput) {
+                proveedorInput.value = "";
             }
         }
 
@@ -6078,6 +6165,16 @@ async function guardarConfiguracionTransformacion() {
         renderizarEditorResultantesConfiguracion();
         actualizarResumenConfiguracion();
         await cargarConfiguracionesTransformacion(configuracionesPaginaActual);
+        if (
+            productoSeleccionadoOriginal?.id &&
+            (
+                Number(productoSeleccionadoOriginal.id) ===
+                Number(datos.producto_formula_id || datos.producto_origen_id)
+            )
+        ) {
+            await cargarProductosResultantes(productoSeleccionadoOriginal.id);
+        }
+        await cargarBitacoraConfiguraciones();
     } catch (error) {
         resultado.className = "error-card";
         resultado.textContent = error.message;
@@ -6171,6 +6268,7 @@ function crearTablaConfiguraciones(configuraciones) {
     encabezado.innerHTML = `
         <tr>
             <th>Configuracion</th>
+            <th>Proveedor</th>
             <th>Origen</th>
             <th>Salida base</th>
             <th>Insumos</th>
@@ -6185,6 +6283,7 @@ function crearTablaConfiguraciones(configuraciones) {
         fila.appendChild(crearCeldaConfiguracionPrincipal(configuracion));
 
         const valores = [
+            configuracion.proveedor?.nombre || "-",
             textoProductoRegistro(configuracion.producto_origen),
             formatearCantidadUnidad(
                 configuracion.cantidad_base,
@@ -6278,6 +6377,70 @@ async function cargarConfiguracionesTransformacion(pagina = 1) {
 }
 
 
+function crearBitacoraConfiguraciones(registros) {
+    const lista = document.createElement("div");
+
+    lista.className = "bitacora-lista";
+    registros.forEach(function (registro) {
+        const item = document.createElement("article");
+        const titulo = document.createElement("strong");
+        const meta = document.createElement("span");
+
+        item.className = "bitacora-item";
+        titulo.textContent = (
+            `${registro.accion || "cambio"} - ` +
+            `${registro.configuracion || "Configuracion"}`
+        );
+        meta.textContent = (
+            `${registro.usuario_confirmacion_nombre || "Sin confirmar"} | ` +
+            `${registro.fecha || "-"}`
+        );
+        item.append(titulo, meta);
+        lista.appendChild(item);
+    });
+
+    return lista;
+}
+
+
+async function cargarBitacoraConfiguraciones() {
+    const contenedor = document.getElementById("bitacoraConfiguraciones");
+
+    if (!contenedor) {
+        return;
+    }
+
+    contenedor.textContent = "Cargando bitacora...";
+
+    try {
+        const { respuesta, datos } = await solicitarJson(
+            "/configuraciones-transformacion/bitacora",
+            {
+                credentials: "same-origin"
+            }
+        );
+
+        if (!respuesta.ok) {
+            throw new Error(
+                datos.detail || "No fue posible consultar la bitacora"
+            );
+        }
+
+        const registros = datos.registros || [];
+        contenedor.replaceChildren();
+
+        if (!registros.length) {
+            contenedor.textContent = "Aun no hay cambios registrados.";
+            return;
+        }
+
+        contenedor.appendChild(crearBitacoraConfiguraciones(registros));
+    } catch (error) {
+        contenedor.textContent = error.message;
+    }
+}
+
+
 function crearTablaIngredientes(ingredientes) {
     const tabla = document.createElement("table");
     const encabezado = document.createElement("thead");
@@ -6346,7 +6509,13 @@ function crearResumenConfiguracion(configuracion) {
         )}</strong>
     `;
 
-    resumen.append(origen, formula, cantidad);
+    const proveedor = document.createElement("div");
+    proveedor.innerHTML = `
+        <span>Proveedor</span>
+        <strong>${configuracion.proveedor?.nombre || "-"}</strong>
+    `;
+
+    resumen.append(origen, formula, cantidad, proveedor);
     return resumen;
 }
 
@@ -6763,7 +6932,8 @@ async function registrarTransformacion() {
     const salidaGuardada = obtenerSalidaGuardada();
     const proveedorMovimiento = (
         salidaProveedorMovimiento ||
-        normalizarProveedorMovimiento(salidaGuardada?.proveedor)
+        normalizarProveedorMovimiento(salidaGuardada?.proveedor) ||
+        normalizarProveedorMovimiento(configuracionUsuarioActual?.proveedor)
     );
     const empleadosMovimiento = salidaEmpleadosMovimiento.length
         ? salidaEmpleadosMovimiento

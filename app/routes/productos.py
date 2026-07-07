@@ -176,6 +176,10 @@ def respuesta_configuracion_usuario(base_datos, producto_id):
         "configuracion": {
             "id": configuracion["id_transformacion_usuario"],
             "nombre": configuracion["nombre_transformacion"],
+            "proveedor": {
+                "id": configuracion["proveedor_id"],
+                "nombre": configuracion["proveedor_nombre"],
+            },
             "cantidad_base": configuracion["cantidad_base"],
             "porcentaje_merma": configuracion["porcentaje_merma"],
         },
