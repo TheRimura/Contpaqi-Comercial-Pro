@@ -4920,7 +4920,7 @@ function resumenProductosResultantes(registro) {
 function textoEstadoErp(estado) {
     const estados = {
         completada: "Inventario afectado",
-        pendiente_afectacion: "Pendiente de afectar",
+        pendiente_afectacion: "En Producción",
         procesando: "Procesando",
         error: "Error de integración",
         sin_movimientos: "Sin movimientos"
@@ -4963,7 +4963,7 @@ function renderizarIndicadoresRegistros(indicadores) {
 
     contenedor.replaceChildren(
         crearIndicadorRegistro(
-            "Transformaciones del mes",
+            "Transformaciones Mensuales",
             String(indicadores.transformaciones || 0)
         ),
         crearIndicadorRegistro(
@@ -5057,7 +5057,7 @@ function crearTablaMovimientosInventario(movimientos) {
             <th>Producto</th>
             <th>Cantidad</th>
             <th>Documento ERP</th>
-            <th>Almacen</th>
+            <th>Alamacen</th>
             <th>Estado</th>
         </tr>
     `;
