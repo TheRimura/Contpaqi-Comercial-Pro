@@ -667,11 +667,12 @@ function renderizarEmpleadosSalida(contenedor) {
     }
 
     salidaEmpleadosMovimiento.forEach(function (empleado, indice) {
+        const empleadoNormalizado = normalizarEmpleadoMovimiento(empleado);
         const chip = document.createElement("button");
 
         chip.type = "button";
         chip.className = "salida-chip";
-        chip.textContent = `${empleado} x`;
+        chip.textContent = `${empleadoNormalizado?.nombre || "Empleado"} x`;
         chip.addEventListener("click", function () {
             salidaEmpleadosMovimiento.splice(indice, 1);
             renderizarEmpleadosSalida(contenedor);
@@ -685,10 +686,10 @@ function renderizarEmpleadosSalida(contenedor) {
 }
 
 
-function agregarEmpleadoSalida(input, contenedor) {
-    const empleado = input.value.trim();
+async function agregarEmpleadoSalida(input, contenedor) {
+    const empleadoTexto = input.value.trim();
 
-    if (!empleado) {
+    if (!empleadoTexto) {
         mostrarEstadoMovimientoModulo(
             "Captura el nombre del empleado.",
             "warning"
@@ -696,8 +697,22 @@ function agregarEmpleadoSalida(input, contenedor) {
         return;
     }
 
+    await cargarEmpleadosMovimiento("empleadosMovimientoOpciones");
+
+    const empleado = resolverEmpleadoMovimiento(empleadoTexto);
+
+    if (!empleado?.id) {
+        mostrarEstadoMovimientoModulo(
+            "Selecciona un empleado valido del catalogo.",
+            "warning"
+        );
+        return;
+    }
+
     const yaExiste = salidaEmpleadosMovimiento.some(function (actual) {
-        return actual.toUpperCase() === empleado.toUpperCase();
+        const normalizado = normalizarEmpleadoMovimiento(actual);
+
+        return normalizado?.id === empleado.id;
     });
 
     if (yaExiste) {
@@ -745,6 +760,7 @@ async function seleccionarProductoSalidaActual(panelDestino = "salida") {
 
 async function registrarSalidaMovimiento() {
     const cantidadInput = document.getElementById("salidaCantidadMovimiento");
+    const proveedorInput = document.getElementById("salidaProveedorMovimiento");
     const observacionesInput = document.getElementById(
         "salidaObservacionesMovimiento"
     );
@@ -766,6 +782,20 @@ async function registrarSalidaMovimiento() {
         return;
     }
 
+    await cargarProveedoresCarnicos("proveedoresMovimientoOpciones");
+
+    const proveedorMovimiento = resolverProveedorMovimiento(
+        proveedorInput?.value || ""
+    );
+
+    if (!proveedorMovimiento?.id) {
+        mostrarEstadoMovimientoModulo(
+            "Selecciona un proveedor valido del catalogo.",
+            "warning"
+        );
+        return;
+    }
+
     if (!salidaEmpleadosMovimiento.length) {
         mostrarEstadoMovimientoModulo(
             "Agrega al menos un empleado al movimiento.",
@@ -773,6 +803,20 @@ async function registrarSalidaMovimiento() {
         );
         return;
     }
+
+    if (
+        salidaEmpleadosMovimiento.some(function (empleado) {
+            return !normalizarEmpleadoMovimiento(empleado)?.id;
+        })
+    ) {
+        mostrarEstadoMovimientoModulo(
+            "Todos los empleados deben venir del catalogo.",
+            "warning"
+        );
+        return;
+    }
+
+    salidaProveedorMovimiento = proveedorMovimiento;
 
     await seleccionarProductoSalidaActual();
 
@@ -788,6 +832,7 @@ async function registrarSalidaMovimiento() {
         JSON.stringify({
             producto: salidaProductoSeleccionado,
             cantidad,
+            proveedor: salidaProveedorMovimiento,
             empleados: salidaEmpleadosMovimiento,
             observaciones: observacionesInput?.value.trim() || "",
             usuario: sesionActual?.usuario || "",
@@ -803,6 +848,7 @@ async function registrarSalidaMovimiento() {
 
 function cancelarSalidaMovimiento() {
     salidaProductoSeleccionado = null;
+    salidaProveedorMovimiento = null;
     salidaEmpleadosMovimiento = [];
     window.localStorage.removeItem(STORAGE_SALIDA_MOVIMIENTO);
     renderizarPanelMovimientoModulo("salida");
@@ -828,6 +874,8 @@ function renderizarPanelSalidaMovimiento(contenedor, contexto) {
     const productosTitulo = document.createElement("h3");
     const form = document.createElement("div");
     const cantidad = document.createElement("input");
+    const proveedor = document.createElement("input");
+    const proveedoresOpciones = document.createElement("datalist");
     const empleado = document.createElement("input");
     const empleadosOpciones = document.createElement("datalist");
     const agregarEmpleado = document.createElement("button");
@@ -848,8 +896,16 @@ function renderizarPanelSalidaMovimiento(contenedor, contexto) {
         );
     }
 
+    if (!salidaProveedorMovimiento && guardada?.proveedor) {
+        salidaProveedorMovimiento = normalizarProveedorMovimiento(
+            guardada.proveedor
+        );
+    }
+
     if (!salidaEmpleadosMovimiento.length && Array.isArray(guardada?.empleados)) {
-        salidaEmpleadosMovimiento = [...guardada.empleados];
+        salidaEmpleadosMovimiento = guardada.empleados
+            .map(normalizarEmpleadoMovimiento)
+            .filter(Boolean);
     }
 
     panel.className = "salida-panel";
@@ -864,6 +920,25 @@ function renderizarPanelSalidaMovimiento(contenedor, contexto) {
     cantidad.placeholder = "0.000";
     cantidad.value = guardada?.cantidad || "";
 
+    proveedor.type = "text";
+    proveedor.id = "salidaProveedorMovimiento";
+    proveedor.setAttribute("list", "proveedoresMovimientoOpciones");
+    proveedor.placeholder = "Proveedor";
+    proveedor.value = (
+        salidaProveedorMovimiento?.nombre ||
+        guardada?.proveedor?.nombre ||
+        salidaProductoSeleccionado?.proveedor ||
+        ""
+    );
+    proveedoresOpciones.id = "proveedoresMovimientoOpciones";
+    proveedor.addEventListener("change", function () {
+        const proveedorSeleccionado = resolverProveedorMovimiento(
+            proveedor.value
+        );
+
+        salidaProveedorMovimiento = proveedorSeleccionado;
+    });
+
     empleado.type = "text";
     empleado.setAttribute("list", "empleadosMovimientoOpciones");
     empleado.placeholder = "Nombre del empleado";
@@ -872,12 +947,12 @@ function renderizarPanelSalidaMovimiento(contenedor, contexto) {
     agregarEmpleado.textContent = "Agregar empleado";
     empleadosLista.className = "salida-empleados-lista";
     agregarEmpleado.addEventListener("click", function () {
-        agregarEmpleadoSalida(empleado, empleadosLista);
+        void agregarEmpleadoSalida(empleado, empleadosLista);
     });
     empleado.addEventListener("keydown", function (evento) {
         if (evento.key === "Enter") {
             evento.preventDefault();
-            agregarEmpleadoSalida(empleado, empleadosLista);
+            void agregarEmpleadoSalida(empleado, empleadosLista);
         }
     });
 
@@ -890,11 +965,14 @@ function renderizarPanelSalidaMovimiento(contenedor, contexto) {
     form.className = "salida-form";
     form.append(
         crearCampoSalida("Cantidad de salida", cantidad),
+        crearCampoSalida("Proveedor", proveedor),
+        proveedoresOpciones,
         crearCampoSalida("Empleado", empleado),
         empleadosOpciones,
         agregarEmpleado,
         crearCampoSalida("Observaciones", observaciones)
     );
+    void cargarProveedoresCarnicos("proveedoresMovimientoOpciones");
     void cargarEmpleadosMovimiento("empleadosMovimientoOpciones");
 
     renderizarEmpleadosSalida(empleadosLista);
@@ -1826,6 +1904,7 @@ let empleadosMovimientoPromesa = null;
 let productosCarnicosBusquedaActual = "";
 let productosCarnicosPaginaActual = 1;
 let salidaProductoSeleccionado = null;
+let salidaProveedorMovimiento = null;
 let salidaEmpleadosMovimiento = [];
 let componentesConfiguracionDraft = [];
 let resultantesConfiguracionDraft = [];
@@ -2051,7 +2130,144 @@ function llenarDatalist(id, registros, obtenerValor) {
 }
 
 
-async function cargarProveedoresCarnicos() {
+function normalizarTextoCatalogo(valor) {
+    return String(valor || "")
+        .trim()
+        .toUpperCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ");
+}
+
+
+function idProveedorCarnico(proveedor) {
+    return Number(
+        proveedor?.BusinessEntityID ??
+        proveedor?.proveedor_id ??
+        proveedor?.id ??
+        0
+    ) || 0;
+}
+
+
+function nombreProveedorCarnico(proveedor) {
+    return (
+        proveedor?.OfficialName ||
+        proveedor?.nombre ||
+        proveedor?.proveedor ||
+        ""
+    );
+}
+
+
+function idEmpleadoMovimiento(empleado) {
+    return Number(
+        empleado?.UserID ??
+        empleado?.usuario_fisico_id ??
+        empleado?.id ??
+        0
+    ) || 0;
+}
+
+
+function nombreEmpleadoMovimiento(empleado) {
+    return (
+        empleado?.OfficialName ||
+        empleado?.nombre ||
+        empleado?.empleado ||
+        ""
+    );
+}
+
+
+function buscarCatalogoPorNombre(catalogo, texto, obtenerNombre) {
+    const objetivo = normalizarTextoCatalogo(texto);
+
+    if (!objetivo) {
+        return null;
+    }
+
+    return catalogo.find(function (registro) {
+        return normalizarTextoCatalogo(obtenerNombre(registro)) === objetivo;
+    }) || null;
+}
+
+
+function normalizarProveedorMovimiento(proveedor) {
+    if (!proveedor) {
+        return null;
+    }
+
+    if (typeof proveedor === "string") {
+        return {
+            id: 0,
+            nombre: proveedor.trim()
+        };
+    }
+
+    const nombre = nombreProveedorCarnico(proveedor);
+
+    if (!nombre) {
+        return null;
+    }
+
+    return {
+        id: idProveedorCarnico(proveedor),
+        nombre
+    };
+}
+
+
+function normalizarEmpleadoMovimiento(empleado) {
+    if (!empleado) {
+        return null;
+    }
+
+    if (typeof empleado === "string") {
+        return {
+            id: 0,
+            nombre: empleado.trim()
+        };
+    }
+
+    const nombre = nombreEmpleadoMovimiento(empleado);
+
+    if (!nombre) {
+        return null;
+    }
+
+    return {
+        id: idEmpleadoMovimiento(empleado),
+        nombre
+    };
+}
+
+
+function resolverProveedorMovimiento(texto) {
+    const registro = buscarCatalogoPorNombre(
+        proveedoresCarnicosCatalogo,
+        texto,
+        nombreProveedorCarnico
+    );
+
+    return normalizarProveedorMovimiento(registro);
+}
+
+
+function resolverEmpleadoMovimiento(texto) {
+    const registro = buscarCatalogoPorNombre(
+        empleadosMovimientoCatalogo,
+        texto,
+        nombreEmpleadoMovimiento
+    );
+
+    return normalizarEmpleadoMovimiento(registro);
+}
+
+
+async function cargarProveedoresCarnicos(
+    datalistId = "proveedoresCarnicosOpciones"
+) {
     if (!proveedoresCarnicosPromesa) {
         proveedoresCarnicosPromesa = consultarCatalogoDocumentosERP(
             "/documentos-erp/proveedores"
@@ -2069,11 +2285,9 @@ async function cargarProveedoresCarnicos() {
 
     const proveedores = await proveedoresCarnicosPromesa;
     llenarDatalist(
-        "proveedoresCarnicosOpciones",
+        datalistId,
         proveedores,
-        function (proveedor) {
-            return proveedor.OfficialName || proveedor.nombre || "";
-        }
+        nombreProveedorCarnico
     );
 }
 
@@ -2098,9 +2312,7 @@ async function cargarEmpleadosMovimiento(datalistId) {
     llenarDatalist(
         datalistId,
         empleados,
-        function (empleado) {
-            return empleado.OfficialName || empleado.nombre || "";
-        }
+        nombreEmpleadoMovimiento
     );
 }
 
@@ -2296,6 +2508,12 @@ function normalizarProductoCarnico(producto) {
     return {
         id: productoCarnicoId(datos),
         clave: datos.clave || datos.ProductKey || "",
+        proveedor_id: Number(
+            datos.proveedor_id ??
+            datos.BusinessEntityID ??
+            datos.SupplierID ??
+            0
+        ) || null,
         proveedor: datos.proveedor || datos.ProviderName || "",
         nombre: datos.nombre || datos.ProductName || "",
         categoria: datos.categoria || datos.Category1 || "",
@@ -2580,10 +2798,17 @@ function renderizarProductosCarnicosConfigurados(
         });
 
         proveedor.type = "text";
+        proveedor.setAttribute("list", "proveedoresCarnicosOpciones");
         proveedor.value = producto.proveedor || "";
         proveedor.placeholder = "Proveedor";
         proveedor.addEventListener("input", function () {
-            producto.proveedor = proveedor.value.trim();
+            const proveedorCatalogo = resolverProveedorMovimiento(
+                proveedor.value
+            );
+
+            producto.proveedor = proveedorCatalogo?.nombre ||
+                proveedor.value.trim();
+            producto.proveedor_id = proveedorCatalogo?.id || null;
         });
 
         nombre.type = "text";
@@ -2707,7 +2932,7 @@ function cerrarFormularioProductoCarnico() {
 }
 
 
-function guardarFormularioProductoCarnico() {
+async function guardarFormularioProductoCarnico() {
     const proveedor = document.getElementById("productoCarnicoProveedor");
     const nombre = document.getElementById("productoCarnicoNombre");
     const unidad = document.getElementById("productoCarnicoUnidad");
@@ -2723,8 +2948,28 @@ function guardarFormularioProductoCarnico() {
         return;
     }
 
+    await cargarProveedoresCarnicos();
+
+    const proveedorTexto = proveedor.value.trim();
     const nombreProducto = nombre.value.trim();
     const porcentajeMerma = Number(merma.value || 0);
+    const proveedorCatalogo = resolverProveedorMovimiento(proveedorTexto);
+
+    if (!proveedorTexto) {
+        mostrarEstadoFormularioProductoCarnico(
+            "Selecciona el proveedor del producto.",
+            "warning"
+        );
+        return;
+    }
+
+    if (!proveedorCatalogo?.id) {
+        mostrarEstadoFormularioProductoCarnico(
+            "Selecciona un proveedor valido del catalogo.",
+            "warning"
+        );
+        return;
+    }
 
     if (!nombreProducto) {
         mostrarEstadoFormularioProductoCarnico(
@@ -2748,7 +2993,8 @@ function guardarFormularioProductoCarnico() {
 
     agregarProductoCarnicoConfiguracion({
         ...productoCarnicoFormularioSeleccionado,
-        proveedor: proveedor.value.trim(),
+        proveedor_id: proveedorCatalogo.id,
+        proveedor: proveedorCatalogo.nombre,
         nombre: nombreProducto,
         unidad: unidad.value,
         porcentaje_merma: merma.value || "0",
@@ -3101,6 +3347,7 @@ async function abrirPanelConfiguracionCarnicos() {
     mostrarEstadoConfiguracionCarnicos("");
     modal.classList.remove("hidden");
     document.body.classList.add("modal-open");
+    void cargarProveedoresCarnicos();
     void cargarListaInicialProductosCarnicos();
 }
 
@@ -3118,9 +3365,22 @@ function cerrarPanelConfiguracionCarnicos() {
 }
 
 
-function guardarProductosCarnicosConfiguracion() {
+async function guardarProductosCarnicosConfiguracion() {
+    await cargarProveedoresCarnicos();
     productosCarnicosConfigurados = productosCarnicosConfigurados.map(
-        normalizarProductoCarnico
+        function (producto) {
+            const normalizado = normalizarProductoCarnico(producto);
+            const proveedor = resolverProveedorMovimiento(
+                normalizado.proveedor
+            );
+
+            if (proveedor?.id) {
+                normalizado.proveedor_id = proveedor.id;
+                normalizado.proveedor = proveedor.nombre;
+            }
+
+            return normalizado;
+        }
     );
     window.localStorage.setItem(
         STORAGE_PRODUCTOS_CARNICOS,
@@ -6442,6 +6702,16 @@ function obtenerMensajeValidacionTransformacion(datos) {
         return "El porcentaje permitido debe estar entre 0 y 100.";
     }
 
+    if (
+        (datos.proveedor_id || datos.usuario_fisico_id) &&
+        (!datos.proveedor_id || !datos.usuario_fisico_id)
+    ) {
+        return (
+            "Selecciona proveedor y empleado desde catalogo para " +
+            "relacionar los movimientos ERP."
+        );
+    }
+
     return "";
 }
 
@@ -6490,6 +6760,26 @@ async function registrarTransformacion() {
     const componentesFormula = obtenerComponentesFormulaParaRegistro(
         productosResultantes
     );
+    const salidaGuardada = obtenerSalidaGuardada();
+    const proveedorMovimiento = (
+        salidaProveedorMovimiento ||
+        normalizarProveedorMovimiento(salidaGuardada?.proveedor)
+    );
+    const empleadosMovimiento = salidaEmpleadosMovimiento.length
+        ? salidaEmpleadosMovimiento
+        : (
+            Array.isArray(salidaGuardada?.empleados)
+                ? salidaGuardada.empleados
+                    .map(normalizarEmpleadoMovimiento)
+                    .filter(Boolean)
+                : []
+        );
+    const empleadoResponsable = empleadosMovimiento.find(function (empleado) {
+        return normalizarEmpleadoMovimiento(empleado)?.id;
+    });
+    const fechaMovimiento = salidaGuardada?.fecha
+        ? String(salidaGuardada.fecha).slice(0, 10)
+        : null;
 
     const datos = {
         id_operacion: idOperacionActual,
@@ -6501,6 +6791,10 @@ async function registrarTransformacion() {
         componentes_formula: componentesFormula,
         tipo_transformacion: obtenerTipoTransformacionSeleccionado(),
         producto_ya_transformado: productoYaTransformadoSeleccionado,
+        proveedor_id: proveedorMovimiento?.id || null,
+        usuario_fisico_id:
+            normalizarEmpleadoMovimiento(empleadoResponsable)?.id || null,
+        fecha_movimiento: fechaMovimiento,
         peso_merma: pesoMermaInput.value || "0",
         porcentaje_merma_esperado:
             porcentajeMermaEsperadoInput.value || null,
@@ -6546,6 +6840,9 @@ async function registrarTransformacion() {
                 ? resultado.mensaje
                 : `${resultado.mensaje}. Movimientos: ${movimientos}.`;
             idOperacionActual = crearIdOperacion();
+            salidaProveedorMovimiento = null;
+            salidaEmpleadosMovimiento = [];
+            window.localStorage.removeItem(STORAGE_SALIDA_MOVIMIENTO);
             void cargarHistorialTransformaciones();
             void cargarModuloCarnico();
         } else {

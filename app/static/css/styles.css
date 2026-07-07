@@ -556,6 +556,147 @@ button[onclick*="buscar"]:hover,
     padding: 2rem 0;
 }
 
+.modulo-historial-panel .section-toolbar button {
+    min-height: 36px;
+    padding: 0.5rem 0.9rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: #f8fafc;
+    color: var(--text-main);
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 800;
+    transition: all 0.2s ease;
+}
+
+.modulo-historial-panel .section-toolbar button:hover {
+    border-color: var(--brand-red);
+    background-color: var(--brand-red-light);
+    color: var(--brand-red);
+}
+
+.modulo-historial-panel .result-container {
+    padding: 0;
+    text-align: left;
+}
+
+.modulo-registros-lista {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.modulo-registro {
+    display: grid;
+    gap: 0.65rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: #f8fafc;
+}
+
+.modulo-registro-encabezado {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    justify-content: space-between;
+    flex-wrap: wrap;
+}
+
+.modulo-registro-encabezado strong {
+    color: var(--text-main);
+    font-size: 0.95rem;
+    font-weight: 800;
+}
+
+.modulo-registro-encabezado > span:not(.estado-badge) {
+    margin-right: auto;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.modulo-registro p {
+    margin: 0;
+    color: var(--text-main);
+    font-size: 0.95rem;
+    font-weight: 800;
+    line-height: 1.35;
+}
+
+.modulo-registro-detalle {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
+.modulo-registro-detalle > span {
+    min-width: 0;
+    display: grid;
+    gap: 0.2rem;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: var(--surface);
+}
+
+.modulo-registro-detalle b {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.modulo-registro-detalle span span {
+    overflow-wrap: anywhere;
+    color: var(--text-main);
+    font-size: 0.84rem;
+    font-weight: 800;
+}
+
+.estado-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    padding: 0.28rem 0.65rem;
+    border-radius: 999px;
+    background-color: #f1f5f9;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.estado-afectado,
+.estado-afectada,
+.estado-completado,
+.estado-completada {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.estado-pendiente,
+.estado-pendiente-de-afectar,
+.estado-pendiente-afectacion {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.estado-error,
+.estado-rechazado,
+.estado-rechazada {
+    background-color: #fee2e2;
+    color: var(--brand-red);
+}
+
+.estado-sin-estado,
+.estado-sin-movimientos {
+    background-color: #e2e8f0;
+    color: var(--text-muted);
+}
+
 /* Estilo para las tablas cuando se inyecten mediante JS */
 table {
     width: 100%;
@@ -599,49 +740,52 @@ tr:hover td {
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 1.5rem;
     z-index: 100;
 }
 
 .config-modal {
     background-color: var(--surface);
     border-radius: var(--radius);
-    width: 90%;
+    width: min(92vw, 900px);
     max-width: 900px;
-    max-height: 85vh;
-    overflow-y: auto;
-    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+    max-height: min(88vh, 820px);
+    overflow: hidden;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
     border: 1px solid var(--border-color);
 }
 
 .config-modal-header {
-    padding: 1.5rem;
+    padding: 1.25rem 1.5rem;
     border-bottom: 1px solid var(--border-color);
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    position: sticky;
-    top: 0;
     background: var(--surface);
     z-index: 10;
 }
 
 .modal-close {
     background-color: #f1f5f9;
-    border: none;
+    border: 1px solid transparent;
     padding: 0.5rem 1rem;
-    font-weight: 600;
-    border-radius: 6px;
+    font-weight: 800;
+    border-radius: 8px;
     cursor: pointer;
     color: var(--text-main);
-    transition: background-color 0.15s;
+    transition: all 0.15s;
 }
 
 .modal-close:hover {
     background-color: #e2e8f0;
+    border-color: var(--border-color);
 }
 
 .config-modal-content {
     padding: 1.5rem;
+    overflow-y: auto;
 }
 
 .config-resumen {
@@ -1131,10 +1275,12 @@ textarea:focus {
 }
 
 .config-carnicos-modal {
+    width: min(94vw, 1080px);
     max-width: 1080px;
 }
 
 .config-producto-modal {
+    width: min(92vw, 680px);
     max-width: 680px;
 }
 
@@ -1188,13 +1334,22 @@ textarea:focus {
 
 .config-carnicos-table-wrap {
     margin-top: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: #f8fafc;
+    padding: 1rem;
 }
 
 .config-carnicos-resultados {
-    min-height: 72px;
-    padding: 0.75rem;
+    min-height: 120px;
+    max-height: 320px;
+    padding: 0;
     text-align: left;
     overflow-x: auto;
+    overflow-y: auto;
+    background-color: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
 }
 
 .config-carnicos-resultados table,
@@ -1215,6 +1370,11 @@ textarea:focus {
 
 .config-carnicos-table-wrap .result-container {
     overflow-x: auto;
+}
+
+.config-carnicos-table-wrap .section-toolbar {
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.65rem;
 }
 
 .paginacion {
@@ -1280,6 +1440,10 @@ textarea:focus {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: #f8fafc;
 }
 
 .producto-carnico-form label {
@@ -1363,5 +1527,19 @@ textarea:focus {
     .salida-acciones,
     .movimiento-acciones {
         display: grid;
+    }
+
+    .modulo-historial-panel .section-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .modulo-historial-panel .section-toolbar button {
+        width: 100%;
+    }
+
+    .modulo-registro-detalle {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }

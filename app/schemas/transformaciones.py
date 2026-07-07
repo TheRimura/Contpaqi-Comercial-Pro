@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID, uuid4
@@ -36,6 +37,9 @@ class CrearTransformacion(BaseModel):
 
     usuario_id: int | None = Field(default=None, gt=0)
     usuario_nombre: str | None = Field(default=None, max_length=100)
+    proveedor_id: int | None = Field(default=None, gt=0)
+    usuario_fisico_id: int | None = Field(default=None, gt=0)
+    fecha_movimiento: date | None = None
     tipo_transformacion: Literal[
         "receta_configurada",
         "producto_final",
@@ -103,4 +107,3 @@ class CrearTransformacion(BaseModel):
 
         self.peso_merma = merma_calculada
         return self
-

@@ -1,3 +1,6 @@
+from datetime import date
+
+
 class ErrorIntegracionERP(RuntimeError):
     pass
 
@@ -102,6 +105,64 @@ class IntegracionMovimientosERP:
                 "con la transformacion"
             )
 
+    def _relacionar_documentos(
+        self,
+        documento_salida,
+        documento_entrada,
+        nombre_salida,
+        nombre_entrada,
+        datos,
+    ):
+        proveedor_id = getattr(datos, "proveedor_id", None)
+        usuario_fisico_id = getattr(datos, "usuario_fisico_id", None)
+
+        if proveedor_id or usuario_fisico_id:
+            if not proveedor_id or not usuario_fisico_id:
+                raise ErrorIntegracionERP(
+                    "Proveedor y empleado son obligatorios para "
+                    "relacionar formalmente los movimientos ERP"
+                )
+
+            tipo_salida = self._base_datos.buscar_tipo_movimiento(
+                "salida",
+                nombre_salida,
+            )
+            tipo_entrada = self._base_datos.buscar_tipo_movimiento(
+                "entrada",
+                nombre_entrada,
+            )
+            folio_salida = self._base_datos.buscar_folio_documento(
+                documento_salida
+            )
+            folio_entrada = self._base_datos.buscar_folio_documento(
+                documento_entrada
+            )
+
+            self._base_datos.relacionar_documentos_erp(
+                source_document_id=documento_salida,
+                destination_document_id=documento_entrada,
+                folio_source_document_id=folio_salida,
+                folio_destination_document_id=folio_entrada,
+                tipo_movimiento_origen_id=tipo_salida["id"],
+                tipo_movimiento_destino_id=tipo_entrada["id"],
+                proveedor_id=proveedor_id,
+                usuario_fisico_id=usuario_fisico_id,
+                fecha_movimiento=(
+                    getattr(datos, "fecha_movimiento", None) or date.today()
+                ),
+                user_id_erp=datos.usuario_id,
+            )
+            return
+
+        self._base_datos.relacionar_documentos(
+            documento_salida,
+            destino=documento_entrada,
+        )
+        self._base_datos.relacionar_documentos(
+            documento_entrada,
+            origen=documento_salida,
+        )
+
     def procesar(self, transformacion_id, datos):
         configuracion = (
             self._base_datos.buscar_configuracion_transformaciones()
@@ -171,13 +232,12 @@ class IntegracionMovimientosERP:
                 comentario=comentario,
             )
 
-            self._base_datos.relacionar_documentos(
+            self._relacionar_documentos(
                 documento_salida,
-                destino=documento_entrada,
-            )
-            self._base_datos.relacionar_documentos(
                 documento_entrada,
-                origen=documento_salida,
+                nombre_salida,
+                nombre_entrada,
+                datos,
             )
             self._base_datos.registrar_recalculo_si_pendiente(
                 documento_salida,
@@ -220,6 +280,5 @@ class IntegracionMovimientosERP:
             "almacen": configuracion["almacen"],
             "estado": "pendiente_afectacion",
         }
-
 
 
