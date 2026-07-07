@@ -1962,6 +1962,7 @@ class BaseDatos(ComandosBaseDatos):
 
         return nuevas_partidas
 
+
 @cache
 def obtener_base_datos():
     return BaseDatos()
