@@ -63,14 +63,12 @@ def responder_template(nombre_archivo: str) -> HTMLResponse:
 
     return HTMLResponse(PATRON_ASSET_ESTATICO.sub(agregar_version, contenido))
 
-
 @app.get("/")
 def mostrar_login(request: Request):
     if seguridad_sesion.obtener_sesion(request):
         return RedirectResponse("/dashboard", status_code=303)
 
     return responder_template("login.html")
-
 
 @app.get("/dashboard")
 def mostrar_dashboard(request: Request):
