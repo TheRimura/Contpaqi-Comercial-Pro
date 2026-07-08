@@ -19,3 +19,4 @@ class CrearRelacionDocumentosERP(BaseModel):
     )
     source_brand_id: int | None = Field(default=None, ge=1)
     destination_brand_id: int | None = Field(default=None, ge=1)
+

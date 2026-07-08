@@ -106,4 +106,5 @@ class CrearTransformacion(BaseModel):
             )
 
         self.peso_merma = merma_calculada
+
         return self

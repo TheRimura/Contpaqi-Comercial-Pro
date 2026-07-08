@@ -4854,7 +4854,7 @@ function actualizarModuloProductoActual() {
     if (!contenedor) {
         return;
     }
- 
+
     contenedor.replaceChildren();
 
     if (!productoSeleccionadoOriginal) {
@@ -6289,7 +6289,7 @@ function crearCeldaConfiguracionPrincipal(configuracion) {
 
     nombre.textContent = (
         configuracion.nombre ||
-        `Configuracion ${configuracion.id}`
+        `configuracion ${configuracion.id}`
     );
     id.className = "tabla-muted";
     id.textContent = `ID ${configuracion.id}`;
@@ -6307,7 +6307,7 @@ function crearTablaConfiguraciones(configuraciones) {
         "productos-tabla registros-tabla config-lista-tabla";
     encabezado.innerHTML = `
         <tr>
-            <th>Configuracion</th>
+            <th>Configuración</th>
             <th>Proveedor</th>
             <th>Origen</th>
             <th>Salida base</th>
