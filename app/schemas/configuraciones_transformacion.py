@@ -74,4 +74,10 @@ class CrearConfiguracionTransformacion(BaseModel):
                 "Solo puede existir un producto base en los ingredientes"
             )
 
+
+        if len(bases) > 1:
+            raise ValueError(
+                "solo pude existir un proveedor en los ingredientes"
+            )
+
         return self

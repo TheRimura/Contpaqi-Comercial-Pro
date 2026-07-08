@@ -232,8 +232,7 @@ def validar_productos(base_datos, datos):
 
 @router.get("/")
 def listar_configuraciones(
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
-    pagina: int = Query(default=1, ge=1),
+        pagina: int = Query(default=1, ge=1),
     limite: int = Query(default=10, ge=1, le=50),
 ):
     base_datos = obtener_base_datos()
@@ -355,7 +354,6 @@ def actualizar_configuracion(
 @router.get("/formula/{producto_id}/ingredientes")
 def consultar_ingredientes_formula(
     producto_id: int,
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     filas = obtener_base_datos().buscar_ingredientes_formula(producto_id)
 

@@ -1382,6 +1382,45 @@ async function registrarTransformacionDesdeMovimiento() {
 }
 
 
+function limpiarEtiquetasDashboard() {
+    const textos = [
+        ["botonAgregarResultante", "Agregar producto"],
+        ["botonRegistrarTransformacion", "Registrar transformacion"]
+    ];
+
+    textos.forEach(function ([id, texto]) {
+        const elemento = document.getElementById(id);
+
+        if (elemento) {
+            elemento.textContent = texto;
+        }
+    });
+
+    const resumenMerma = document.querySelector(".merma-opcional summary");
+
+    if (resumenMerma) {
+        resumenMerma.textContent = "Limite y observaciones de merma";
+    }
+
+    document.querySelectorAll("button").forEach(function (boton) {
+        if (
+            boton.getAttribute("onclick") ===
+            "cargarHistorialTransformaciones(registrosPaginaActual)"
+        ) {
+            boton.textContent = "Actualizar historial";
+        }
+    });
+
+    document.querySelectorAll("spann").forEach(function (etiquetaRota) {
+        const label = etiquetaRota.closest("label");
+
+        if (label) {
+            label.remove();
+        }
+    });
+}
+
+
 function renderizarPanelTransformacionMovimiento(contenedor) {
     const panel = document.createElement("div");
     const acciones = document.createElement("div");
@@ -7045,6 +7084,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     if (dashboard) {
+        limpiarEtiquetasDashboard();
         void cargarSesionActual().then(function (sesion) {
             if (!sesion) {
                 return;

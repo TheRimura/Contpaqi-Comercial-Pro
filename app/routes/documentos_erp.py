@@ -107,7 +107,6 @@ def resolver_movimientos_por_texto(base_datos, item_value):
 def listar_tipos_movimiento(
     modulo: str = Query(default="salida"),
     incluir_todos: bool = Query(default=False),
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     base_datos = obtener_base_datos()
     module_id = resolver_module_id(modulo)
@@ -127,7 +126,6 @@ def listar_tipos_movimiento(
 @router.get("/tipos-movimiento/equivalencia")
 def resolver_equivalencia_tipo_movimiento(
     texto: str = Query(min_length=1, max_length=120),
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     entrada_id, salida_id = resolver_movimientos_por_texto(
         obtener_base_datos(),
@@ -143,7 +141,6 @@ def resolver_equivalencia_tipo_movimiento(
 @router.get("/documentos-relacionables")
 def listar_documentos_relacionables(
     modulo: str = Query(default="salida"),
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     base_datos = obtener_base_datos()
     module_id = resolver_module_id(modulo)
@@ -159,7 +156,6 @@ def listar_documentos_relacionables(
 
 @router.get("/proveedores")
 def listar_proveedores(
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     return {
         "proveedores": [
@@ -171,7 +167,6 @@ def listar_proveedores(
 
 @router.get("/empleados")
 def listar_empleados(
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     return {
         "empleados": [
@@ -183,7 +178,6 @@ def listar_empleados(
 @router.get("/{document_id}/relacion")
 def consultar_relacion_documento(
     document_id: int,
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     relacion = obtener_base_datos().obtener_relacion_documento(document_id)
 
@@ -201,7 +195,6 @@ def consultar_relacion_documento(
 @router.get("/{document_id}/partidas")
 def consultar_partidas_documento(
     document_id: int,
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     return {
         "partidas": obtener_base_datos().obtener_partidas_documento_erp(
@@ -213,7 +206,6 @@ def consultar_partidas_documento(
 @router.post("/{document_id}/homologar")
 def homologar_relacion_documento(
     document_id: int,
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     obtener_base_datos().homologar_tipo_movimiento_documento(document_id)
 
@@ -226,7 +218,6 @@ def homologar_relacion_documento(
 @router.get("/marcas/{categoria}")
 def consultar_marcas_categoria(
     categoria: str,
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     return {
         "marcas": [

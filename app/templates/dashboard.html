@@ -63,13 +63,14 @@
 
         <!-- SECCIÓN 1: MÓDULO CÁRNICO (FLUJO PRINCIPAL DE CLICS OPTIMIZADOS) -->
         <section id="moduloCarnico" class="section">
-            <div class="page-header">
+            <div class="page-header modulo-page-title">
                 <p class="eyebrow">Operación</p>
                 <h2>Módulo cárnico</h2>
             </div>
 
             <!-- CLIC 1: Tipo de movimiento como paso inicial obligatorio -->
-            <div class="modulo-surface">
+            <div class="modulo-workspace">
+            <div class="modulo-surface modulo-operacion-panel">
                 <div class="modulo-surface-header">
                     <div>
                         <h3>1. Selecciona el Tipo de Movimiento</h3>
@@ -119,6 +120,37 @@
                 </div>
             </div>
 
+            <aside class="modulo-contexto-panel">
+                <div class="modulo-producto-card">
+                    <div class="section-toolbar">
+                        <h3>Producto en trabajo</h3>
+                    </div>
+                    <div
+                        id="moduloProductoActual"
+                        class="modulo-producto-actual is-empty"
+                    >
+                        Sin producto seleccionado.
+                    </div>
+                </div>
+
+                <div class="modulo-indicadores-card">
+                    <div class="section-toolbar">
+                        <h3>Resumen del mes</h3>
+                    </div>
+                    <div id="moduloIndicadores" class="modulo-indicadores">
+                        <div class="summary-item">
+                            <span>Transformaciones</span>
+                            <strong>0</strong>
+                        </div>
+                        <div class="summary-item">
+                            <span>Kilos procesados</span>
+                            <strong>0 kg</strong>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+            </div>
+
             <!-- Panel de Historial Inferior: Limpio y no invasivo -->
             <div class="panel modulo-historial-panel">
                 <div class="section-toolbar">
@@ -147,8 +179,10 @@
             </div>
 
             <!-- Producto Origen / Padre -->
-            <div class="panel">
-                <h3>Materia Prima de Origen (Salida de Inventario)</h3>
+            <div class="transformacion-workspace">
+            <div class="transformacion-main">
+            <div class="panel transformacion-panel-origen">
+                <h3>Producto base</h3>
 
                 <div class="form-grid origen-grid">
                     <div>
@@ -175,7 +209,7 @@
             </div>
 
             <!-- Productos Resultantes / Hijos -->
-            <div class="panel">
+            <div class="panel transformacion-panel-resultantes">
                 <div class="section-toolbar">
                     <h3 id="tituloProductosResultantes">
                         Productos Resultantes (Subproductos Obtenidos)
@@ -198,7 +232,9 @@
             </div>
 
             <!-- Área de Balances Visuales Absolutos (Kilos y Mermas Gigantes) -->
-            <div class="panel">
+            </div>
+            <aside class="transformacion-aside">
+            <div class="panel balance-panel">
                 <div class="section-toolbar">
                     <div>
                         <h3>Balance de Rendimientos</h3>
@@ -290,6 +326,8 @@
                 </div>
 
                 <div id="resultadoTransformacion"></div>
+            </div>
+            </aside>
             </div>
         </section>
 

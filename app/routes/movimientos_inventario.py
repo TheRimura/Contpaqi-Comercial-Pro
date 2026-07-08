@@ -49,4 +49,5 @@ def listar_movimientos(
         "total_paginas": total_paginas,
         "tipo": tipo_normalizado,
         "indicadores": calcular_indicadores(movimientos),
+
     }

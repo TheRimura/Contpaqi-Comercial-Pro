@@ -81,7 +81,6 @@ def calcular_indicadores(registros):
 def listar_transformaciones(
     pagina: int = Query(default=1, ge=1),
     limite: int = Query(default=10, ge=1, le=50),
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     registros = consultar_transformaciones()
     total = len(registros)

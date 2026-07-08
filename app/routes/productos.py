@@ -1,10 +1,8 @@
 import re
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
 from app.utils.base_de_datos import obtener_base_datos
-from app.utils.seguridad import seguridad_sesion
-
 
 router = APIRouter(
     prefix="/productos",
@@ -284,8 +282,7 @@ def respuesta_equivalencias(base_datos, producto_id):
 
 @router.get("/")
 def buscar_productos(
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
-    busqueda: str = Query(min_length=2, max_length=100),
+        busqueda: str = Query(min_length=2, max_length=100),
     pagina: int = Query(default=1, ge=1),
     limite: int = Query(default=10, ge=1, le=50),
 ):
@@ -330,7 +327,6 @@ def buscar_productos(
 @router.get("/{producto_id}/resultantes")
 def buscar_productos_resultantes(
     producto_id: int,
-    sesion: dict = Depends(seguridad_sesion.requerir_sesion),
 ):
     base_datos = obtener_base_datos()
     configuracion_usuario = respuesta_configuracion_usuario(
