@@ -100,7 +100,7 @@ def componentes_desde_configuracion(componentes):
             "cantidad": componente["cantidad"],
             "es_producto_base": bool(componente["es_producto_base"]),
             "tipo_componente": componente["tipo_componente"],
-            "participa_balance": bool(componente["participa_balance"]),
+            "participa_balance": bool(componente["participa_balance"]), 
         }
         for componente in componentes
     ]
