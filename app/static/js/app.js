@@ -4769,6 +4769,7 @@ function renderizarIndicadoresModulo(indicadores = {}) {
             formatearPorcentajeCorto(indicadores.rendimiento),
             true
         )
+
     );
 }
 
@@ -5097,7 +5098,7 @@ function textoTipoMovimientoInventario(tipo) {
 function textoDocumentoMovimientoInventario(movimiento) {
     return movimiento.folio_documento ||
         movimiento.documento_id ||
-        "Pendiente";
+        "En Proceso";
 }
 
 
