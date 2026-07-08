@@ -4854,7 +4854,7 @@ function actualizarModuloProductoActual() {
     if (!contenedor) {
         return;
     }
-
+ 
     contenedor.replaceChildren();
 
     if (!productoSeleccionadoOriginal) {
@@ -4871,7 +4871,7 @@ function actualizarModuloProductoActual() {
     const subtitulo = document.createElement("span");
     const datos = document.createElement("div");
     const acciones = document.createElement("div");
-    const abrirCaptura = document.createElement("button");
+    const abrirCaptura   = document.createElement("button");
     const abrirConfiguracion = document.createElement("button");
 
     contenedor.className = "modulo-producto-actual";
