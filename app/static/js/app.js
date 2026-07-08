@@ -5866,7 +5866,7 @@ function editarConfiguracionTransformacion(configuracion) {
                     ),
                     orden: detalle.orden || indice + 1
                 }
-            );
+                );
         }
     );
 

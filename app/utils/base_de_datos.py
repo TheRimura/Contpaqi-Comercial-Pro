@@ -1078,7 +1078,7 @@ class BaseDatos(ComandosBaseDatos):
                         cantidad DECIMAL(18, 6) '$.cantidad',
                         unidad NVARCHAR(50) '$.unidad',
                         participa_balance BIT '$.participa_balance',
-                        orden INT '$.orden'
+          a              orden INT '$.orden'
                     );
 
                     UPDATE dbo.TransformacionesUsuarioComponente
