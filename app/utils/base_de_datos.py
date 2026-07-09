@@ -43,6 +43,7 @@ class BaseDatos(ComandosBaseDatos):
                 P.ProductID,
                 P.ProductKey,
                 P.ProductName,
+                P.Category2,
                 COALESCE(
                     CM.categoria,
                     CFM.categoria,
@@ -341,6 +342,7 @@ class BaseDatos(ComandosBaseDatos):
                 P.ProductID,
                 P.ProductKey,
                 P.ProductName,
+                P.Category2,
                 COALESCE(CP.categoria, CO.categoria, P.Category1)
                     AS Category1,
                 P.Unit,
@@ -405,6 +407,7 @@ class BaseDatos(ComandosBaseDatos):
                 P.ProductKey,
                 P.ProductName,
                 P.Category1,
+                P.Category2,
                 P.Unit,
                 P.CostPrice,
                 ISNULL(I.QtyPresent, 0) AS QtyPresent,
@@ -424,6 +427,107 @@ class BaseDatos(ComandosBaseDatos):
                 *ids_limpios,
             ),
         )
+
+    def buscar_tipos_transformacion_productos(self):
+        return self.fetchall(
+            """
+            SELECT DISTINCT
+                UPPER(LTRIM(RTRIM(P.Category1))) AS categoria
+            FROM dbo.orgProduct AS P
+            INNER JOIN dbo.CategoriasTransformacion AS C
+                ON C.activa = 1
+               AND UPPER(LTRIM(RTRIM(C.categoria))) =
+                   UPPER(LTRIM(RTRIM(P.Category1)))
+            WHERE P.DeletedOn IS NULL
+              AND P.AvailableForSale = 1
+              AND NULLIF(LTRIM(RTRIM(P.Category1)), '') IS NOT NULL
+            ORDER BY categoria
+            """
+        )
+
+    def buscar_opciones_creacion_transformacion(self, categoria):
+        return self.fetchall(
+            """
+            SELECT DISTINCT
+                LTRIM(RTRIM(P.Category2)) AS opcion
+            FROM dbo.orgProduct AS P
+            WHERE P.DeletedOn IS NULL
+              AND P.AvailableForSale = 1
+              AND UPPER(LTRIM(RTRIM(P.Category1))) =
+                  UPPER(LTRIM(RTRIM(?)))
+              AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
+            ORDER BY opcion
+            """,
+            (categoria,),
+        )
+
+    def buscar_productos_transformacion_por_categoria(
+        self,
+        categoria,
+        opcion,
+        pagina=1,
+        limite=10,
+    ):
+        configuracion = self.buscar_configuracion_transformaciones()
+        inicio = (int(pagina) - 1) * int(limite)
+        parametros = (
+            configuracion["almacen_id"],
+            categoria,
+            opcion,
+        )
+        total = self.fetchone(
+            """
+            SELECT COUNT(*) AS total
+            FROM dbo.orgProduct AS P
+            WHERE P.DeletedOn IS NULL
+              AND P.AvailableForSale = 1
+              AND UPPER(LTRIM(RTRIM(P.Category1))) =
+                  UPPER(LTRIM(RTRIM(?)))
+              AND UPPER(LTRIM(RTRIM(P.Category2))) =
+                  UPPER(LTRIM(RTRIM(?)))
+            """,
+            (categoria, opcion),
+        )
+        filas = self.fetchall(
+            """
+            SELECT
+                P.ProductID,
+                P.ProductKey,
+                P.ProductName,
+                P.Category1,
+                P.Category2,
+                P.Unit,
+                P.CostPrice,
+                ISNULL(I.QtyPresent, 0) AS QtyPresent,
+                P.ProductTypeIDCayal
+            FROM dbo.orgProduct AS P
+            OUTER APPLY (
+                SELECT SUM(Q.QtyPresent) AS QtyPresent
+                FROM dbo.vwLBSProductQuantityList AS Q
+                WHERE Q.ProductID = P.ProductID
+                  AND Q.DepotID = ?
+            ) AS I
+            WHERE P.DeletedOn IS NULL
+              AND P.AvailableForSale = 1
+              AND UPPER(LTRIM(RTRIM(P.Category1))) =
+                  UPPER(LTRIM(RTRIM(?)))
+              AND UPPER(LTRIM(RTRIM(P.Category2))) =
+                  UPPER(LTRIM(RTRIM(?)))
+            ORDER BY P.ProductName
+            OFFSET ? ROWS
+            FETCH NEXT ? ROWS ONLY
+            """,
+            (
+                *parametros,
+                inicio,
+                int(limite),
+            ),
+        )
+
+        return {
+            "total": int(self.valor_escalar(total, "total") or 0),
+            "filas": filas,
+        }
 
     def buscar_configuracion_usuario_para_producto(self, producto_id):
         self.asegurar_metadatos_configuracion_usuario()
@@ -770,6 +874,232 @@ class BaseDatos(ComandosBaseDatos):
             (int(limite),),
         )
 
+    def asegurar_tablas_productos_carnicos_configuracion(self):
+        self.command(
+            """
+            IF OBJECT_ID(
+                N'dbo.ModuloCarnicoProductoConfigurado',
+                N'U'
+            ) IS NULL
+            BEGIN
+                CREATE TABLE dbo.ModuloCarnicoProductoConfigurado (
+                    id_producto_carnico INT IDENTITY(1, 1) NOT NULL
+                        CONSTRAINT PK_ModuloCarnicoProductoConfigurado
+                        PRIMARY KEY,
+                    product_id INT NULL,
+                    clave NVARCHAR(60) NULL,
+                    proveedor_id INT NULL,
+                    proveedor_nombre NVARCHAR(250) NULL,
+                    nombre_producto NVARCHAR(250) NOT NULL,
+                    categoria NVARCHAR(100) NULL,
+                    categoria_resultante NVARCHAR(150) NULL,
+                    unidad NVARCHAR(50) NOT NULL,
+                    porcentaje_merma DECIMAL(9, 4) NOT NULL
+                        CONSTRAINT DF_MCPC_porcentaje_merma DEFAULT 0,
+                    activo BIT NOT NULL
+                        CONSTRAINT DF_MCPC_activo DEFAULT 1,
+                    usuario_creacion BIGINT NULL,
+                    usuario_actualizacion BIGINT NULL,
+                    fecha_creacion DATETIME2 NOT NULL
+                        CONSTRAINT DF_MCPC_fecha_creacion DEFAULT GETDATE(),
+                    fecha_actualizacion DATETIME2 NULL
+                );
+
+                CREATE UNIQUE INDEX UX_MCPC_product_id
+                ON dbo.ModuloCarnicoProductoConfigurado (product_id)
+                WHERE product_id IS NOT NULL;
+
+                CREATE INDEX IX_MCPC_activo
+                ON dbo.ModuloCarnicoProductoConfigurado (
+                    activo,
+                    nombre_producto
+                );
+            END;
+
+            IF OBJECT_ID(
+                N'dbo.ModuloCarnicoProductoBitacora',
+                N'U'
+            ) IS NULL
+            BEGIN
+                CREATE TABLE dbo.ModuloCarnicoProductoBitacora (
+                    id_bitacora INT IDENTITY(1, 1) NOT NULL
+                        CONSTRAINT PK_ModuloCarnicoProductoBitacora
+                        PRIMARY KEY,
+                    accion NVARCHAR(60) NOT NULL,
+                    usuario_id BIGINT NULL,
+                    usuario_confirmacion_nombre NVARCHAR(150) NOT NULL,
+                    detalle NVARCHAR(500) NULL,
+                    productos_json NVARCHAR(MAX) NULL,
+                    fecha DATETIME2 NOT NULL
+                        CONSTRAINT DF_MCPB_fecha DEFAULT GETDATE()
+                );
+
+                CREATE INDEX IX_MCPB_fecha
+                ON dbo.ModuloCarnicoProductoBitacora (fecha DESC);
+            END;
+            """,
+            (),
+        )
+
+    def buscar_productos_carnicos_configurados(self, incluir_inactivos=True):
+        self.asegurar_tablas_productos_carnicos_configuracion()
+        filtro = "" if incluir_inactivos else "WHERE C.activo = 1"
+
+        return self.fetchall(
+            f"""
+            SELECT
+                C.id_producto_carnico,
+                C.product_id,
+                C.clave,
+                C.proveedor_id,
+                C.proveedor_nombre,
+                C.nombre_producto,
+                C.categoria,
+                C.categoria_resultante,
+                C.unidad,
+                C.porcentaje_merma,
+                C.activo,
+                C.usuario_creacion,
+                C.usuario_actualizacion,
+                C.fecha_creacion,
+                C.fecha_actualizacion
+            FROM dbo.ModuloCarnicoProductoConfigurado AS C
+            {filtro}
+            ORDER BY C.activo DESC, C.nombre_producto
+            """,
+            (),
+        )
+
+    def guardar_productos_carnicos_configurados(
+        self,
+        productos,
+        usuario_id,
+        usuario_confirmacion_nombre,
+    ):
+        self.asegurar_tablas_productos_carnicos_configuracion()
+        productos_json = json.dumps(productos, ensure_ascii=False)
+        self.command(
+            """
+            SET NOCOUNT ON;
+
+            DECLARE @productos NVARCHAR(MAX) = ?;
+
+            WITH Datos AS (
+                SELECT *
+                FROM OPENJSON(@productos)
+                WITH (
+                    id_producto_carnico INT '$.id_configuracion',
+                    product_id INT '$.product_id',
+                    clave NVARCHAR(60) '$.clave',
+                    proveedor_id INT '$.proveedor_id',
+                    proveedor_nombre NVARCHAR(250) '$.proveedor',
+                    nombre_producto NVARCHAR(250) '$.nombre',
+                    categoria NVARCHAR(100) '$.categoria',
+                    categoria_resultante NVARCHAR(150)
+                        '$.categoria_resultante',
+                    unidad NVARCHAR(50) '$.unidad',
+                    porcentaje_merma DECIMAL(9, 4) '$.porcentaje_merma',
+                    activo BIT '$.activo'
+                )
+            )
+            MERGE dbo.ModuloCarnicoProductoConfigurado AS T
+            USING Datos AS D
+               ON (
+                    D.id_producto_carnico IS NOT NULL
+                    AND T.id_producto_carnico = D.id_producto_carnico
+               )
+               OR (
+                    D.id_producto_carnico IS NULL
+                    AND D.product_id IS NOT NULL
+                    AND T.product_id = D.product_id
+               )
+            WHEN MATCHED THEN
+                UPDATE SET
+                    product_id = D.product_id,
+                    clave = NULLIF(D.clave, ''),
+                    proveedor_id = D.proveedor_id,
+                    proveedor_nombre = NULLIF(D.proveedor_nombre, ''),
+                    nombre_producto = NULLIF(D.nombre_producto, ''),
+                    categoria = NULLIF(D.categoria, ''),
+                    categoria_resultante =
+                        NULLIF(D.categoria_resultante, ''),
+                    unidad = ISNULL(NULLIF(D.unidad, ''), 'KILO'),
+                    porcentaje_merma = ISNULL(D.porcentaje_merma, 0),
+                    activo = ISNULL(D.activo, 1),
+                    usuario_actualizacion = ?,
+                    fecha_actualizacion = GETDATE()
+            WHEN NOT MATCHED THEN
+                INSERT (
+                    product_id,
+                    clave,
+                    proveedor_id,
+                    proveedor_nombre,
+                    nombre_producto,
+                    categoria,
+                    categoria_resultante,
+                    unidad,
+                    porcentaje_merma,
+                    activo,
+                    usuario_creacion
+                )
+                VALUES (
+                    D.product_id,
+                    NULLIF(D.clave, ''),
+                    D.proveedor_id,
+                    NULLIF(D.proveedor_nombre, ''),
+                    NULLIF(D.nombre_producto, ''),
+                    NULLIF(D.categoria, ''),
+                    NULLIF(D.categoria_resultante, ''),
+                    ISNULL(NULLIF(D.unidad, ''), 'KILO'),
+                    ISNULL(D.porcentaje_merma, 0),
+                    ISNULL(D.activo, 1),
+                    ?
+                );
+
+            INSERT INTO dbo.ModuloCarnicoProductoBitacora (
+                accion,
+                usuario_id,
+                usuario_confirmacion_nombre,
+                detalle,
+                productos_json
+            )
+            VALUES (
+                'guardado',
+                ?,
+                ?,
+                'Guardado de configuracion de productos carnicos',
+                @productos
+            );
+            """,
+            (
+                productos_json,
+                usuario_id,
+                usuario_id,
+                usuario_id,
+                usuario_confirmacion_nombre,
+            ),
+        )
+
+    def buscar_bitacora_productos_carnicos(self, limite=50):
+        self.asegurar_tablas_productos_carnicos_configuracion()
+        return self.fetchall(
+            """
+            SELECT TOP (?)
+                B.id_bitacora,
+                B.accion,
+                B.usuario_id,
+                U.UserName AS usuario_sesion,
+                B.usuario_confirmacion_nombre,
+                B.detalle,
+                B.fecha
+            FROM dbo.ModuloCarnicoProductoBitacora AS B
+            LEFT JOIN dbo.engUser AS U
+                ON U.UserID = B.usuario_id
+            ORDER BY B.fecha DESC, B.id_bitacora DESC
+            """,
+            (int(limite),),
+        )
+
     def buscar_componentes_configuraciones_usuario(
         self,
         ids_configuraciones,
@@ -1078,7 +1408,7 @@ class BaseDatos(ComandosBaseDatos):
                         cantidad DECIMAL(18, 6) '$.cantidad',
                         unidad NVARCHAR(50) '$.unidad',
                         participa_balance BIT '$.participa_balance',
-          a              orden INT '$.orden'
+                        orden INT '$.orden'
                     );
 
                     UPDATE dbo.TransformacionesUsuarioComponente

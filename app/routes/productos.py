@@ -30,6 +30,7 @@ def formatear_producto(producto, porcentajes_merma=None):
         "clave": producto["ProductKey"],
         "nombre": producto["ProductName"],
         "categoria": producto["Category1"],
+        "categoria_resultante": producto.get("Category2"),
         "unidad": producto["Unit"],
         "costo": producto["CostPrice"],
         "existencia": producto["QtyPresent"],
@@ -55,6 +56,7 @@ def producto_desde_configuracion(configuracion, prefijo, porcentajes_merma):
             "ProductKey": configuracion.get(f"{prefijo}_clave"),
             "ProductName": configuracion.get(f"{prefijo}_nombre"),
             "Category1": configuracion.get(f"{prefijo}_categoria"),
+            "Category2": configuracion.get(f"{prefijo}_categoria_resultante"),
             "Unit": configuracion.get(f"{prefijo}_unidad"),
             "CostPrice": configuracion.get(f"{prefijo}_costo"),
             "QtyPresent": configuracion.get(f"{prefijo}_existencia") or 0,
@@ -321,6 +323,69 @@ def buscar_productos(
         "limite": limite,
         "total": total,
         "total_paginas": total_paginas,
+    }
+
+
+@router.get("/transformacion/tipos")
+def buscar_tipos_transformacion():
+    filas = obtener_base_datos().buscar_tipos_transformacion_productos()
+
+    return {
+        "tipos": [
+            fila["categoria"]
+            for fila in filas
+            if fila["categoria"]
+        ]
+    }
+
+
+@router.get("/transformacion/opciones")
+def buscar_opciones_transformacion(
+    categoria: str = Query(min_length=1, max_length=100),
+):
+    filas = obtener_base_datos().buscar_opciones_creacion_transformacion(
+        categoria.strip()
+    )
+
+    return {
+        "categoria": categoria.strip(),
+        "opciones": [
+            fila["opcion"]
+            for fila in filas
+            if fila["opcion"]
+        ],
+    }
+
+
+@router.get("/transformacion/resultantes")
+def buscar_resultantes_transformacion(
+    categoria: str = Query(min_length=1, max_length=100),
+    opcion: str = Query(min_length=1, max_length=150),
+    pagina: int = Query(default=1, ge=1),
+    limite: int = Query(default=10, ge=1, le=50),
+):
+    base_datos = obtener_base_datos()
+    resultado = base_datos.buscar_productos_transformacion_por_categoria(
+        categoria.strip(),
+        opcion.strip(),
+        pagina,
+        limite,
+    )
+    total = resultado["total"]
+    total_paginas = (total + limite - 1) // limite
+    porcentajes_merma = base_datos.buscar_porcentajes_merma()
+
+    return {
+        "productos": [
+            formatear_producto(producto, porcentajes_merma)
+            for producto in resultado["filas"]
+        ],
+        "pagina": pagina,
+        "limite": limite,
+        "total": total,
+        "total_paginas": total_paginas,
+        "categoria": categoria.strip(),
+        "opcion": opcion.strip(),
     }
 
 
