@@ -5,20 +5,16 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.routes.configuraciones import router as configuraciones_router
-from app.routes.documentos_erp import router as documentos_erp_router
 from app.routes.login import router as login_router
-from app.routes.movimientos_inventario import (
-    router as movimientos_inventario_router,
+from app.routes.relacion_documentos import (
+    router as relacion_documentos_router,
 )
-from app.routes.productos_carnicos import router as productos_carnicos_router
-from app.routes.productos import router as productos_router
-from app.routes.transformaciones import router as transformaciones_router
 from app.utils.seguridad import seguridad_sesion
 
 
 RUTA_PROYECTO = Path(__file__).resolve().parent
 RUTA_APP = RUTA_PROYECTO / "app"
+
 PATRON_ASSET_ESTATICO = re.compile(
     r'(?P<prefijo>(?:href|src)=")'
     r'(?P<url>/static/(?P<ruta>[^"?]+))'
@@ -27,7 +23,7 @@ PATRON_ASSET_ESTATICO = re.compile(
 )
 
 app = FastAPI(
-    title="CAYAL - Transformación Cárnica",
+    title="CAYAL - Módulo Cárnico",
 )
 
 app.mount(
@@ -37,12 +33,7 @@ app.mount(
 )
 
 app.include_router(login_router)
-app.include_router(productos_router)
-app.include_router(transformaciones_router)
-app.include_router(configuraciones_router)
-app.include_router(documentos_erp_router)
-app.include_router(movimientos_inventario_router)
-app.include_router(productos_carnicos_router)
+app.include_router(relacion_documentos_router)
 
 
 def responder_template(nombre_archivo: str) -> HTMLResponse:
@@ -63,18 +54,33 @@ def responder_template(nombre_archivo: str) -> HTMLResponse:
             f'{coincidencia.group("sufijo")}'
         )
 
-    return HTMLResponse(PATRON_ASSET_ESTATICO.sub(agregar_version, contenido))
+    contenido_versionado = PATRON_ASSET_ESTATICO.sub(
+        agregar_version,
+        contenido,
+    )
 
-@app.get("/")
+    return HTMLResponse(contenido_versionado)
+
+
+@app.get("/", include_in_schema=False)
 def mostrar_login(request: Request):
     if seguridad_sesion.obtener_sesion(request):
         return RedirectResponse("/dashboard", status_code=303)
 
     return responder_template("login.html")
 
-@app.get("/dashboard")
+
+@app.get("/dashboard", include_in_schema=False)
 def mostrar_dashboard(request: Request):
     if not seguridad_sesion.obtener_sesion(request):
         return RedirectResponse("/", status_code=303)
 
     return responder_template("dashboard.html")
+
+
+@app.get("/salud", tags=["Sistema"])
+def comprobar_salud():
+    return {
+        "estado": "ok",
+        "aplicacion": "Módulo Cárnico CAYAL",
+    }
