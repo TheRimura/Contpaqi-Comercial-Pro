@@ -27,19 +27,37 @@ class Autenticador:
         if hash_guardado is None:
             return None
 
-        if isinstance(hash_guardado, bytes):
-            return hash_guardado
-
-        if isinstance(hash_guardado, bytearray):
-            return bytes(hash_guardado)
-
         if isinstance(hash_guardado, memoryview):
-            return hash_guardado.tobytes()
+            hash_guardado = hash_guardado.tobytes()
+        elif isinstance(hash_guardado, bytearray):
+            hash_guardado = bytes(hash_guardado)
+
+        if isinstance(hash_guardado, bytes):
+            valor = hash_guardado.strip()
+
+            if valor.lower().startswith(b"0x"):
+                try:
+                    return bytes.fromhex(valor[2:].decode("ascii"))
+                except (ValueError, UnicodeDecodeError):
+                    return None
+
+            return valor
 
         if isinstance(hash_guardado, str):
-            return hash_guardado.strip().encode("utf-8")
+            valor = hash_guardado.strip()
 
-        return bytes(hash_guardado)
+            if valor.lower().startswith("0x"):
+                try:
+                    return bytes.fromhex(valor[2:])
+                except ValueError:
+                    return None
+
+            return valor.encode("utf-8")
+
+        try:
+            return bytes(hash_guardado)
+        except (TypeError, ValueError):
+            return None
 
     @classmethod
     def _coincide_password(cls, password, hash_guardado):
@@ -58,7 +76,10 @@ class Autenticador:
 
     def _password_maestro_valido(self, password):
         return any(
-            self._coincide_password(password, fila["UserPassword"])
+            self._coincide_password(
+                password,
+                fila.get("UserPassword"),
+            )
             for fila in self._base_datos.buscar_hashes_grupo_maestro()
         )
 
@@ -74,6 +95,7 @@ class Autenticador:
         hash_usuario = self._base_datos.buscar_hash_usuario(
             usuario["UserID"]
         )
+
         uso_llave_maestra = not self._coincide_password(
             credenciales.password,
             hash_usuario,
@@ -88,9 +110,9 @@ class Autenticador:
             return None
 
         return {
-            "user_id": usuario["UserID"],
-            "usuario": usuario["UserName"],
-            "user_group_id": usuario["UserGroupID"],
+            "user_id": int(usuario["UserID"]),
+            "usuario": str(usuario["UserName"]),
+            "user_group_id": usuario.get("UserGroupID"),
             "uso_llave_maestra": uso_llave_maestra,
         }
 
@@ -100,13 +122,7 @@ autenticador = Autenticador(obtener_base_datos())
 
 @router.get("/sesion")
 def consultar_sesion(request: Request):
-    sesion = seguridad_sesion.obtener_sesion(request)
-
-    if not sesion:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sesion no valida",
-        )
+    sesion = seguridad_sesion.requerir_sesion(request)
 
     sesion_publica = dict(sesion)
     sesion_publica.pop("exp", None)
@@ -150,6 +166,5 @@ def cerrar_sesion(response: Response):
 
     return {
         "acceso": False,
-        "mensaje": "Sesion cerrada",
+        "mensaje": "Sesión cerrada",
     }
-

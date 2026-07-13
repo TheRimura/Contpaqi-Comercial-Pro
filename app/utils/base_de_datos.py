@@ -1,215 +1,95 @@
 import json
+import os
+import secrets
+
 from functools import cache
 from platform import node
-
+from typing import Optional
 
 from cayal.comandos_base_datos import ComandosBaseDatos
 
+
+_CLAVE_FIRMA_TEMPORAL = secrets.token_urlsafe(64)
 
 
 class BaseDatos(ComandosBaseDatos):
     MODULO_ENTRADA = 202
     MODULO_SALIDA = 203
+
     MOVIMIENTOS_ENTRADA_RELACIONABLES = (
-        0, 3, 5, 7, 13, 14, 16, 17, 19, 24, 26, 31
+        0, 3, 5, 7, 13, 14, 16, 17, 19, 24, 26, 31,
     )
     MOVIMIENTOS_SALIDA_RELACIONABLES = (
-        0, 2, 6, 8, 9, 10, 12, 13, 14, 21, 23, 28
+        0, 2, 6, 8, 9, 10, 12, 13, 14, 21, 23, 28,
     )
 
     def __init__(self):
         super().__init__(servidor=node())
         self.base_de_datos = None
 
-    @staticmethod
-    def valor_escalar(fila, campo):
-        if fila is None:
-            return None
+    # ----------------------------- SISTEMA -----------------------------
+    def probar_conexion(self) -> bool:
+        return int(self.fetchone("SELECT 1", ()) or 0) == 1
 
-        if isinstance(fila, dict):
-            return fila.get(campo)
+    def buscar_configuracion_seguridad(self) -> dict:
+        duracion = int(os.getenv("SESSION_MAX_AGE", "28800"))
+        nombre_cookie = os.getenv(
+            "SESSION_COOKIE_NAME",
+            "cayal_session",
+        ).strip()
+        clave_firma = os.getenv("SESSION_SECRET", "").strip()
 
-        if isinstance(fila, (list, tuple)):
-            return fila[0] if fila else None
+        if duracion <= 0:
+            raise RuntimeError(
+                "SESSION_MAX_AGE debe ser mayor que cero."
+            )
 
-        return fila
+        if not nombre_cookie:
+            raise RuntimeError(
+                "SESSION_COOKIE_NAME no puede estar vacío."
+            )
 
-    def buscar_productos_por_nombre(self, termino):
-        configuracion = self.buscar_configuracion_transformaciones()
+        return {
+            "clave_firma": clave_firma or _CLAVE_FIRMA_TEMPORAL,
+            "duracion_sesion_segundos": duracion,
+            "nombre_cookie": nombre_cookie,
+        }
 
+    # ------------------------------ LOGIN ------------------------------
+    def buscar_info_usuario_user_name(
+        self,
+        user_name: str,
+    ) -> list[dict]:
         return self.fetchall(
             """
             SELECT
-                P.ProductID,
-                P.ProductKey,
-                P.ProductName,
-                P.Category2,
-                COALESCE(
-                    CM.categoria,
-                    CFM.categoria,
-                    CEM.categoria,
-                    P.Category1
-                ) AS Category1,
-                P.Unit,
-                P.CostPrice,
-                ISNULL(I.QtyPresent, 0) AS QtyPresent,
-                P.ProductTypeIDCayal
-            FROM dbo.orgProduct AS P
-            OUTER APPLY (
-                SELECT SUM(Q.QtyPresent) AS QtyPresent
-                FROM dbo.vwLBSProductQuantityList AS Q
-                WHERE Q.ProductID = P.ProductID
-                  AND Q.DepotID = ?
-            ) AS I
-            OUTER APPLY (
-                SELECT TOP 1 C.categoria
-                FROM dbo.CategoriasTransformacion AS C
-                WHERE C.activa = 1
-                  AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                      UPPER(LTRIM(RTRIM(P.Category1)))
-            ) AS CM
-            OUTER APPLY (
-                SELECT TOP 1 C.categoria
-                FROM dbo.zvwFormulasListasPCocinar AS F
-                INNER JOIN dbo.orgProduct AS CP
-                    ON CP.ProductID = F.ComponenteID
-                   AND CP.DeletedOn IS NULL
-                INNER JOIN dbo.CategoriasTransformacion AS C
-                    ON C.activa = 1
-                   AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                       UPPER(LTRIM(RTRIM(CP.Category1)))
-                WHERE F.ProductID = P.ProductID
-                ORDER BY F.IDComp
-            ) AS CFM
-            OUTER APPLY (
-                SELECT TOP 1 C.categoria
-                FROM dbo.zvwEquivalenciasTransKoben AS E
-                INNER JOIN dbo.orgProduct AS OP
-                    ON OP.ProductID = CASE
-                        WHEN E.ProductID1 = P.ProductID
-                        THEN E.ProductID2
-                        ELSE E.ProductID1
-                    END
-                   AND OP.DeletedOn IS NULL
-                INNER JOIN dbo.CategoriasTransformacion AS C
-                    ON C.activa = 1
-                   AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                       UPPER(LTRIM(RTRIM(OP.Category1)))
-                WHERE E.Status = ?
-                  AND P.ProductID IN (
-                      E.ProductID1,
-                      E.ProductID2
-                  )
-                ORDER BY E.ID
-            ) AS CEM
-            WHERE P.DeletedOn IS NULL
-              AND P.AvailableForSale = 1
-              AND P.ProductName LIKE ?
-              AND (
-                    EXISTS (
-                        SELECT 1
-                        FROM dbo.CategoriasTransformacion AS C
-                        WHERE C.activa = 1
-                          AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                              UPPER(LTRIM(RTRIM(P.Category1)))
-                    )
-                    OR EXISTS (
-                        SELECT 1
-                        FROM dbo.zvwFormulasListasPCocinar AS F
-                        INNER JOIN dbo.orgProduct AS CP
-                            ON CP.ProductID = F.ComponenteID
-                           AND CP.DeletedOn IS NULL
-                        INNER JOIN dbo.CategoriasTransformacion AS C
-                            ON C.activa = 1
-                           AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                               UPPER(LTRIM(RTRIM(CP.Category1)))
-                        WHERE F.ProductID = P.ProductID
-                    )
-                    OR EXISTS (
-                        SELECT 1
-                        FROM dbo.zvwEquivalenciasTransKoben AS E
-                        INNER JOIN dbo.orgProduct AS OP
-                            ON OP.ProductID = CASE
-                                WHEN E.ProductID1 = P.ProductID
-                                THEN E.ProductID2
-                                ELSE E.ProductID1
-                            END
-                           AND OP.DeletedOn IS NULL
-                        INNER JOIN dbo.CategoriasTransformacion AS C
-                            ON C.activa = 1
-                           AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                               UPPER(LTRIM(RTRIM(OP.Category1)))
-                        WHERE E.Status = ?
-                          AND P.ProductID IN (
-                              E.ProductID1,
-                              E.ProductID2
-                          )
-                    )
-              )
-            ORDER BY P.ProductName
+                U.UserID,
+                U.UserGroupID,
+                U.UserName,
+                U.ReportAccess
+            FROM dbo.engUser AS U
+            WHERE U.DeletedOn IS NULL
+              AND UPPER(LTRIM(RTRIM(U.UserName))) =
+                  UPPER(LTRIM(RTRIM(?)))
+            ORDER BY U.UserID
             """,
-            (
-                configuracion["almacen_id"],
-                configuracion["estatus_equivalencia"],
-                f"%{termino}%",
-                configuracion["estatus_equivalencia"],
-            ),
+            (str(user_name).strip(),),
         )
 
-    def buscar_configuracion_transformaciones(self):
-        filas = self.fetchall(
+    def buscar_hash_usuario(self, user_id: int):
+        return self.fetchone(
             """
-            SELECT TOP 1
-                C.id_configuracion,
-                C.almacen_id,
-                A.DepotName AS almacen,
-                C.movimiento_salida,
-                C.movimiento_entrada,
-                C.modulo_entrada,
-                C.modulo_salida,
-                C.estatus_equivalencia,
-                C.catalogo_salida,
-                C.catalogo_entrada
-            FROM dbo.ConfiguracionTransformaciones AS C
-            INNER JOIN dbo.orgDepot AS A
-                ON A.DepotID = C.almacen_id
-               AND A.DeletedOn IS NULL
-            WHERE C.activa = 1
-            ORDER BY C.id_configuracion
+            SELECT UC.UserPassword
+            FROM dbo.engUser AS U
+            LEFT JOIN dbo.engUserCayal AS UC
+                ON UC.UserID = U.UserID
+            WHERE U.UserID = ?
+              AND U.DeletedOn IS NULL
             """,
+            (int(user_id),),
         )
 
-        if not filas:
-            raise RuntimeError(
-                "No existe una configuracion activa para transformaciones"
-            )
-
-        return filas[0]
-
-    def buscar_configuracion_seguridad(self):
-        filas = self.fetchall(
-            """
-            SELECT TOP 1
-                grupo_llave_maestra,
-                nombre_cookie,
-                duracion_sesion_segundos,
-                clave_firma
-            FROM dbo.ConfiguracionSeguridad
-            WHERE activa = 1
-            ORDER BY id_configuracion
-            """
-        )
-
-        if not filas:
-            raise RuntimeError(
-                "No existe una configuracion activa de seguridad"
-            )
-
-        return filas[0]
-
-    def buscar_hashes_grupo_maestro(self):
-        configuracion = self.buscar_configuracion_seguridad()
-
+    def buscar_hashes_grupo_maestro(self) -> list[dict]:
         return self.fetchall(
             """
             SELECT UC.UserPassword
@@ -220,1878 +100,31 @@ class BaseDatos(ComandosBaseDatos):
                 ON UC.UserID = U.UserID
             WHERE U.DeletedOn IS NULL
               AND UC.UserPassword IS NOT NULL
-              AND G.GroupName = ?
+              AND G.UserGroupID = (
+                  SELECT TOP 1 G2.UserGroupID
+                  FROM dbo.engUserGroup AS G2
+                  WHERE EXISTS (
+                      SELECT 1
+                      FROM dbo.engUser AS U2
+                      INNER JOIN dbo.engUserCayal AS UC2
+                          ON UC2.UserID = U2.UserID
+                      WHERE U2.UserGroupID = G2.UserGroupID
+                        AND U2.DeletedOn IS NULL
+                        AND UC2.UserPassword IS NOT NULL
+                  )
+                  ORDER BY G2.VersionSync, G2.UserGroupID
+              )
             ORDER BY U.UserID
             """,
-            (configuracion["grupo_llave_maestra"],),
-        )
-
-    def buscar_nombre_grupo_usuario(self, user_group_id):
-        if not user_group_id:
-            return None
-
-        fila = self.fetchone(
-            """
-            SELECT TOP 1 GroupName
-            FROM dbo.engUserGroup
-            WHERE UserGroupID = ?
-            """,
-            (int(user_group_id),),
-        )
-
-        if not fila:
-            return None
-
-        return self.valor_escalar(fila, "GroupName")
-
-    def buscar_porcentajes_merma(self):
-        return {
-            str(fila["categoria"]).strip().upper(): (
-                float(fila["porcentaje_merma"])
-                if fila["porcentaje_merma"] is not None
-                else 0
-            )
-            for fila in self.fetchall(
-                """
-                SELECT categoria, porcentaje_merma
-                FROM dbo.CategoriasTransformacion
-                WHERE activa = 1
-                """
-            )
-        }
-
-    def buscar_ids_productos_modulo(self, ids_productos):
-        ids_limpios = list(dict.fromkeys(
-            int(producto_id)
-            for producto_id in ids_productos
-            if producto_id
-        ))
-
-        if not ids_limpios:
-            return set()
-
-        configuracion = self.buscar_configuracion_transformaciones()
-        parametros = ", ".join("?" for _ in ids_limpios)
-
-        return {
-            fila["ProductID"]
-            for fila in self.fetchall(
-                f"""
-                SELECT P.ProductID
-                FROM dbo.orgProduct AS P
-                WHERE P.ProductID IN ({parametros})
-                  AND P.DeletedOn IS NULL
-                  AND (
-                        EXISTS (
-                            SELECT 1
-                            FROM dbo.CategoriasTransformacion AS C
-                            WHERE C.activa = 1
-                              AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                                  UPPER(LTRIM(RTRIM(P.Category1)))
-                        )
-                        OR EXISTS (
-                            SELECT 1
-                            FROM dbo.zvwFormulasListasPCocinar AS F
-                            INNER JOIN dbo.orgProduct AS CP
-                                ON CP.ProductID = F.ComponenteID
-                               AND CP.DeletedOn IS NULL
-                            INNER JOIN dbo.CategoriasTransformacion AS C
-                                ON C.activa = 1
-                               AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                                   UPPER(LTRIM(RTRIM(CP.Category1)))
-                            WHERE F.ProductID = P.ProductID
-                        )
-                        OR EXISTS (
-                            SELECT 1
-                            FROM dbo.zvwEquivalenciasTransKoben AS E
-                            INNER JOIN dbo.orgProduct AS OP
-                                ON OP.ProductID = CASE
-                                    WHEN E.ProductID1 = P.ProductID
-                                    THEN E.ProductID2
-                                    ELSE E.ProductID1
-                                END
-                               AND OP.DeletedOn IS NULL
-                            INNER JOIN dbo.CategoriasTransformacion AS C
-                                ON C.activa = 1
-                               AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                                   UPPER(LTRIM(RTRIM(OP.Category1)))
-                            WHERE E.Status = ?
-                              AND P.ProductID IN (
-                                  E.ProductID1,
-                                  E.ProductID2
-                              )
-                        )
-                  )
-                """,
-                (
-                    *ids_limpios,
-                    configuracion["estatus_equivalencia"],
-                ),
-            )
-        }
-
-    def buscar_resultantes_transformacion(self, producto_origen_id):
-        configuracion = self.buscar_configuracion_transformaciones()
-
-        return self.fetchall(
-            """
-            SELECT
-                E.ProductID2,
-                E.Cant1,
-                E.Cant2,
-                P.ProductID,
-                P.ProductKey,
-                P.ProductName,
-                P.Category2,
-                COALESCE(CP.categoria, CO.categoria, P.Category1)
-                    AS Category1,
-                P.Unit,
-                P.CostPrice,
-                ISNULL(I.QtyPresent, 0) AS QtyPresent,
-                P.ProductTypeIDCayal
-            FROM dbo.zvwEquivalenciasTransKoben AS E
-            INNER JOIN dbo.orgProduct AS P
-                ON P.ProductID = E.ProductID2
-               AND P.DeletedOn IS NULL
-            INNER JOIN dbo.orgProduct AS O
-                ON O.ProductID = E.ProductID1
-               AND O.DeletedOn IS NULL
-            OUTER APPLY (
-                SELECT SUM(Q.QtyPresent) AS QtyPresent
-                FROM dbo.vwLBSProductQuantityList AS Q
-                WHERE Q.ProductID = P.ProductID
-                  AND Q.DepotID = ?
-            ) AS I
-            OUTER APPLY (
-                SELECT TOP 1 C.categoria
-                FROM dbo.CategoriasTransformacion AS C
-                WHERE C.activa = 1
-                  AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                      UPPER(LTRIM(RTRIM(P.Category1)))
-            ) AS CP
-            OUTER APPLY (
-                SELECT TOP 1 C.categoria
-                FROM dbo.CategoriasTransformacion AS C
-                WHERE C.activa = 1
-                  AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                      UPPER(LTRIM(RTRIM(O.Category1)))
-            ) AS CO
-            WHERE E.ProductID1 = ?
-              AND E.Status = ?
-            ORDER BY E.ID
-            """,
-            (
-                configuracion["almacen_id"],
-                producto_origen_id,
-                configuracion["estatus_equivalencia"],
-            ),
-        )
-
-    def buscar_productos_por_ids(self, ids_productos):
-        ids_limpios = list(dict.fromkeys(
-            int(producto_id)
-            for producto_id in ids_productos
-            if producto_id
-        ))
-
-        if not ids_limpios:
-            return []
-
-        configuracion = self.buscar_configuracion_transformaciones()
-        parametros = ", ".join("?" for _ in ids_limpios)
-
-        return self.fetchall(
-            f"""
-            SELECT
-                P.ProductID,
-                P.ProductKey,
-                P.ProductName,
-                P.Category1,
-                P.Category2,
-                P.Unit,
-                P.CostPrice,
-                ISNULL(I.QtyPresent, 0) AS QtyPresent,
-                P.ProductTypeIDCayal
-            FROM dbo.orgProduct AS P
-            OUTER APPLY (
-                SELECT SUM(Q.QtyPresent) AS QtyPresent
-                FROM dbo.vwLBSProductQuantityList AS Q
-                WHERE Q.ProductID = P.ProductID
-                  AND Q.DepotID = ?
-            ) AS I
-            WHERE P.ProductID IN ({parametros})
-              AND P.DeletedOn IS NULL
-            """,
-            (
-                configuracion["almacen_id"],
-                *ids_limpios,
-            ),
-        )
-
-    def buscar_tipos_transformacion_productos(self):
-        return self.fetchall(
-            """
-            SELECT DISTINCT
-                UPPER(LTRIM(RTRIM(P.Category1))) AS categoria
-            FROM dbo.orgProduct AS P
-            INNER JOIN dbo.CategoriasTransformacion AS C
-                ON C.activa = 1
-               AND UPPER(LTRIM(RTRIM(C.categoria))) =
-                   UPPER(LTRIM(RTRIM(P.Category1)))
-            WHERE P.DeletedOn IS NULL
-              AND P.AvailableForSale = 1
-              AND NULLIF(LTRIM(RTRIM(P.Category1)), '') IS NOT NULL
-            ORDER BY categoria
-            """
-        )
-
-    def buscar_opciones_creacion_transformacion(self, categoria):
-        return self.fetchall(
-            """
-            SELECT DISTINCT
-                LTRIM(RTRIM(P.Category2)) AS opcion
-            FROM dbo.orgProduct AS P
-            WHERE P.DeletedOn IS NULL
-              AND P.AvailableForSale = 1
-              AND UPPER(LTRIM(RTRIM(P.Category1))) =
-                  UPPER(LTRIM(RTRIM(?)))
-              AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
-            ORDER BY opcion
-            """,
-            (categoria,),
-        )
-
-    def buscar_productos_transformacion_por_categoria(
-        self,
-        categoria,
-        opcion,
-        pagina=1,
-        limite=10,
-    ):
-        configuracion = self.buscar_configuracion_transformaciones()
-        inicio = (int(pagina) - 1) * int(limite)
-        parametros = (
-            configuracion["almacen_id"],
-            categoria,
-            opcion,
-        )
-        total = self.fetchone(
-            """
-            SELECT COUNT(*) AS total
-            FROM dbo.orgProduct AS P
-            WHERE P.DeletedOn IS NULL
-              AND P.AvailableForSale = 1
-              AND UPPER(LTRIM(RTRIM(P.Category1))) =
-                  UPPER(LTRIM(RTRIM(?)))
-              AND UPPER(LTRIM(RTRIM(P.Category2))) =
-                  UPPER(LTRIM(RTRIM(?)))
-            """,
-            (categoria, opcion),
-        )
-        filas = self.fetchall(
-            """
-            SELECT
-                P.ProductID,
-                P.ProductKey,
-                P.ProductName,
-                P.Category1,
-                P.Category2,
-                P.Unit,
-                P.CostPrice,
-                ISNULL(I.QtyPresent, 0) AS QtyPresent,
-                P.ProductTypeIDCayal
-            FROM dbo.orgProduct AS P
-            OUTER APPLY (
-                SELECT SUM(Q.QtyPresent) AS QtyPresent
-                FROM dbo.vwLBSProductQuantityList AS Q
-                WHERE Q.ProductID = P.ProductID
-                  AND Q.DepotID = ?
-            ) AS I
-            WHERE P.DeletedOn IS NULL
-              AND P.AvailableForSale = 1
-              AND UPPER(LTRIM(RTRIM(P.Category1))) =
-                  UPPER(LTRIM(RTRIM(?)))
-              AND UPPER(LTRIM(RTRIM(P.Category2))) =
-                  UPPER(LTRIM(RTRIM(?)))
-            ORDER BY P.ProductName
-            OFFSET ? ROWS
-            FETCH NEXT ? ROWS ONLY
-            """,
-            (
-                *parametros,
-                inicio,
-                int(limite),
-            ),
-        )
-
-        return {
-            "total": int(self.valor_escalar(total, "total") or 0),
-            "filas": filas,
-        }
-
-    def buscar_configuracion_usuario_para_producto(self, producto_id):
-        self.asegurar_metadatos_configuracion_usuario()
-        configuracion = self.buscar_configuracion_transformaciones()
-        filas = self.fetchall(
-            """
-            SELECT TOP 1
-                TU.id_transformacion_usuario,
-                TU.nombre_transformacion,
-                TU.proveedor_id,
-                TU.proveedor_nombre,
-                TU.producto_origen,
-                TU.producto_formula,
-                TU.cantidad_base,
-                TU.porcentaje_merma,
-                PO.ProductID AS origen_id,
-                PO.ProductKey AS origen_clave,
-                PO.ProductName AS origen_nombre,
-                PO.Category1 AS origen_categoria,
-                PO.Unit AS origen_unidad,
-                PO.CostPrice AS origen_costo,
-                ISNULL(IO.QtyPresent, 0) AS origen_existencia,
-                PF.ProductID AS formula_id,
-                PF.ProductKey AS formula_clave,
-                PF.ProductName AS formula_nombre,
-                PF.Category1 AS formula_categoria,
-                PF.Unit AS formula_unidad,
-                PF.CostPrice AS formula_costo,
-                ISNULL(IFM.QtyPresent, 0) AS formula_existencia
-            FROM dbo.TransformacionesUsuario AS TU
-            INNER JOIN dbo.orgProduct AS PO
-                ON PO.ProductID = TU.producto_origen
-               AND PO.DeletedOn IS NULL
-            LEFT JOIN dbo.orgProduct AS PF
-                ON PF.ProductID = TU.producto_formula
-               AND PF.DeletedOn IS NULL
-            OUTER APPLY (
-                SELECT SUM(Q.QtyPresent) AS QtyPresent
-                FROM dbo.vwLBSProductQuantityList AS Q
-                WHERE Q.ProductID = PO.ProductID
-                  AND Q.DepotID = ?
-            ) AS IO
-            OUTER APPLY (
-                SELECT SUM(Q.QtyPresent) AS QtyPresent
-                FROM dbo.vwLBSProductQuantityList AS Q
-                WHERE Q.ProductID = PF.ProductID
-                  AND Q.DepotID = ?
-            ) AS IFM
-            WHERE TU.activa = 1
-              AND (
-                    TU.producto_formula = ?
-                    OR TU.producto_origen = ?
-              )
-            ORDER BY
-                CASE
-                    WHEN TU.producto_formula = ? THEN 0
-                    ELSE 1
-                END,
-                TU.id_transformacion_usuario DESC
-            """,
-            (
-                configuracion["almacen_id"],
-                configuracion["almacen_id"],
-                producto_id,
-                producto_id,
-                producto_id,
-            ),
-        )
-        return filas[0] if filas else None
-
-    def contar_configuraciones_usuario(self):
-        self.asegurar_metadatos_configuracion_usuario()
-        fila = self.fetchone(
-            """
-            SELECT COUNT(*) AS total
-            FROM dbo.TransformacionesUsuario
-            WHERE activa = 1
-            """
-        )
-
-        if fila is None:
-            return 0
-
-        if isinstance(fila, dict):
-            return int(fila["total"] or 0)
-
-        return int(fila)
-
-    def buscar_configuraciones_usuario(self, pagina=1, limite=10):
-        self.asegurar_metadatos_configuracion_usuario()
-        inicio = (int(pagina) - 1) * int(limite)
-
-        return self.fetchall(
-            """
-            SELECT
-                TU.id_transformacion_usuario,
-                TU.nombre_transformacion,
-                TU.proveedor_id,
-                TU.proveedor_nombre,
-                TU.producto_origen,
-                PO.ProductKey AS origen_clave,
-                PO.ProductName AS origen_nombre,
-                PO.Category1 AS origen_categoria,
-                PO.Unit AS origen_unidad,
-                TU.producto_formula,
-                PF.ProductKey AS formula_clave,
-                PF.ProductName AS formula_nombre,
-                PF.Category1 AS formula_categoria,
-                PF.Unit AS formula_unidad,
-                TU.cantidad_base,
-                TU.porcentaje_merma,
-                TU.usuario_creacion,
-                U.UserName AS usuario_creacion_nombre,
-                TU.fecha_creacion,
-                TU.usuario_actualizacion,
-                UA.UserName AS usuario_actualizacion_nombre,
-                TU.fecha_actualizacion,
-                TU.activa,
-                TU.observaciones
-            FROM dbo.TransformacionesUsuario AS TU
-            INNER JOIN dbo.orgProduct AS PO
-                ON PO.ProductID = TU.producto_origen
-            LEFT JOIN dbo.orgProduct AS PF
-                ON PF.ProductID = TU.producto_formula
-            INNER JOIN dbo.engUser AS U
-                ON U.UserID = TU.usuario_creacion
-            LEFT JOIN dbo.engUser AS UA
-                ON UA.UserID = TU.usuario_actualizacion
-            WHERE TU.activa = 1
-            ORDER BY TU.id_transformacion_usuario DESC
-            OFFSET ? ROWS
-            FETCH NEXT ? ROWS ONLY
-            """,
-            (inicio, int(limite)),
-        )
-
-    def buscar_detalles_configuraciones_usuario(self, ids_configuraciones):
-        ids_limpios = list(dict.fromkeys(
-            int(configuracion_id)
-            for configuracion_id in ids_configuraciones
-            if configuracion_id
-        ))
-
-        if not ids_limpios:
-            return []
-
-        parametros = ", ".join("?" for _ in ids_limpios)
-
-        return self.fetchall(
-            f"""
-            SELECT
-                D.id_transformacion_usuario,
-                D.id_detalle_usuario,
-                D.producto_resultante,
-                P.ProductID,
-                D.cantidad_resultante,
-                D.unidad,
-                D.participa_balance,
-                D.orden,
-                D.activa,
-                P.ProductKey,
-                P.ProductName,
-                P.Category1,
-                P.Unit,
-                P.CostPrice,
-                ISNULL(I.QtyPresent, 0) AS QtyPresent
-            FROM dbo.TransformacionesUsuarioDetalle AS D
-            INNER JOIN dbo.orgProduct AS P
-                ON P.ProductID = D.producto_resultante
-            OUTER APPLY (
-                SELECT SUM(Q.QtyPresent) AS QtyPresent
-                FROM dbo.vwLBSProductQuantityList AS Q
-                WHERE Q.ProductID = P.ProductID
-                  AND Q.DepotID = (
-                      SELECT TOP 1 almacen_id
-                      FROM dbo.ConfiguracionTransformaciones
-                      WHERE activa = 1
-                      ORDER BY id_configuracion
-                  )
-            ) AS I
-            WHERE D.id_transformacion_usuario IN ({parametros})
-              AND D.activa = 1
-            ORDER BY D.id_transformacion_usuario DESC, D.orden
-            """,
-            tuple(ids_limpios),
-        )
-
-    def tabla_componentes_configuracion_existe(self):
-        fila = self.fetchone(
-            """
-            SELECT OBJECT_ID(
-                N'dbo.TransformacionesUsuarioComponente',
-                N'U'
-            ) AS tabla_id
-            """
-        )
-
-        if not fila:
-            return False
-
-        if isinstance(fila, dict):
-            return fila["tabla_id"] is not None
-
-        return fila is not None
-
-    def asegurar_tabla_componentes_configuracion(self):
-        self.command(
-            """
-            IF OBJECT_ID(
-                N'dbo.TransformacionesUsuarioComponente',
-                N'U'
-            ) IS NULL
-            BEGIN
-                CREATE TABLE dbo.TransformacionesUsuarioComponente (
-                    id_componente_usuario INT IDENTITY(1, 1) NOT NULL
-                        CONSTRAINT PK_TransformacionesUsuarioComponente
-                        PRIMARY KEY,
-                    id_transformacion_usuario INT NOT NULL,
-                    producto_componente INT NOT NULL,
-                    cantidad DECIMAL(18, 6) NOT NULL,
-                    unidad NVARCHAR(50) NOT NULL,
-                    es_producto_base BIT NOT NULL
-                        CONSTRAINT DF_TUC_es_producto_base DEFAULT 0,
-                    tipo_componente NVARCHAR(30) NOT NULL
-                        CONSTRAINT DF_TUC_tipo_componente DEFAULT 'INSUMO',
-                    participa_balance BIT NOT NULL
-                        CONSTRAINT DF_TUC_participa_balance DEFAULT 0,
-                    orden INT NOT NULL
-                        CONSTRAINT DF_TUC_orden DEFAULT 1,
-                    activa BIT NOT NULL
-                        CONSTRAINT DF_TUC_activa DEFAULT 1,
-                    fecha_creacion DATETIME NOT NULL
-                        CONSTRAINT DF_TUC_fecha_creacion DEFAULT GETDATE()
-                );
-
-                CREATE INDEX IX_TUC_transformacion_activa
-                ON dbo.TransformacionesUsuarioComponente (
-                    id_transformacion_usuario,
-                    activa,
-                    orden
-                );
-            END
-            """
-        )
-
-    def asegurar_metadatos_configuracion_usuario(self):
-        self.asegurar_tabla_componentes_configuracion()
-        self.command(
-            """
-            IF COL_LENGTH(
-                'dbo.TransformacionesUsuario',
-                'proveedor_id'
-            ) IS NULL
-            BEGIN
-                ALTER TABLE dbo.TransformacionesUsuario
-                ADD proveedor_id INT NULL;
-            END;
-
-            IF COL_LENGTH(
-                'dbo.TransformacionesUsuario',
-                'proveedor_nombre'
-            ) IS NULL
-            BEGIN
-                ALTER TABLE dbo.TransformacionesUsuario
-                ADD proveedor_nombre NVARCHAR(250) NULL;
-            END;
-
-            IF OBJECT_ID(
-                N'dbo.TransformacionesUsuarioBitacora',
-                N'U'
-            ) IS NULL
-            BEGIN
-                CREATE TABLE dbo.TransformacionesUsuarioBitacora (
-                    id_bitacora INT IDENTITY(1, 1) NOT NULL
-                        CONSTRAINT PK_TransformacionesUsuarioBitacora
-                        PRIMARY KEY,
-                    id_transformacion_usuario INT NOT NULL,
-                    accion NVARCHAR(50) NOT NULL,
-                    usuario_id BIGINT NULL,
-                    usuario_confirmacion_nombre NVARCHAR(150) NULL,
-                    detalle NVARCHAR(500) NULL,
-                    fecha DATETIME2 NOT NULL
-                        CONSTRAINT DF_TUB_fecha DEFAULT GETDATE()
-                );
-
-                CREATE INDEX IX_TUB_configuracion_fecha
-                ON dbo.TransformacionesUsuarioBitacora (
-                    id_transformacion_usuario,
-                    fecha DESC
-                );
-            END;
-            """,
             (),
         )
 
-    def registrar_bitacora_configuracion(
+    # ------------------------- DOCUMENTOS ERP -------------------------
+    def documento_previamente_relacionado(
         self,
-        configuracion_id,
-        accion,
-        usuario_id,
-        usuario_confirmacion_nombre=None,
-        detalle=None,
-    ):
-        self.asegurar_metadatos_configuracion_usuario()
-        self.command(
-            """
-            INSERT INTO dbo.TransformacionesUsuarioBitacora (
-                id_transformacion_usuario,
-                accion,
-                usuario_id,
-                usuario_confirmacion_nombre,
-                detalle
-            )
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                int(configuracion_id),
-                accion,
-                usuario_id,
-                usuario_confirmacion_nombre,
-                detalle,
-            ),
-        )
-
-    def buscar_bitacora_configuraciones(self, limite=50):
-        self.asegurar_metadatos_configuracion_usuario()
-        return self.fetchall(
-            """
-            SELECT TOP (?)
-                B.id_bitacora,
-                B.id_transformacion_usuario,
-                B.accion,
-                B.usuario_id,
-                B.usuario_confirmacion_nombre,
-                B.detalle,
-                B.fecha,
-                U.nombre_transformacion
-            FROM dbo.TransformacionesUsuarioBitacora AS B
-            LEFT JOIN dbo.TransformacionesUsuario AS U
-                ON U.id_transformacion_usuario =
-                    B.id_transformacion_usuario
-            ORDER BY B.fecha DESC, B.id_bitacora DESC
-            """,
-            (int(limite),),
-        )
-
-    def asegurar_tablas_productos_carnicos_configuracion(self):
-        self.command(
-            """
-            IF OBJECT_ID(
-                N'dbo.ModuloCarnicoProductoConfigurado',
-                N'U'
-            ) IS NULL
-            BEGIN
-                CREATE TABLE dbo.ModuloCarnicoProductoConfigurado (
-                    id_producto_carnico INT IDENTITY(1, 1) NOT NULL
-                        CONSTRAINT PK_ModuloCarnicoProductoConfigurado
-                        PRIMARY KEY,
-                    product_id INT NULL,
-                    clave NVARCHAR(60) NULL,
-                    proveedor_id INT NULL,
-                    proveedor_nombre NVARCHAR(250) NULL,
-                    nombre_producto NVARCHAR(250) NOT NULL,
-                    categoria NVARCHAR(100) NULL,
-                    categoria_resultante NVARCHAR(150) NULL,
-                    unidad NVARCHAR(50) NOT NULL,
-                    porcentaje_merma DECIMAL(9, 4) NOT NULL
-                        CONSTRAINT DF_MCPC_porcentaje_merma DEFAULT 0,
-                    activo BIT NOT NULL
-                        CONSTRAINT DF_MCPC_activo DEFAULT 1,
-                    usuario_creacion BIGINT NULL,
-                    usuario_actualizacion BIGINT NULL,
-                    fecha_creacion DATETIME2 NOT NULL
-                        CONSTRAINT DF_MCPC_fecha_creacion DEFAULT GETDATE(),
-                    fecha_actualizacion DATETIME2 NULL
-                );
-
-                CREATE UNIQUE INDEX UX_MCPC_product_id
-                ON dbo.ModuloCarnicoProductoConfigurado (product_id)
-                WHERE product_id IS NOT NULL;
-
-                CREATE INDEX IX_MCPC_activo
-                ON dbo.ModuloCarnicoProductoConfigurado (
-                    activo,
-                    nombre_producto
-                );
-            END;
-
-            IF OBJECT_ID(
-                N'dbo.ModuloCarnicoProductoBitacora',
-                N'U'
-            ) IS NULL
-            BEGIN
-                CREATE TABLE dbo.ModuloCarnicoProductoBitacora (
-                    id_bitacora INT IDENTITY(1, 1) NOT NULL
-                        CONSTRAINT PK_ModuloCarnicoProductoBitacora
-                        PRIMARY KEY,
-                    accion NVARCHAR(60) NOT NULL,
-                    usuario_id BIGINT NULL,
-                    usuario_confirmacion_nombre NVARCHAR(150) NOT NULL,
-                    detalle NVARCHAR(500) NULL,
-                    productos_json NVARCHAR(MAX) NULL,
-                    fecha DATETIME2 NOT NULL
-                        CONSTRAINT DF_MCPB_fecha DEFAULT GETDATE()
-                );
-
-                CREATE INDEX IX_MCPB_fecha
-                ON dbo.ModuloCarnicoProductoBitacora (fecha DESC);
-            END;
-            """,
-            (),
-        )
-
-    def buscar_productos_carnicos_configurados(self, incluir_inactivos=True):
-        self.asegurar_tablas_productos_carnicos_configuracion()
-        filtro = "" if incluir_inactivos else "WHERE C.activo = 1"
-
-        return self.fetchall(
-            f"""
-            SELECT
-                C.id_producto_carnico,
-                C.product_id,
-                C.clave,
-                C.proveedor_id,
-                C.proveedor_nombre,
-                C.nombre_producto,
-                C.categoria,
-                C.categoria_resultante,
-                C.unidad,
-                C.porcentaje_merma,
-                C.activo,
-                C.usuario_creacion,
-                C.usuario_actualizacion,
-                C.fecha_creacion,
-                C.fecha_actualizacion
-            FROM dbo.ModuloCarnicoProductoConfigurado AS C
-            {filtro}
-            ORDER BY C.activo DESC, C.nombre_producto
-            """,
-            (),
-        )
-
-    def guardar_productos_carnicos_configurados(
-        self,
-        productos,
-        usuario_id,
-        usuario_confirmacion_nombre,
-    ):
-        self.asegurar_tablas_productos_carnicos_configuracion()
-        productos_json = json.dumps(productos, ensure_ascii=False)
-        self.command(
-            """
-            SET NOCOUNT ON;
-
-            DECLARE @productos NVARCHAR(MAX) = ?;
-
-            WITH Datos AS (
-                SELECT *
-                FROM OPENJSON(@productos)
-                WITH (
-                    id_producto_carnico INT '$.id_configuracion',
-                    product_id INT '$.product_id',
-                    clave NVARCHAR(60) '$.clave',
-                    proveedor_id INT '$.proveedor_id',
-                    proveedor_nombre NVARCHAR(250) '$.proveedor',
-                    nombre_producto NVARCHAR(250) '$.nombre',
-                    categoria NVARCHAR(100) '$.categoria',
-                    categoria_resultante NVARCHAR(150)
-                        '$.categoria_resultante',
-                    unidad NVARCHAR(50) '$.unidad',
-                    porcentaje_merma DECIMAL(9, 4) '$.porcentaje_merma',
-                    activo BIT '$.activo'
-                )
-            )
-            MERGE dbo.ModuloCarnicoProductoConfigurado AS T
-            USING Datos AS D
-               ON (
-                    D.id_producto_carnico IS NOT NULL
-                    AND T.id_producto_carnico = D.id_producto_carnico
-               )
-               OR (
-                    D.id_producto_carnico IS NULL
-                    AND D.product_id IS NOT NULL
-                    AND T.product_id = D.product_id
-               )
-            WHEN MATCHED THEN
-                UPDATE SET
-                    product_id = D.product_id,
-                    clave = NULLIF(D.clave, ''),
-                    proveedor_id = D.proveedor_id,
-                    proveedor_nombre = NULLIF(D.proveedor_nombre, ''),
-                    nombre_producto = NULLIF(D.nombre_producto, ''),
-                    categoria = NULLIF(D.categoria, ''),
-                    categoria_resultante =
-                        NULLIF(D.categoria_resultante, ''),
-                    unidad = ISNULL(NULLIF(D.unidad, ''), 'KILO'),
-                    porcentaje_merma = ISNULL(D.porcentaje_merma, 0),
-                    activo = ISNULL(D.activo, 1),
-                    usuario_actualizacion = ?,
-                    fecha_actualizacion = GETDATE()
-            WHEN NOT MATCHED THEN
-                INSERT (
-                    product_id,
-                    clave,
-                    proveedor_id,
-                    proveedor_nombre,
-                    nombre_producto,
-                    categoria,
-                    categoria_resultante,
-                    unidad,
-                    porcentaje_merma,
-                    activo,
-                    usuario_creacion
-                )
-                VALUES (
-                    D.product_id,
-                    NULLIF(D.clave, ''),
-                    D.proveedor_id,
-                    NULLIF(D.proveedor_nombre, ''),
-                    NULLIF(D.nombre_producto, ''),
-                    NULLIF(D.categoria, ''),
-                    NULLIF(D.categoria_resultante, ''),
-                    ISNULL(NULLIF(D.unidad, ''), 'KILO'),
-                    ISNULL(D.porcentaje_merma, 0),
-                    ISNULL(D.activo, 1),
-                    ?
-                );
-
-            INSERT INTO dbo.ModuloCarnicoProductoBitacora (
-                accion,
-                usuario_id,
-                usuario_confirmacion_nombre,
-                detalle,
-                productos_json
-            )
-            VALUES (
-                'guardado',
-                ?,
-                ?,
-                'Guardado de configuracion de productos carnicos',
-                @productos
-            );
-            """,
-            (
-                productos_json,
-                usuario_id,
-                usuario_id,
-                usuario_id,
-                usuario_confirmacion_nombre,
-            ),
-        )
-
-    def buscar_bitacora_productos_carnicos(self, limite=50):
-        self.asegurar_tablas_productos_carnicos_configuracion()
-        return self.fetchall(
-            """
-            SELECT TOP (?)
-                B.id_bitacora,
-                B.accion,
-                B.usuario_id,
-                U.UserName AS usuario_sesion,
-                B.usuario_confirmacion_nombre,
-                B.detalle,
-                B.fecha
-            FROM dbo.ModuloCarnicoProductoBitacora AS B
-            LEFT JOIN dbo.engUser AS U
-                ON U.UserID = B.usuario_id
-            ORDER BY B.fecha DESC, B.id_bitacora DESC
-            """,
-            (int(limite),),
-        )
-
-    def buscar_componentes_configuraciones_usuario(
-        self,
-        ids_configuraciones,
-    ):
-        if not self.tabla_componentes_configuracion_existe():
-            return []
-
-        ids_limpios = list(dict.fromkeys(
-            int(configuracion_id)
-            for configuracion_id in ids_configuraciones
-            if configuracion_id
-        ))
-
-        if not ids_limpios:
-            return []
-
-        parametros = ", ".join("?" for _ in ids_limpios)
-
-        return self.fetchall(
-            f"""
-            SELECT
-                C.id_transformacion_usuario,
-                C.id_componente_usuario,
-                C.producto_componente,
-                P.ProductID,
-                C.cantidad,
-                C.unidad,
-                C.es_producto_base,
-                C.tipo_componente,
-                C.participa_balance,
-                C.orden,
-                C.activa,
-                P.ProductKey,
-                P.ProductName,
-                P.Category1,
-                P.Unit,
-                P.CostPrice,
-                ISNULL(I.QtyPresent, 0) AS QtyPresent
-            FROM dbo.TransformacionesUsuarioComponente AS C
-            INNER JOIN dbo.orgProduct AS P
-                ON P.ProductID = C.producto_componente
-            OUTER APPLY (
-                SELECT SUM(Q.QtyPresent) AS QtyPresent
-                FROM dbo.vwLBSProductQuantityList AS Q
-                WHERE Q.ProductID = P.ProductID
-                  AND Q.DepotID = (
-                      SELECT TOP 1 almacen_id
-                      FROM dbo.ConfiguracionTransformaciones
-                      WHERE activa = 1
-                      ORDER BY id_configuracion
-                  )
-            ) AS I
-            WHERE C.id_transformacion_usuario IN ({parametros})
-              AND C.activa = 1
-            ORDER BY C.id_transformacion_usuario DESC, C.orden
-            """,
-            tuple(ids_limpios),
-        )
-
-    def buscar_ingredientes_formula(self, producto_formula_id):
-        return self.fetchall(
-            """
-            SELECT
-                F.IDComp,
-                F.ProductID,
-                F.Producto,
-                F.ComponenteID,
-                F.Componente,
-                F.CantidadComp,
-                P.ProductKey,
-                P.Category1,
-                P.Unit
-            FROM dbo.zvwFormulasListasPCocinar AS F
-            INNER JOIN dbo.orgProduct AS P
-                ON P.ProductID = F.ComponenteID
-               AND P.DeletedOn IS NULL
-            WHERE F.ProductID = ?
-            ORDER BY F.IDComp
-            """,
-            (producto_formula_id,),
-        )
-
-    def registrar_configuracion_usuario(self, datos, usuario_id):
-        self.asegurar_metadatos_configuracion_usuario()
-        detalles_json = json.dumps([
-            {
-                "producto_id": detalle.producto_id,
-                "cantidad": float(detalle.cantidad),
-                "unidad": detalle.unidad,
-                "participa_balance": detalle.participa_balance,
-                "orden": detalle.orden,
-            }
-            for detalle in datos.productos_resultantes
-        ])
-        componentes_json = json.dumps([
-            {
-                "producto_id": componente.producto_id,
-                "cantidad": float(componente.cantidad),
-                "unidad": componente.unidad,
-                "es_producto_base": componente.es_producto_base,
-                "tipo_componente": componente.tipo_componente,
-                "participa_balance": componente.participa_balance,
-                "orden": componente.orden,
-            }
-            for componente in datos.componentes
-        ])
-
-        fila = self.fetchone(
-            """
-            SET NOCOUNT ON;
-
-            DECLARE @id INT;
-
-            BEGIN TRY
-                BEGIN TRANSACTION;
-
-                INSERT INTO dbo.TransformacionesUsuario (
-                    nombre_transformacion,
-                    proveedor_id,
-                    proveedor_nombre,
-                    producto_origen,
-                    producto_formula,
-                    cantidad_base,
-                    porcentaje_merma,
-                    usuario_creacion,
-                    observaciones
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-
-                SET @id = CONVERT(INT, SCOPE_IDENTITY());
-
-                INSERT INTO dbo.TransformacionesUsuarioDetalle (
-                    id_transformacion_usuario,
-                    producto_resultante,
-                    cantidad_resultante,
-                    unidad,
-                    participa_balance,
-                    orden
-                )
-                SELECT
-                    @id,
-                    producto_id,
-                    cantidad,
-                    unidad,
-                    participa_balance,
-                    orden
-                FROM OPENJSON(?)
-                WITH (
-                    producto_id INT '$.producto_id',
-                    cantidad DECIMAL(18, 6) '$.cantidad',
-                    unidad NVARCHAR(50) '$.unidad',
-                    participa_balance BIT '$.participa_balance',
-                    orden INT '$.orden'
-                );
-
-                INSERT INTO dbo.TransformacionesUsuarioComponente (
-                    id_transformacion_usuario,
-                    producto_componente,
-                    cantidad,
-                    unidad,
-                    es_producto_base,
-                    tipo_componente,
-                    participa_balance,
-                    orden
-                )
-                SELECT
-                    @id,
-                    producto_id,
-                    cantidad,
-                    unidad,
-                    es_producto_base,
-                    tipo_componente,
-                    participa_balance,
-                    orden
-                FROM OPENJSON(?)
-                WITH (
-                    producto_id INT '$.producto_id',
-                    cantidad DECIMAL(18, 6) '$.cantidad',
-                    unidad NVARCHAR(50) '$.unidad',
-                    es_producto_base BIT '$.es_producto_base',
-                    tipo_componente NVARCHAR(30) '$.tipo_componente',
-                    participa_balance BIT '$.participa_balance',
-                    orden INT '$.orden'
-                );
-
-                COMMIT TRANSACTION;
-
-                SELECT @id AS id_transformacion_usuario;
-            END TRY
-            BEGIN CATCH
-                IF @@TRANCOUNT > 0
-                    ROLLBACK TRANSACTION;
-
-                THROW;
-            END CATCH;
-            """,
-            (
-                datos.nombre_transformacion.strip(),
-                datos.proveedor_id,
-                datos.proveedor_nombre.strip(),
-                datos.producto_origen_id,
-                datos.producto_formula_id,
-                float(datos.cantidad_base),
-                (
-                    float(datos.porcentaje_merma)
-                    if datos.porcentaje_merma is not None
-                    else None
-                ),
-                usuario_id,
-                datos.observaciones,
-                detalles_json,
-                componentes_json,
-            ),
-        )
-        configuracion_id = int(
-            self.valor_escalar(fila, "id_transformacion_usuario")
-        )
-        self.registrar_bitacora_configuracion(
-            configuracion_id,
-            "creacion",
-            usuario_id,
-            datos.usuario_confirmacion_nombre,
-            "Configuracion creada",
-        )
-        return configuracion_id
-
-    def actualizar_configuracion_usuario(
-        self,
-        configuracion_id,
-        datos,
-        usuario_id,
-    ):
-        self.asegurar_metadatos_configuracion_usuario()
-        detalles_json = json.dumps([
-            {
-                "producto_id": detalle.producto_id,
-                "cantidad": float(detalle.cantidad),
-                "unidad": detalle.unidad,
-                "participa_balance": detalle.participa_balance,
-                "orden": detalle.orden,
-            }
-            for detalle in datos.productos_resultantes
-        ])
-        componentes_json = json.dumps([
-            {
-                "producto_id": componente.producto_id,
-                "cantidad": float(componente.cantidad),
-                "unidad": componente.unidad,
-                "es_producto_base": componente.es_producto_base,
-                "tipo_componente": componente.tipo_componente,
-                "participa_balance": componente.participa_balance,
-                "orden": componente.orden,
-            }
-            for componente in datos.componentes
-        ])
-
-        fila = self.fetchone(
-            """
-            SET NOCOUNT ON;
-
-            DECLARE @actualizados INT = 0;
-
-            BEGIN TRY
-                BEGIN TRANSACTION;
-
-                UPDATE dbo.TransformacionesUsuario
-                SET nombre_transformacion = ?,
-                    proveedor_id = ?,
-                    proveedor_nombre = ?,
-                    producto_origen = ?,
-                    producto_formula = ?,
-                    cantidad_base = ?,
-                    porcentaje_merma = ?,
-                    usuario_actualizacion = ?,
-                    fecha_actualizacion = GETDATE(),
-                    observaciones = ?
-                WHERE id_transformacion_usuario = ?
-                  AND activa = 1;
-
-                SET @actualizados = @@ROWCOUNT;
-
-                IF @actualizados = 1
-                BEGIN
-                    UPDATE dbo.TransformacionesUsuarioDetalle
-                    SET activa = 0
-                    WHERE id_transformacion_usuario = ?;
-
-                    INSERT INTO dbo.TransformacionesUsuarioDetalle (
-                        id_transformacion_usuario,
-                        producto_resultante,
-                        cantidad_resultante,
-                        unidad,
-                        participa_balance,
-                        orden
-                    )
-                    SELECT
-                        ?,
-                        producto_id,
-                        cantidad,
-                        unidad,
-                        participa_balance,
-                        orden
-                    FROM OPENJSON(?)
-                    WITH (
-                        producto_id INT '$.producto_id',
-                        cantidad DECIMAL(18, 6) '$.cantidad',
-                        unidad NVARCHAR(50) '$.unidad',
-                        participa_balance BIT '$.participa_balance',
-                        orden INT '$.orden'
-                    );
-
-                    UPDATE dbo.TransformacionesUsuarioComponente
-                    SET activa = 0
-                    WHERE id_transformacion_usuario = ?;
-
-                    INSERT INTO dbo.TransformacionesUsuarioComponente (
-                        id_transformacion_usuario,
-                        producto_componente,
-                        cantidad,
-                        unidad,
-                        es_producto_base,
-                        tipo_componente,
-                        participa_balance,
-                        orden
-                    )
-                    SELECT
-                        ?,
-                        producto_id,
-                        cantidad,
-                        unidad,
-                        es_producto_base,
-                        tipo_componente,
-                        participa_balance,
-                        orden
-                    FROM OPENJSON(?)
-                    WITH (
-                        producto_id INT '$.producto_id',
-                        cantidad DECIMAL(18, 6) '$.cantidad',
-                        unidad NVARCHAR(50) '$.unidad',
-                        es_producto_base BIT '$.es_producto_base',
-                        tipo_componente NVARCHAR(30) '$.tipo_componente',
-                        participa_balance BIT '$.participa_balance',
-                        orden INT '$.orden'
-                    );
-                END
-
-                COMMIT TRANSACTION;
-
-                SELECT @actualizados AS actualizados;
-            END TRY
-            BEGIN CATCH
-                IF @@TRANCOUNT > 0
-                    ROLLBACK TRANSACTION;
-
-                THROW;
-            END CATCH;
-            """,
-            (
-                datos.nombre_transformacion.strip(),
-                datos.proveedor_id,
-                datos.proveedor_nombre.strip(),
-                datos.producto_origen_id,
-                datos.producto_formula_id,
-                float(datos.cantidad_base),
-                (
-                    float(datos.porcentaje_merma)
-                    if datos.porcentaje_merma is not None
-                    else None
-                ),
-                usuario_id,
-                datos.observaciones,
-                configuracion_id,
-                configuracion_id,
-                configuracion_id,
-                detalles_json,
-                configuracion_id,
-                configuracion_id,
-                componentes_json,
-            ),
-        )
-        actualizada = bool(int(self.valor_escalar(fila, "actualizados") or 0))
-
-        if actualizada:
-            self.registrar_bitacora_configuracion(
-                configuracion_id,
-                "actualizacion",
-                usuario_id,
-                datos.usuario_confirmacion_nombre,
-                "Configuracion actualizada",
-            )
-
-        return actualizada
-
-    def buscar_tipo_movimiento(self, tipo, nombre):
-        configuracion = self.buscar_configuracion_transformaciones()
-        tipo_normalizado = str(tipo).strip().lower()
-        grupo = configuracion.get(f"catalogo_{tipo_normalizado}")
-
-        if not grupo:
-            raise ValueError("Tipo de movimiento no valido")
-
-        filas = self.fetchall(
-            """
-            SELECT TOP 1 ItemData, ItemValue
-            FROM dbo.engRefCombo
-            WHERE CboGroupName = ?
-              AND UPPER(LTRIM(RTRIM(ItemValue))) =
-                  UPPER(LTRIM(RTRIM(?)))
-            """,
-            (grupo, nombre),
-        )
-
-        if not filas:
-            raise RuntimeError(
-                f"No existe el movimiento {nombre!r} para {tipo}"
-            )
-
-        return {
-            "id": int(filas[0]["ItemData"]),
-            "nombre": filas[0]["ItemValue"],
-        }
-
-    def buscar_transformacion_por_operacion(self, id_operacion):
-        filas = self.fetchall(
-            """
-            SELECT TOP 1
-                id_transformacion,
-                documento_salida,
-                documento_entrada,
-                almacen_id,
-                estado_erp,
-                error_erp
-            FROM dbo.Transformaciones
-            WHERE id_operacion = ?
-            """,
-            (str(id_operacion),),
-        )
-        return filas[0] if filas else None
-
-    def actualizar_integracion_erp(
-        self,
-        transformacion_id,
-        documento_salida=None,
-        documento_entrada=None,
-        estado=None,
-        error=None,
-    ):
-        self.command(
-            """
-            UPDATE dbo.Transformaciones
-            SET documento_salida =
-                    COALESCE(?, documento_salida),
-                documento_entrada =
-                    COALESCE(?, documento_entrada),
-                estado_erp =
-                    COALESCE(?, estado_erp),
-                error_erp = ?
-            WHERE id_transformacion = ?
-            """,
-            (
-                documento_salida,
-                documento_entrada,
-                estado,
-                error,
-                transformacion_id,
-            ),
-        )
-
-    def configurar_almacen_documento(self, documento_id, almacen_id):
-        self.command(
-            """
-            UPDATE dbo.docDocument
-            SET DepotID = ?,
-                DepotIDFrom = ?
-            WHERE DocumentID = ?
-            """,
-            (almacen_id, almacen_id, documento_id),
-        )
-
-    def insertar_partida_movimiento(
-        self,
-        documento_id,
-        producto_id,
-        almacen_id,
-        cantidad,
-        modulo_id,
-        comentario,
-    ):
-        costo_producto = self.buscar_ultimo_costo_producto(producto_id)
-        costo = float(costo_producto.get("CostPrice") or 0)
-        cantidad_numero = float(cantidad)
-        total = costo * cantidad_numero
-
-        partida_id = self.insertar_partida_documento_cayal((
-            documento_id,
-            producto_id,
-            almacen_id,
-            cantidad_numero,
-            0,
-            costo,
-            total,
-            0,
-            modulo_id,
-            comentario,
-        ))
-
-
-        if not partida_id:
-            raise RuntimeError(
-                f"No fue posible insertar el producto {producto_id}"
-            )
-
-        self.command(
-            """
-            UPDATE dbo.docDocumentItem
-            SET DepotID = ?,
-                CostPrice = ?,
-                UnitPrice = ?,
-                Total = ?
-            WHERE DocumentItemID = ?
-            """,
-            (
-                almacen_id,
-                costo,
-                costo,
-                total,
-                partida_id,
-            ),
-        )
-
-        return partida_id
-
-    def registrar_recalculo_si_pendiente(
-        self,
-        documento_id,
-        id_operacion,
-    ):
-        filas = self.fetchall(
-            """
-            SELECT TOP 1 ID
-            FROM dbo.zvwDocumentosRecalculadosCayal
-            WHERE DocumentID = ?
-              AND UUID = ?
-            """,
-            (documento_id, str(id_operacion)),
-        )
-
-        if filas:
-            return
-
-        self.registrar_documento_a_recalcular(
-            documento_id,
-            0,
-            str(id_operacion),
-        )
-
-    def buscar_folio_documento(self, documento_id):
-        filas = self.fetchall(
-            """
-            SELECT
-                ISNULL(FolioPrefix, '') + ISNULL(Folio, '') AS Folio
-            FROM dbo.docDocument
-            WHERE DocumentID = ?
-            """,
-            (documento_id,),
-        )
-        return filas[0]["Folio"] if filas else None
-
-    def asegurar_tabla_relacion_documentos_erp(self):
-        self.command(
-            """
-            IF OBJECT_ID(
-                N'dbo.docDocumentWarehouseRelation',
-                N'U'
-            ) IS NULL
-            BEGIN
-                CREATE TABLE dbo.docDocumentWarehouseRelation (
-                    DocumentWarehouseRelationID INT IDENTITY(1, 1)
-                        CONSTRAINT PK_docDocumentWarehouseRelation
-                        PRIMARY KEY,
-                    SourceDocumentID INT NOT NULL,
-                    DestinationDocumentID INT NOT NULL,
-                    SupplierID INT NULL,
-                    PhysicalUserID INT NULL,
-                    MovementDate DATE NULL,
-                    ERPUserID INT NULL,
-                    SourceBrandID INT NULL,
-                    DestinationBrandID INT NULL,
-                    CreatedOn DATETIME2 NOT NULL
-                        CONSTRAINT DF_docDocumentWarehouseRelation_CreatedOn
-                        DEFAULT SYSUTCDATETIME()
-                );
-
-                CREATE UNIQUE INDEX UX_docDocumentWarehouseRelation_pair
-                    ON dbo.docDocumentWarehouseRelation (
-                        SourceDocumentID,
-                        DestinationDocumentID
-                    );
-            END
-            """,
-            (),
-        )
-
-    def buscar_movimientos_inventario_independientes(self, tipo="todos"):
-        self.asegurar_tabla_relacion_documentos_erp()
-
-        tipo_normalizado = str(tipo or "todos").strip().lower()
-        condiciones_tipo = []
-
-        if tipo_normalizado in {"todos", "salida"}:
-            condiciones_tipo.append(
-                "(D.ModuleID = 203 AND TRY_CONVERT(INT, D.CustomCbo) "
-                f"IN ({', '.join(str(m) for m in self.MOVIMIENTOS_SALIDA_RELACIONABLES)}))"
-            )
-
-        if tipo_normalizado in {"todos", "entrada"}:
-            condiciones_tipo.append(
-                "(D.ModuleID = 202 AND TRY_CONVERT(INT, D.CustomCbo) "
-                f"IN ({', '.join(str(m) for m in self.MOVIMIENTOS_ENTRADA_RELACIONABLES)}))"
-            )
-
-        if not condiciones_tipo:
-            return []
-
-        filtro_tipo = " OR ".join(condiciones_tipo)
-
-        return self.fetchall(
-            f"""
-            SELECT TOP 500
-                D.DocumentID,
-                D.ModuleID,
-                ISNULL(D.FolioPrefix, '') + ISNULL(D.Folio, '') AS Folio,
-                D.CreatedOn,
-                D.DateDocument,
-                D.CreatedBy,
-                ISNULL(U.UserName, '') AS UserName,
-                TRY_CONVERT(INT, D.CustomCbo) AS TipoMovimientoID,
-                ISNULL(C.ItemValue, '') AS TipoMovimiento,
-                D.DepotID,
-                ISNULL(A.DepotName, '') AS DepotName,
-                D.SourceDocumentID,
-                D.DestinationDocumentID,
-                ISNULL(D.Custom1, '') AS Custom1,
-                I.DocumentItemID,
-                I.ProductID,
-                I.Quantity,
-                P.ProductKey,
-                P.ProductName,
-                P.Category1,
-                ISNULL(I.Unit, P.Unit) AS Unit,
-                R.SupplierID,
-                ISNULL(PROV.OfficialName, '') AS SupplierName,
-                R.PhysicalUserID,
-                ISNULL(EMP.OfficialName, '') AS PhysicalUserName,
-                R.MovementDate
-            FROM dbo.docDocument AS D
-            LEFT JOIN dbo.docDocumentItem AS I
-                ON I.DocumentID = D.DocumentID
-               AND I.DeletedOn IS NULL
-            LEFT JOIN dbo.orgProduct AS P
-                ON P.ProductID = I.ProductID
-            LEFT JOIN dbo.engUser AS U
-                ON U.UserID = D.CreatedBy
-            LEFT JOIN dbo.orgDepot AS A
-                ON A.DepotID = D.DepotID
-            LEFT JOIN dbo.engRefCombo AS C
-                ON C.ItemData = TRY_CONVERT(INT, D.CustomCbo)
-               AND C.CboGroupName = CASE
-                    WHEN D.ModuleID = 202 THEN 'Tipo de entrada'
-                    WHEN D.ModuleID = 203 THEN 'Tipo de salida'
-                    ELSE ''
-               END
-            OUTER APPLY
-            (
-                SELECT TOP 1 Rel.*
-                FROM dbo.docDocumentWarehouseRelation AS Rel
-                WHERE Rel.SourceDocumentID = D.DocumentID
-                   OR Rel.DestinationDocumentID = D.DocumentID
-                ORDER BY Rel.DocumentWarehouseRelationID DESC
-            ) AS R
-            LEFT JOIN dbo.orgBusinessEntity AS PROV
-                ON PROV.BusinessEntityID = R.SupplierID
-            LEFT JOIN dbo.zvwEmpleadosCayalMenu AS EMP
-                ON EMP.UserID = R.PhysicalUserID
-            WHERE D.ModuleID IN (202, 203)
-              AND D.DeletedOn IS NULL
-              AND D.CancelledOn IS NULL
-              AND ({filtro_tipo})
-            ORDER BY D.CreatedOn DESC, D.DocumentID DESC, I.DocumentItemID
-            """,
-            (),
-        )
-
-    def registrar_transformacion(
-        self,
-        producto_origen_id,
-        producto_seleccionado_id,
-        cantidad_origen,
-        usuario,
-        usuario_id,
-        tipo_transformacion,
-        productos_resultantes,
-        peso_merma,
-        almacen_id,
-        porcentaje_merma_esperado=None,
-        observaciones_merma=None,
-        id_operacion=None,
-        componentes_formula=None,
-    ):
-        productos_json = json.dumps([
-            {
-                "producto_id": producto.producto_id,
-                "cantidad": float(producto.cantidad),
-                "unidad": producto.unidad,
-            }
-            for producto in productos_resultantes
-        ])
-        componentes_json = json.dumps([
-            {
-                "producto_id": componente.producto_id,
-                "cantidad": float(componente.cantidad),
-                "unidad": componente.unidad,
-                "es_producto_base": componente.es_producto_base,
-                "tipo_componente": componente.tipo_componente,
-                "participa_balance": componente.participa_balance,
-            }
-            for componente in (componentes_formula or [])
-        ])
-        return int(self.exec_stored_procedure(
-            "zvwRegistrarTransformacionCayal",
-            (
-                str(id_operacion),
-                producto_origen_id,
-                producto_seleccionado_id,
-                float(cantidad_origen),
-                usuario,
-                usuario_id,
-                tipo_transformacion,
-                (
-                    float(porcentaje_merma_esperado)
-                    if porcentaje_merma_esperado is not None
-                    else None
-                ),
-                almacen_id,
-                float(peso_merma),
-                observaciones_merma,
-                productos_json,
-                componentes_json,
-            ),
-        ))
-
-    def buscar_historial_transformaciones(self, transformacion_id=None):
-        self.asegurar_tabla_relacion_documentos_erp()
-        filtro = ""
-        parametros = ()
-
-        if transformacion_id is not None:
-            filtro = "WHERE T.id_transformacion = ?"
-            parametros = (transformacion_id,)
-
-        return self.fetchall(
-            f"""
-            SELECT
-                T.id_transformacion,
-                T.producto_origen,
-                T.producto_seleccionado,
-                T.cantidad_origen,
-                T.usuario_responsable,
-                T.usuario_id,
-                T.tipo_transformacion,
-                T.porcentaje_merma_esperado,
-                T.id_operacion,
-                T.fecha_creacion,
-                T.documento_salida,
-                T.documento_entrada,
-                T.almacen_id,
-                A.DepotName AS almacen,
-                CASE
-                    WHEN T.documento_salida IS NOT NULL
-                     AND T.documento_entrada IS NOT NULL
-                     AND (
-                        SELECT COUNT(DISTINCT R.DocumentID)
-                        FROM dbo.zvwDocumentosRecalculadosCayal AS R
-                        WHERE R.DocumentID IN (
-                            T.documento_salida,
-                            T.documento_entrada
-                        )
-                     ) = 2
-                     AND NOT EXISTS (
-                        SELECT 1
-                        FROM dbo.zvwDocumentosRecalculadosCayal AS R
-                        WHERE R.DocumentID IN (
-                            T.documento_salida,
-                            T.documento_entrada
-                        )
-                          AND R.Status = 0
-                     )
-                    THEN 'completada'
-                    ELSE T.estado_erp
-                END AS estado_erp,
-                T.error_erp,
-                ISNULL(DS.FolioPrefix, '') +
-                    ISNULL(DS.Folio, '') AS folio_salida,
-                ISNULL(DE.FolioPrefix, '') +
-                    ISNULL(DE.Folio, '') AS folio_entrada,
-                P.ProductKey AS origen_clave,
-                P.ProductName AS origen_nombre,
-                P.Category1 AS origen_categoria,
-                P.Unit AS origen_unidad,
-                R.SupplierID,
-                ISNULL(PROV.OfficialName, '') AS SupplierName,
-                R.PhysicalUserID,
-                ISNULL(EMP.OfficialName, '') AS PhysicalUserName,
-                R.MovementDate,
-                M.peso_merma,
-                M.motivo
-            FROM dbo.Transformaciones AS T
-            LEFT JOIN dbo.orgProduct AS P
-                ON P.ProductID = T.producto_origen
-            LEFT JOIN dbo.orgDepot AS A
-                ON A.DepotID = T.almacen_id
-            LEFT JOIN dbo.docDocument AS DS
-                ON DS.DocumentID = T.documento_salida
-            LEFT JOIN dbo.docDocument AS DE
-                ON DE.DocumentID = T.documento_entrada
-            OUTER APPLY
-            (
-                SELECT TOP 1 Rel.*
-                FROM dbo.docDocumentWarehouseRelation AS Rel
-                WHERE (
-                        T.documento_salida IS NOT NULL
-                    AND Rel.SourceDocumentID = T.documento_salida
-                )
-                   OR (
-                        T.documento_entrada IS NOT NULL
-                    AND Rel.DestinationDocumentID = T.documento_entrada
-                )
-                ORDER BY Rel.DocumentWarehouseRelationID DESC
-            ) AS R
-            LEFT JOIN dbo.orgBusinessEntity AS PROV
-                ON PROV.BusinessEntityID = R.SupplierID
-            LEFT JOIN dbo.zvwEmpleadosCayalMenu AS EMP
-                ON EMP.UserID = R.PhysicalUserID
-            OUTER APPLY (
-                SELECT TOP 1
-                    merma.peso_merma,
-                    merma.motivo
-                FROM dbo.Mermas AS merma
-                WHERE merma.id_transformacion = T.id_transformacion
-                ORDER BY merma.id_merma DESC
-            ) AS M
-            {filtro}
-            ORDER BY T.id_transformacion DESC
-            """,
-            parametros,
-        )
-
-    def buscar_detalles_transformaciones(self, ids_transformaciones):
-        ids_limpios = list(dict.fromkeys(
-            int(transformacion_id)
-            for transformacion_id in ids_transformaciones
-            if transformacion_id
-        ))
-
-        if not ids_limpios:
-            return []
-
-        parametros = ", ".join("?" for _ in ids_limpios)
-
-        return self.fetchall(
-            f"""
-            SELECT
-                D.id_transformacion,
-                D.id_detalle,
-                D.producto_resultado,
-                D.cantidad_resultado,
-                D.unidad_resultado,
-                P.ProductKey,
-                P.ProductName,
-                P.Category1,
-                P.Unit
-            FROM dbo.DetalleTransformaciones AS D
-            LEFT JOIN dbo.orgProduct AS P
-                ON P.ProductID = D.producto_resultado
-            WHERE D.id_transformacion IN ({parametros})
-            ORDER BY D.id_transformacion DESC, D.id_detalle
-            """,
-            tuple(ids_limpios),
-        )
-
-    def buscar_componentes_transformaciones(self, ids_transformaciones):
-        ids_limpios = list(dict.fromkeys(
-            int(transformacion_id)
-            for transformacion_id in ids_transformaciones
-            if transformacion_id
-        ))
-
-        if not ids_limpios:
-            return []
-
-        parametros = ", ".join("?" for _ in ids_limpios)
-
-        return self.fetchall(
-            f"""
-            SELECT
-                C.id_transformacion,
-                C.producto_componente,
-                C.cantidad,
-                C.unidad,
-                C.es_producto_base,
-                P.ProductKey,
-                P.ProductName,
-                P.Category1,
-                P.Unit
-            FROM dbo.ComponentesTransformacion AS C
-            LEFT JOIN dbo.orgProduct AS P
-                ON P.ProductID = C.producto_componente
-            WHERE C.id_transformacion IN ({parametros})
-            ORDER BY C.id_transformacion DESC, C.id_componente
-            """,
-            tuple(ids_limpios),
-        )
-
-    def buscar_ids_productos_existentes(self, ids_productos):
-        ids_limpios = list(dict.fromkeys(
-            int(producto_id)
-            for producto_id in ids_productos
-            if producto_id
-        ))
-
-        if not ids_limpios:
-            return set()
-
-        parametros = ", ".join("?" for _ in ids_limpios)
-        filas = self.fetchall(
-            f"""
-            SELECT ProductID
-            FROM dbo.orgProduct
-            WHERE ProductID IN ({parametros})
-              AND DeletedOn IS NULL
-            """,
-            tuple(ids_limpios),
-        )
-        return {
-            fila["ProductID"]
-            for fila in filas
-        }
-
-    def buscar_bases_formulas(self, ids_productos):
-        ids_limpios = list(dict.fromkeys(
-            int(producto_id)
-            for producto_id in ids_productos
-            if producto_id
-        ))
-
-        if not ids_limpios:
-            return []
-
-        parametros = ", ".join("?" for _ in ids_limpios)
-
-        return self.fetchall(
-            f"""
-            WITH Componentes AS (
-                SELECT
-                    F.ProductID,
-                    F.ComponenteID,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY F.ProductID
-                        ORDER BY
-                            CASE
-                                WHEN UPPER(LTRIM(RTRIM(P.Category1)))
-                                     <> 'INSUMOS'
-                                THEN 0
-                                ELSE 1
-                            END,
-                            F.IDComp
-                    ) AS posicion
-                FROM dbo.zvwFormulasListasPCocinar AS F
-                INNER JOIN dbo.orgProduct AS P
-                    ON P.ProductID = F.ComponenteID
-                WHERE F.ProductID IN ({parametros})
-                  AND UPPER(LTRIM(RTRIM(P.Unit))) = 'KILO'
-            )
-            SELECT ProductID, ComponenteID
-            FROM Componentes
-            WHERE posicion = 1
-            """,
-            tuple(ids_limpios),
-        )
-
-    def documento_previamente_relacionado(self, document_id):
-        relacionado = self.fetchone(
+        document_id: int,
+    ) -> bool:
+        valor = self.fetchone(
             """
             SELECT CASE
                 WHEN ISNULL(SourceDocumentID, 0) <> 0
@@ -2099,66 +132,74 @@ class BaseDatos(ComandosBaseDatos):
                   OR ISNULL(Custom1, '') <> ''
                 THEN 1
                 ELSE 0
-            END AS Relacionado
+            END
             FROM dbo.docDocument
             WHERE DocumentID = ?
             """,
             (int(document_id),),
         )
 
-        return int(self.valor_escalar(relacionado, "Relacionado") or 0) == 1
+        return int(valor or 0) == 1
 
-    def buscar_folio_documento(self, document_id):
-        folio = self.fetchone(
+    def buscar_folio_documento(self, document_id: int) -> str:
+        valor = self.fetchone(
             """
-            SELECT ISNULL(FolioPrefix, '') + ISNULL(Folio, '') AS Folio
+            SELECT
+                ISNULL(FolioPrefix, '') + ISNULL(Folio, '')
             FROM dbo.docDocument
             WHERE DocumentID = ?
+              AND DeletedOn IS NULL
             """,
             (int(document_id),),
         )
 
-        return self.valor_escalar(folio, "Folio") or ""
+        return str(valor or "")
 
-    def buscar_tipo_movimiento_documento(self, document_id):
-        movimiento_id = self.fetchone(
+    def buscar_tipo_movimiento_documento(
+        self,
+        document_id: int,
+    ) -> int:
+        valor = self.fetchone(
             """
-            SELECT ISNULL(CustomCbo, 0) AS MovimientoID
+            SELECT ISNULL(TRY_CONVERT(INT, CustomCbo), 0)
             FROM dbo.docDocument
             WHERE DocumentID = ?
+              AND DeletedOn IS NULL
             """,
             (int(document_id),),
         )
 
-        return int(self.valor_escalar(movimiento_id, "MovimientoID") or 0)
+        return int(valor or 0)
 
-    def movimiento_es_relacionable(self, tipo_movimiento_id, module_id):
-        module_id = int(module_id or 0)
-        tipo_movimiento_id = int(tipo_movimiento_id or 0)
-
-        if module_id == self.MODULO_ENTRADA:
-            return tipo_movimiento_id in self.MOVIMIENTOS_ENTRADA_RELACIONABLES
-
-        if module_id == self.MODULO_SALIDA:
-            return tipo_movimiento_id in self.MOVIMIENTOS_SALIDA_RELACIONABLES
-
-        return False
-
-    def buscar_tipo_movimiento_modulo(self, module_id, incluir_todos=False):
+    def buscar_tipo_movimiento_modulo(
+        self,
+        module_id: int,
+        incluir_todos: bool = False,
+    ) -> list[dict]:
         module_id = int(module_id or 0)
 
         if module_id == self.MODULO_ENTRADA:
-            filtro = "" if incluir_todos else """
-                AND ItemData IN (3, 5, 7, 13, 14, 16, 17, 19, 24, 26, 31)
-            """
             grupo = "Tipo de entrada"
+            movimientos = self.MOVIMIENTOS_ENTRADA_RELACIONABLES
         elif module_id == self.MODULO_SALIDA:
-            filtro = "" if incluir_todos else """
-                AND ItemData IN (2, 6, 8, 9, 10, 12, 13, 14, 21, 23, 28)
-            """
             grupo = "Tipo de salida"
+            movimientos = self.MOVIMIENTOS_SALIDA_RELACIONABLES
         else:
             return []
+
+        filtro = ""
+
+        if not incluir_todos:
+            movimientos_validos = (
+                movimiento
+                for movimiento in movimientos
+                if movimiento != 0
+            )
+            ids_sql = ",".join(
+                str(movimiento)
+                for movimiento in movimientos_validos
+            )
+            filtro = f"AND ItemData IN ({ids_sql})"
 
         return self.fetchall(
             f"""
@@ -2172,42 +213,58 @@ class BaseDatos(ComandosBaseDatos):
 
                 UNION ALL
 
-                SELECT 0 AS ItemData, 'NO CLASIFICADO' AS ItemValue
-            ) AS Tabla
+                SELECT
+                    0 AS ItemData,
+                    'NO CLASIFICADO' AS ItemValue
+            ) AS Movimientos
             ORDER BY ItemValue
             """,
             (grupo,),
         )
 
-    def buscar_documentos_relacionables(self, module_id):
+    def buscar_tipos_movimiento_entrada(self) -> list[dict]:
+        return self.buscar_tipo_movimiento_modulo(
+            self.MODULO_ENTRADA
+        )
+
+    def buscar_tipos_movimiento_salida(self) -> list[dict]:
+        return self.buscar_tipo_movimiento_modulo(
+            self.MODULO_SALIDA
+        )
+
+    def buscar_documentos_disponibles(
+        self,
+        module_id: int,
+    ) -> list[dict]:
         module_id = int(module_id or 0)
 
         if module_id == self.MODULO_ENTRADA:
-            target_module = self.MODULO_SALIDA
-            movimientos = self.MOVIMIENTOS_SALIDA_RELACIONABLES
-        elif module_id == self.MODULO_SALIDA:
-            target_module = self.MODULO_ENTRADA
             movimientos = self.MOVIMIENTOS_ENTRADA_RELACIONABLES
+        elif module_id == self.MODULO_SALIDA:
+            movimientos = self.MOVIMIENTOS_SALIDA_RELACIONABLES
         else:
             return []
 
-        movimientos_sql = ", ".join(str(movimiento) for movimiento in movimientos)
+        movimientos_sql = ",".join(
+            str(movimiento)
+            for movimiento in movimientos
+        )
 
         return self.fetchall(
             f"""
             SELECT
                 D.DocumentID,
                 D.ModuleID,
-                ISNULL(D.FolioPrefix, '') + ISNULL(D.Folio, '') AS DocFolio,
+                ISNULL(D.FolioPrefix, '') +
+                    ISNULL(D.Folio, '') AS DocFolio,
                 ISNULL(U.UserName, '') AS UserName,
                 CAST(D.CreatedOn AS DATE) AS CreatedOn,
-                CASE WHEN D.CancelledOn IS NULL THEN 0 ELSE 1 END AS Cancelled,
-                ISNULL(D.SourceDocumentID, 0) AS SourceDocumentID,
-                ISNULL(D.DestinationDocumentID, 0) AS DestinationDocumentID,
-                ISNULL(D.CustomCbo, 0) AS CustomCbo,
-                ISNULL(D.Custom1, '') AS Custom1
-            FROM dbo.docDocument D
-            LEFT JOIN dbo.engUser U
+                ISNULL(
+                    TRY_CONVERT(INT, D.CustomCbo),
+                    0
+                ) AS CustomCbo
+            FROM dbo.docDocument AS D
+            LEFT JOIN dbo.engUser AS U
                 ON U.UserID = D.CreatedBy
             WHERE D.ModuleID = ?
               AND D.DeletedOn IS NULL
@@ -2215,24 +272,51 @@ class BaseDatos(ComandosBaseDatos):
               AND ISNULL(D.SourceDocumentID, 0) = 0
               AND ISNULL(D.DestinationDocumentID, 0) = 0
               AND ISNULL(D.Custom1, '') = ''
-              AND ISNULL(D.CustomCbo, 0) IN ({movimientos_sql})
-              AND CAST(D.CreatedOn AS DATE) = CAST(GETDATE() AS DATE)
-            ORDER BY D.CreatedOn DESC
+              AND ISNULL(
+                    TRY_CONVERT(INT, D.CustomCbo),
+                    0
+                  ) IN ({movimientos_sql})
+              AND CAST(D.CreatedOn AS DATE) =
+                  CAST(GETDATE() AS DATE)
+            ORDER BY D.CreatedOn DESC, D.DocumentID DESC
             """,
-            (target_module,),
+            (module_id,),
         )
 
-    def obtener_proveedores_documentos(self):
+    def buscar_documentos_relacionables(
+        self,
+        module_id: int,
+    ) -> list[dict]:
+        """
+        Compatibilidad con el módulo puro.
+
+        Recibe el módulo actual y devuelve documentos del módulo opuesto.
+        """
+        module_id = int(module_id or 0)
+
+        if module_id == self.MODULO_ENTRADA:
+            return self.buscar_documentos_disponibles(
+                self.MODULO_SALIDA
+            )
+
+        if module_id == self.MODULO_SALIDA:
+            return self.buscar_documentos_disponibles(
+                self.MODULO_ENTRADA
+            )
+
+        return []
+
+    def obtener_proveedores_documentos(self) -> list[dict]:
         return self.fetchall(
             """
             SELECT DISTINCT
                 S.BusinessEntityID,
                 E.OfficialName
-            FROM dbo.docDocument D
-            INNER JOIN dbo.orgBusinessEntity E
-                ON D.BusinessEntityID = E.BusinessEntityID
-            INNER JOIN dbo.orgSupplier S
-                ON E.BusinessEntityID = S.BusinessEntityID
+            FROM dbo.docDocument AS D
+            INNER JOIN dbo.orgBusinessEntity AS E
+                ON E.BusinessEntityID = D.BusinessEntityID
+            INNER JOIN dbo.orgSupplier AS S
+                ON S.BusinessEntityID = E.BusinessEntityID
             WHERE S.DeletedOn IS NULL
               AND D.ModuleID = 152
               AND D.CancelledOn IS NULL
@@ -2243,7 +327,7 @@ class BaseDatos(ComandosBaseDatos):
             (),
         )
 
-    def obtener_usuarios_fisicos(self):
+    def obtener_usuarios_fisicos(self) -> list[dict]:
         return self.fetchall(
             """
             SELECT
@@ -2255,21 +339,28 @@ class BaseDatos(ComandosBaseDatos):
             (),
         )
 
-    def obtener_relacion_documento(self, document_id):
+    def obtener_relacion_documento(
+        self,
+        document_id: int,
+    ) -> Optional[dict]:
         filas = self.fetchall(
             """
             SELECT TOP 1
                 D.DocumentID,
                 D.ModuleID,
+                ISNULL(D.FolioPrefix, '') +
+                    ISNULL(D.Folio, '') AS DocFolio,
                 ISNULL(D.Custom1, '') AS FolioRelacionadoCustom1,
-                S.DocumentID AS SourceDocumentID,
-                E.DocumentID AS DestinationDocumentID,
-                ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '') AS SourceFolio,
-                ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '') AS DestinationFolio,
-                ISNULL(S.CustomCbo, 0) AS TipoMovimientoOrigenID,
-                ISNULL(E.CustomCbo, 0) AS TipoMovimientoDestinoID,
-                ISNULL(US.UserName, '') AS SourceUserName,
-                ISNULL(UE.UserName, '') AS DestinationUserName,
+                ISNULL(D.SourceDocumentID, 0) AS SourceDocumentID,
+                ISNULL(
+                    D.DestinationDocumentID,
+                    0
+                ) AS DestinationDocumentID,
+                ISNULL(
+                    TRY_CONVERT(INT, D.CustomCbo),
+                    0
+                ) AS TipoMovimientoID,
+                ISNULL(U.UserName, '') AS UserName,
                 R.DocumentWarehouseRelationID,
                 R.SupplierID,
                 R.PhysicalUserID,
@@ -2277,48 +368,32 @@ class BaseDatos(ComandosBaseDatos):
                 R.ERPUserID,
                 R.SourceBrandID,
                 R.DestinationBrandID,
-                ISNULL(BS.BrandName, '') AS SourceBrandName,
-                ISNULL(BD.BrandName, '') AS DestinationBrandName,
                 ISNULL(PROV.OfficialName, '') AS SupplierName,
-                ISNULL(EMP.OfficialName, '') AS PhysicalUserName
-            FROM dbo.docDocument D
+                ISNULL(EMP.OfficialName, '') AS PhysicalUserName,
+                ISNULL(BS.BrandName, '') AS SourceBrandName,
+                ISNULL(BD.BrandName, '') AS DestinationBrandName
+            FROM dbo.docDocument AS D
+            LEFT JOIN dbo.engUser AS U
+                ON U.UserID = D.CreatedBy
             OUTER APPLY
             (
-                SELECT TOP 1 R.*
-                FROM dbo.docDocumentWarehouseRelation R
-                WHERE R.SourceDocumentID = D.DocumentID
-                   OR R.DestinationDocumentID = D.DocumentID
-                ORDER BY R.DocumentWarehouseRelationID DESC
-            ) R
-            LEFT JOIN dbo.docDocument S
-                ON S.DocumentID = CASE
-                    WHEN R.SourceDocumentID IS NOT NULL THEN R.SourceDocumentID
-                    WHEN D.ModuleID = 203 THEN D.DocumentID
-                    WHEN D.ModuleID = 202 THEN D.SourceDocumentID
-                    ELSE D.SourceDocumentID
-                END
-               AND S.ModuleID = 203
-            LEFT JOIN dbo.docDocument E
-                ON E.DocumentID = CASE
-                    WHEN R.DestinationDocumentID IS NOT NULL THEN R.DestinationDocumentID
-                    WHEN D.ModuleID = 202 THEN D.DocumentID
-                    WHEN D.ModuleID = 203 THEN D.DestinationDocumentID
-                    ELSE D.DestinationDocumentID
-                END
-               AND E.ModuleID = 202
-            LEFT JOIN dbo.orgBusinessEntity PROV
+                SELECT TOP 1 Relacion.*
+                FROM dbo.docDocumentWarehouseRelation AS Relacion
+                WHERE Relacion.SourceDocumentID = D.DocumentID
+                   OR Relacion.DestinationDocumentID = D.DocumentID
+                ORDER BY
+                    Relacion.DocumentWarehouseRelationID DESC
+            ) AS R
+            LEFT JOIN dbo.orgBusinessEntity AS PROV
                 ON PROV.BusinessEntityID = R.SupplierID
-            LEFT JOIN dbo.zvwEmpleadosCayalMenu EMP
+            LEFT JOIN dbo.zvwEmpleadosCayalMenu AS EMP
                 ON EMP.UserID = R.PhysicalUserID
-            LEFT JOIN dbo.catBrand BS
+            LEFT JOIN dbo.catBrand AS BS
                 ON BS.BrandID = R.SourceBrandID
-            LEFT JOIN dbo.catBrand BD
+            LEFT JOIN dbo.catBrand AS BD
                 ON BD.BrandID = R.DestinationBrandID
-            LEFT JOIN dbo.engUser US
-                ON US.UserID = S.CreatedBy
-            LEFT JOIN dbo.engUser UE
-                ON UE.UserID = E.CreatedBy
             WHERE D.DocumentID = ?
+              AND D.DeletedOn IS NULL
             """,
             (int(document_id),),
         )
@@ -2327,39 +402,99 @@ class BaseDatos(ComandosBaseDatos):
 
     def relacionar_documentos_erp(
         self,
-        source_document_id,
-        destination_document_id,
-        folio_source_document_id,
-        folio_destination_document_id,
-        tipo_movimiento_origen_id,
-        tipo_movimiento_destino_id,
-        proveedor_id,
-        usuario_fisico_id,
+        source_document_id: int,
+        destination_document_id: int,
+        folio_source_document_id: str,
+        folio_destination_document_id: str,
+        tipo_movimiento_origen_id: int,
+        tipo_movimiento_destino_id: int,
+        proveedor_id: int,
+        usuario_fisico_id: int,
         fecha_movimiento,
-        user_id_erp,
+        user_id_erp: int,
         source_brand_id=None,
         destination_brand_id=None,
-    ):
-        self.asegurar_tabla_relacion_documentos_erp()
+    ) -> None:
         self.command(
             """
+            SET NOCOUNT ON;
+            SET XACT_ABORT ON;
+            BEGIN TRANSACTION;
+
             DECLARE @Origen INT = ?;
-            DECLARE @FolioOrigen NVARCHAR(125) = ?;
             DECLARE @Destino INT = ?;
+            DECLARE @FolioOrigen NVARCHAR(125) = ?;
             DECLARE @FolioDestino NVARCHAR(125) = ?;
-            DECLARE @TipoMovimientoIDOrigen INT = ?;
-            DECLARE @TipoMovimientoIDDestino INT = ?;
-            DECLARE @ProveedorID INT = ?;
-            DECLARE @UsuarioFisicoID INT = ?;
-            DECLARE @FechaMovimiento DATE = ?;
-            DECLARE @UserIDERP INT = ?;
-            DECLARE @SourceBrandID INT = ?;
-            DECLARE @DestinationBrandID INT = ?;
+            DECLARE @TipoOrigen INT = ?;
+            DECLARE @TipoDestino INT = ?;
+            DECLARE @Proveedor INT = ?;
+            DECLARE @UsuarioFisico INT = ?;
+            DECLARE @Fecha DATE = ?;
+            DECLARE @UsuarioERP INT = ?;
+            DECLARE @MarcaOrigen INT = ?;
+            DECLARE @MarcaDestino INT = ?;
+
+            IF @Origen = @Destino
+                THROW 50001,
+                    'Los documentos no pueden ser el mismo.',
+                    1;
+
+            IF NOT EXISTS
+            (
+                SELECT 1
+                FROM dbo.docDocument WITH (
+                    UPDLOCK,
+                    HOLDLOCK
+                )
+                WHERE DocumentID = @Origen
+                  AND ModuleID = 203
+                  AND DeletedOn IS NULL
+                  AND CancelledOn IS NULL
+                  AND ISNULL(SourceDocumentID, 0) = 0
+                  AND ISNULL(DestinationDocumentID, 0) = 0
+                  AND ISNULL(Custom1, '') = ''
+            )
+                THROW 50002,
+                    'La salida ya fue relacionada o no está disponible.',
+                    1;
+
+            IF NOT EXISTS
+            (
+                SELECT 1
+                FROM dbo.docDocument WITH (
+                    UPDLOCK,
+                    HOLDLOCK
+                )
+                WHERE DocumentID = @Destino
+                  AND ModuleID = 202
+                  AND DeletedOn IS NULL
+                  AND CancelledOn IS NULL
+                  AND ISNULL(SourceDocumentID, 0) = 0
+                  AND ISNULL(DestinationDocumentID, 0) = 0
+                  AND ISNULL(Custom1, '') = ''
+            )
+                THROW 50003,
+                    'La entrada ya fue relacionada o no está disponible.',
+                    1;
+
+            IF EXISTS
+            (
+                SELECT 1
+                FROM dbo.docDocumentWarehouseRelation WITH (
+                    UPDLOCK,
+                    HOLDLOCK
+                )
+                WHERE SourceDocumentID = @Origen
+                   OR DestinationDocumentID = @Destino
+            )
+                THROW 50004,
+                    'La relación ya existe.',
+                    1;
 
             UPDATE dbo.docDocument
             SET
                 DestinationDocumentID = @Destino,
-                CustomCbo = @TipoMovimientoIDOrigen,
+                CustomCbo = @TipoOrigen,
                 Custom1 = @FolioDestino
             WHERE DocumentID = @Origen
               AND ModuleID = 203;
@@ -2367,7 +502,7 @@ class BaseDatos(ComandosBaseDatos):
             UPDATE dbo.docDocument
             SET
                 SourceDocumentID = @Origen,
-                CustomCbo = @TipoMovimientoIDDestino,
+                CustomCbo = @TipoDestino,
                 Custom1 = @FolioOrigen
             WHERE DocumentID = @Destino
               AND ModuleID = 202;
@@ -2384,28 +519,25 @@ class BaseDatos(ComandosBaseDatos):
                 DestinationBrandID,
                 CreatedOn
             )
-            SELECT
+            VALUES
+            (
                 @Origen,
                 @Destino,
-                @ProveedorID,
-                @UsuarioFisicoID,
-                @FechaMovimiento,
-                @UserIDERP,
-                @SourceBrandID,
-                @DestinationBrandID,
+                @Proveedor,
+                @UsuarioFisico,
+                @Fecha,
+                @UsuarioERP,
+                @MarcaOrigen,
+                @MarcaDestino,
                 GETDATE()
-            WHERE NOT EXISTS
-            (
-                SELECT 1
-                FROM dbo.docDocumentWarehouseRelation
-                WHERE SourceDocumentID = @Origen
-                  AND DestinationDocumentID = @Destino
             );
+
+            COMMIT TRANSACTION;
             """,
             (
                 int(source_document_id),
-                folio_source_document_id,
                 int(destination_document_id),
+                folio_source_document_id,
                 folio_destination_document_id,
                 int(tipo_movimiento_origen_id),
                 int(tipo_movimiento_destino_id),
@@ -2418,30 +550,470 @@ class BaseDatos(ComandosBaseDatos):
             ),
         )
 
-    def buscar_document_id_por_folio(self, folio, module_id=None):
+    def obtener_partidas_documento_erp(
+        self,
+        document_id: int,
+    ) -> list[dict]:
+        """
+        Consulta directamente las partidas.
+
+        No llama a buscar_partidas_documento() del paquete para evitar que un
+        parámetro de un elemento sea enviado sin la coma de la tupla.
+        """
+        partidas = self.fetchall(
+            """
+            SELECT *
+            FROM [dbo].[zvwBuscarPartidasDocumentoCayal-DocumentID](?)
+            ORDER BY DocumentItemID
+            """,
+            (int(document_id),),
+        )
+
+        resultado = []
+
+        for partida in partidas:
+            cantidad = float(partida.get("Quantity") or 0)
+            costo = float(
+                partida.get("CostPrice")
+                or partida.get("UnitPrice")
+                or 0
+            )
+            total = float(
+                partida.get("total")
+                or partida.get("Total")
+                or partida.get("Subtotal")
+                or cantidad * costo
+            )
+
+            resultado.append(
+                {
+                    "ProductID": partida.get("ProductID"),
+                    "Category": partida.get("Category1") or "",
+                    "ProductKey": partida.get("ProductKey") or "",
+                    "ProductName": partida.get("ProductName") or "",
+                    "Quantity": cantidad,
+                    "CostPrice": costo,
+                    "total": total,
+                }
+            )
+
+        return resultado
+
+    def buscar_document_id_por_folio(
+        self,
+        folio: str,
+        module_id: Optional[int] = None,
+    ) -> int:
         if not folio:
             return 0
 
-        folio = str(folio).strip().upper()
-        consulta = self.fetchone(
+        valor = self.fetchone(
             """
             SELECT TOP 1
                 DocumentID
             FROM dbo.docDocument
             WHERE DeletedOn IS NULL
               AND CancelledOn IS NULL
-              AND ISNULL(FolioPrefix, '') + ISNULL(Folio, '') = ?
+              AND UPPER(
+                    LTRIM(
+                        RTRIM(
+                            ISNULL(FolioPrefix, '') +
+                            ISNULL(Folio, '')
+                        )
+                    )
+                  ) = UPPER(LTRIM(RTRIM(?)))
               AND (? IS NULL OR ModuleID = ?)
             ORDER BY DocumentID DESC
             """,
-            (folio, module_id, module_id),
+            (str(folio).strip(), module_id, module_id),
         )
 
-        return int(self.valor_escalar(consulta, "DocumentID") or 0)
+        return int(valor or 0)
 
-    def homologar_tipo_movimiento_documento(self, document_id):
+    # -------------------------- MODULO CARNICO -------------------------
+    def asegurar_tablas_modulo_carnico(self) -> None:
         self.command(
             """
+            IF OBJECT_ID(
+                'dbo.ModuloCarnicoProductoConfigurado',
+                'U'
+            ) IS NULL
+            BEGIN
+                CREATE TABLE dbo.ModuloCarnicoProductoConfigurado (
+                    id_producto_carnico INT IDENTITY(1,1) NOT NULL
+                        CONSTRAINT PK_ModuloCarnicoProductoConfigurado
+                        PRIMARY KEY,
+                    product_id INT NULL,
+                    clave NVARCHAR(50) NULL,
+                    proveedor_id INT NULL,
+                    proveedor_nombre NVARCHAR(150) NULL,
+                    nombre_producto NVARCHAR(250) NOT NULL,
+                    categoria NVARCHAR(100) NULL,
+                    categoria_resultante NVARCHAR(150) NULL,
+                    unidad NVARCHAR(50) NOT NULL
+                        CONSTRAINT DF_MCPC_unidad DEFAULT 'KILO',
+                    porcentaje_merma DECIMAL(9,4) NOT NULL
+                        CONSTRAINT DF_MCPC_merma DEFAULT 0,
+                    activo BIT NOT NULL
+                        CONSTRAINT DF_MCPC_activo DEFAULT 1,
+                    usuario_creacion BIGINT NULL,
+                    usuario_actualizacion BIGINT NULL,
+                    fecha_creacion DATETIME2 NOT NULL
+                        CONSTRAINT DF_MCPC_fecha_creacion
+                        DEFAULT SYSUTCDATETIME(),
+                    fecha_actualizacion DATETIME2 NULL
+                );
+            END;
+
+            IF OBJECT_ID(
+                'dbo.ModuloCarnicoProductoBitacora',
+                'U'
+            ) IS NULL
+            BEGIN
+                CREATE TABLE dbo.ModuloCarnicoProductoBitacora (
+                    id_bitacora INT IDENTITY(1,1) NOT NULL
+                        CONSTRAINT PK_ModuloCarnicoProductoBitacora
+                        PRIMARY KEY,
+                    accion NVARCHAR(50) NOT NULL,
+                    usuario_id BIGINT NULL,
+                    usuario_confirmacion_nombre NVARCHAR(150) NOT NULL,
+                    detalle NVARCHAR(500) NULL,
+                    productos_json NVARCHAR(MAX) NULL,
+                    fecha DATETIME2 NOT NULL
+                        CONSTRAINT DF_MCPB_fecha DEFAULT SYSUTCDATETIME()
+                );
+            END;
+
+            IF OBJECT_ID(
+                'dbo.ModuloCarnicoTransformacionRegistro',
+                'U'
+            ) IS NULL
+            BEGIN
+                CREATE TABLE dbo.ModuloCarnicoTransformacionRegistro (
+                    id_registro INT IDENTITY(1,1) NOT NULL
+                        CONSTRAINT PK_ModuloCarnicoTransformacionRegistro
+                        PRIMARY KEY,
+                    producto_salida_config_id INT NOT NULL,
+                    producto_entrada_config_id INT NOT NULL,
+                    producto_salida_nombre NVARCHAR(250) NOT NULL,
+                    producto_entrada_nombre NVARCHAR(250) NOT NULL,
+                    cantidad_salida DECIMAL(18,4) NOT NULL,
+                    cantidad_entrada DECIMAL(18,4) NOT NULL,
+                    cantidad_merma DECIMAL(18,4) NOT NULL,
+                    porcentaje_merma DECIMAL(9,4) NOT NULL,
+                    usuario_id BIGINT NULL,
+                    usuario_confirmacion_nombre NVARCHAR(150) NOT NULL,
+                    observaciones NVARCHAR(300) NULL,
+                    fecha DATETIME2 NOT NULL
+                        CONSTRAINT DF_MCTR_fecha DEFAULT SYSUTCDATETIME()
+                );
+            END;
+            """,
+            (),
+        )
+
+    def buscar_productos_carnicos_configurados(
+        self,
+        incluir_inactivos: bool = True,
+    ) -> list[dict]:
+        self.asegurar_tablas_modulo_carnico()
+        filtro = "" if incluir_inactivos else "WHERE activo = 1"
+
+        return self.fetchall(
+            f"""
+            SELECT
+                id_producto_carnico,
+                product_id,
+                clave,
+                proveedor_id,
+                proveedor_nombre,
+                nombre_producto,
+                categoria,
+                categoria_resultante,
+                unidad,
+                porcentaje_merma,
+                activo,
+                usuario_creacion,
+                usuario_actualizacion,
+                fecha_creacion,
+                fecha_actualizacion
+            FROM dbo.ModuloCarnicoProductoConfigurado
+            {filtro}
+            ORDER BY
+                activo DESC,
+                categoria,
+                nombre_producto
+            """,
+            (),
+        )
+
+    def registrar_bitacora_productos_carnicos(
+        self,
+        accion: str,
+        usuario_id,
+        usuario_confirmacion_nombre: str,
+        detalle: str,
+        productos,
+    ) -> None:
+        self.command(
+            """
+            INSERT INTO dbo.ModuloCarnicoProductoBitacora (
+                accion,
+                usuario_id,
+                usuario_confirmacion_nombre,
+                detalle,
+                productos_json
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                accion,
+                usuario_id,
+                usuario_confirmacion_nombre,
+                detalle,
+                json.dumps(productos, ensure_ascii=False),
+            ),
+        )
+
+    def guardar_productos_carnicos_configurados(
+        self,
+        productos: list[dict],
+        usuario_id,
+        usuario_confirmacion_nombre: str,
+    ) -> None:
+        self.asegurar_tablas_modulo_carnico()
+
+        for producto in productos:
+            id_configuracion = producto.get("id_configuracion")
+            parametros = (
+                producto.get("product_id"),
+                producto.get("clave") or None,
+                producto.get("proveedor_id"),
+                producto.get("proveedor_nombre") or None,
+                producto["nombre_producto"].strip(),
+                producto.get("categoria") or None,
+                producto.get("categoria_resultante") or None,
+                producto.get("unidad") or "KILO",
+                float(producto.get("porcentaje_merma") or 0),
+                1 if producto.get("activo", True) else 0,
+                usuario_id,
+            )
+
+            if id_configuracion:
+                self.command(
+                    """
+                    UPDATE dbo.ModuloCarnicoProductoConfigurado
+                    SET
+                        product_id = ?,
+                        clave = ?,
+                        proveedor_id = ?,
+                        proveedor_nombre = ?,
+                        nombre_producto = ?,
+                        categoria = ?,
+                        categoria_resultante = ?,
+                        unidad = ?,
+                        porcentaje_merma = ?,
+                        activo = ?,
+                        usuario_actualizacion = ?,
+                        fecha_actualizacion = SYSUTCDATETIME()
+                    WHERE id_producto_carnico = ?
+                    """,
+                    (*parametros, int(id_configuracion)),
+                )
+            else:
+                self.command(
+                    """
+                    INSERT INTO dbo.ModuloCarnicoProductoConfigurado (
+                        product_id,
+                        clave,
+                        proveedor_id,
+                        proveedor_nombre,
+                        nombre_producto,
+                        categoria,
+                        categoria_resultante,
+                        unidad,
+                        porcentaje_merma,
+                        activo,
+                        usuario_creacion
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    parametros,
+                )
+
+        self.registrar_bitacora_productos_carnicos(
+            accion="guardar",
+            usuario_id=usuario_id,
+            usuario_confirmacion_nombre=usuario_confirmacion_nombre,
+            detalle="Configuracion de productos carnicos guardada",
+            productos=productos,
+        )
+
+    def buscar_bitacora_productos_carnicos(
+        self,
+        limite: int = 50,
+    ) -> list[dict]:
+        self.asegurar_tablas_modulo_carnico()
+        return self.fetchall(
+            """
+            SELECT TOP (?)
+                id_bitacora,
+                accion,
+                usuario_id,
+                usuario_confirmacion_nombre,
+                detalle,
+                productos_json,
+                fecha
+            FROM dbo.ModuloCarnicoProductoBitacora
+            ORDER BY id_bitacora DESC
+            """,
+            (int(limite),),
+        )
+
+    def buscar_producto_carnico_configurado(
+        self,
+        id_configuracion: int,
+    ) -> Optional[dict]:
+        filas = self.fetchall(
+            """
+            SELECT TOP 1
+                *
+            FROM dbo.ModuloCarnicoProductoConfigurado
+            WHERE id_producto_carnico = ?
+              AND activo = 1
+            """,
+            (int(id_configuracion),),
+        )
+        return filas[0] if filas else None
+
+    def registrar_transformacion_carnica(
+        self,
+        datos,
+        usuario_id,
+    ) -> int:
+        self.asegurar_tablas_modulo_carnico()
+        salida = self.buscar_producto_carnico_configurado(
+            datos.producto_salida_config_id
+        )
+        entrada = self.buscar_producto_carnico_configurado(
+            datos.producto_entrada_config_id
+        )
+
+        if not salida:
+            raise ValueError("Selecciona un producto de salida activo.")
+        if not entrada:
+            raise ValueError("Selecciona un producto de entrada activo.")
+
+        cantidad_salida = float(datos.cantidad_salida)
+        cantidad_entrada = float(datos.cantidad_entrada)
+        cantidad_merma = max(cantidad_salida - cantidad_entrada, 0)
+        porcentaje_merma = (
+            cantidad_merma / cantidad_salida * 100
+            if cantidad_salida
+            else 0
+        )
+
+        registro_id = self.fetchone(
+            """
+            INSERT INTO dbo.ModuloCarnicoTransformacionRegistro (
+                producto_salida_config_id,
+                producto_entrada_config_id,
+                producto_salida_nombre,
+                producto_entrada_nombre,
+                cantidad_salida,
+                cantidad_entrada,
+                cantidad_merma,
+                porcentaje_merma,
+                usuario_id,
+                usuario_confirmacion_nombre,
+                observaciones
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+            SELECT CONVERT(INT, SCOPE_IDENTITY());
+            """,
+            (
+                int(datos.producto_salida_config_id),
+                int(datos.producto_entrada_config_id),
+                salida["nombre_producto"],
+                entrada["nombre_producto"],
+                cantidad_salida,
+                cantidad_entrada,
+                cantidad_merma,
+                porcentaje_merma,
+                usuario_id,
+                datos.usuario_confirmacion_nombre,
+                datos.observaciones,
+            ),
+        )
+        return int(registro_id or 0)
+
+    def buscar_transformaciones_carnicas(
+        self,
+        limite: int = 50,
+    ) -> list[dict]:
+        self.asegurar_tablas_modulo_carnico()
+        return self.fetchall(
+            """
+            SELECT TOP (?)
+                id_registro,
+                producto_salida_config_id,
+                producto_entrada_config_id,
+                producto_salida_nombre,
+                producto_entrada_nombre,
+                cantidad_salida,
+                cantidad_entrada,
+                cantidad_merma,
+                porcentaje_merma,
+                usuario_id,
+                usuario_confirmacion_nombre,
+                observaciones,
+                fecha
+            FROM dbo.ModuloCarnicoTransformacionRegistro
+            ORDER BY id_registro DESC
+            """,
+            (int(limite),),
+        )
+
+    def obtener_marcas_por_categoria(
+        self,
+        categoria: str,
+    ) -> list[dict]:
+        categoria = str(categoria or "").strip()
+
+        if not categoria:
+            return []
+
+        return self.fetchall(
+            """
+            SELECT DISTINCT
+                B.BrandID,
+                B.BrandName
+            FROM dbo.catProductBrandCategory AS C
+            INNER JOIN dbo.catProductBrandCategoryRelation AS R
+                ON R.ProductBrandCategoryID =
+                   C.ProductBrandCategoryID
+            INNER JOIN dbo.catBrand AS B
+                ON B.BrandID = R.BrandID
+            WHERE UPPER(
+                    LTRIM(
+                        RTRIM(C.ProductBrandCategoryName)
+                    )
+                  ) = UPPER(LTRIM(RTRIM(?)))
+              AND C.DeletedOn IS NULL
+              AND R.DeletedOn IS NULL
+              AND B.DeletedOn IS NULL
+            ORDER BY B.BrandName
+            """,
+            (categoria,),
+        )
+
+    def homologar_tipo_movimiento_documento(
+        self,
+        document_id: int,
+    ) -> None:
+        self.command(
+            r"""
             DECLARE @DocumentID INT = ?;
             DECLARE @ModuleID INT;
             DECLARE @Custom1 NVARCHAR(125);
@@ -2449,20 +1021,33 @@ class BaseDatos(ComandosBaseDatos):
 
             SELECT
                 @ModuleID = ModuleID,
-                @Custom1 = LTRIM(RTRIM(ISNULL(Custom1, '')))
+                @Custom1 = LTRIM(
+                    RTRIM(
+                        ISNULL(Custom1, '')
+                    )
+                )
             FROM dbo.docDocument
             WHERE DocumentID = @DocumentID;
 
             SET @Custom1Normalizado = UPPER(@Custom1);
-            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, ' ', '');
-            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, '-', '');
-            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, '_', '');
-            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, '.', '');
-            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, '/', '');
-            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, '\\', '');
-            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, CHAR(9), '');
-            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, CHAR(10), '');
-            SET @Custom1Normalizado = REPLACE(@Custom1Normalizado, CHAR(13), '');
+            SET @Custom1Normalizado =
+                REPLACE(@Custom1Normalizado, ' ', '');
+            SET @Custom1Normalizado =
+                REPLACE(@Custom1Normalizado, '-', '');
+            SET @Custom1Normalizado =
+                REPLACE(@Custom1Normalizado, '_', '');
+            SET @Custom1Normalizado =
+                REPLACE(@Custom1Normalizado, '.', '');
+            SET @Custom1Normalizado =
+                REPLACE(@Custom1Normalizado, '/', '');
+            SET @Custom1Normalizado =
+                REPLACE(@Custom1Normalizado, '\', '');
+            SET @Custom1Normalizado =
+                REPLACE(@Custom1Normalizado, CHAR(9), '');
+            SET @Custom1Normalizado =
+                REPLACE(@Custom1Normalizado, CHAR(10), '');
+            SET @Custom1Normalizado =
+                REPLACE(@Custom1Normalizado, CHAR(13), '');
 
             IF ISNULL(@Custom1Normalizado, '') = ''
                 RETURN;
@@ -2476,15 +1061,31 @@ class BaseDatos(ComandosBaseDatos):
 
                 SELECT TOP 1
                     @SalidaDocumentID = S.DocumentID
-                FROM dbo.docDocument S
+                FROM dbo.docDocument AS S
                 WHERE S.ModuleID = 203
                   AND S.DeletedOn IS NULL
                   AND S.CancelledOn IS NULL
                   AND UPPER(
-                        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                            ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, ''),
-                            ' ', ''), '-', ''), '_', ''), '.', ''), '/', ''), '\\', ''),
-                            CHAR(9), ''), CHAR(10), ''), CHAR(13), '')
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                            ISNULL(S.FolioPrefix, '') +
+                            ISNULL(S.Folio, ''),
+                            ' ', ''),
+                            '-', ''),
+                            '_', ''),
+                            '.', ''),
+                            '/', ''),
+                            '\', ''),
+                            CHAR(9), ''),
+                            CHAR(10), ''),
+                            CHAR(13), '')
                       ) = @Custom1Normalizado
                 ORDER BY S.DocumentID DESC;
             END
@@ -2494,15 +1095,31 @@ class BaseDatos(ComandosBaseDatos):
 
                 SELECT TOP 1
                     @EntradaDocumentID = E.DocumentID
-                FROM dbo.docDocument E
+                FROM dbo.docDocument AS E
                 WHERE E.ModuleID = 202
                   AND E.DeletedOn IS NULL
                   AND E.CancelledOn IS NULL
                   AND UPPER(
-                        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                            ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, ''),
-                            ' ', ''), '-', ''), '_', ''), '.', ''), '/', ''), '\\', ''),
-                            CHAR(9), ''), CHAR(10), ''), CHAR(13), '')
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                        REPLACE(
+                            ISNULL(E.FolioPrefix, '') +
+                            ISNULL(E.Folio, ''),
+                            ' ', ''),
+                            '-', ''),
+                            '_', ''),
+                            '.', ''),
+                            '/', ''),
+                            '\', ''),
+                            CHAR(9), ''),
+                            CHAR(10), ''),
+                            CHAR(13), '')
                       ) = @Custom1Normalizado
                 ORDER BY E.DocumentID DESC;
             END
@@ -2519,13 +1136,17 @@ class BaseDatos(ComandosBaseDatos):
             DECLARE @SalidaFolio NVARCHAR(125);
 
             SELECT
-                @EntradaFolio = ISNULL(FolioPrefix, '') + ISNULL(Folio, '')
+                @EntradaFolio =
+                    ISNULL(FolioPrefix, '') +
+                    ISNULL(Folio, '')
             FROM dbo.docDocument
             WHERE DocumentID = @EntradaDocumentID
               AND ModuleID = 202;
 
             SELECT
-                @SalidaFolio = ISNULL(FolioPrefix, '') + ISNULL(Folio, '')
+                @SalidaFolio =
+                    ISNULL(FolioPrefix, '') +
+                    ISNULL(Folio, '')
             FROM dbo.docDocument
             WHERE DocumentID = @SalidaDocumentID
               AND ModuleID = 203;
@@ -2536,11 +1157,7 @@ class BaseDatos(ComandosBaseDatos):
                 DestinationDocumentID = 0,
                 Custom1 = @SalidaFolio
             WHERE DocumentID = @EntradaDocumentID
-              AND ModuleID = 202
-              AND (
-                    ISNULL(SourceDocumentID, 0) = 0
-                 OR ISNULL(Custom1, '') <> ISNULL(@SalidaFolio, '')
-              );
+              AND ModuleID = 202;
 
             UPDATE dbo.docDocument
             SET
@@ -2548,55 +1165,12 @@ class BaseDatos(ComandosBaseDatos):
                 DestinationDocumentID = @EntradaDocumentID,
                 Custom1 = @EntradaFolio
             WHERE DocumentID = @SalidaDocumentID
-              AND ModuleID = 203
-              AND (
-                    ISNULL(DestinationDocumentID, 0) = 0
-                 OR ISNULL(Custom1, '') <> ISNULL(@EntradaFolio, '')
-              );
+              AND ModuleID = 203;
             """,
             (int(document_id),),
         )
 
-    def obtener_marcas_por_categoria(self, categoria):
-        return self.fetchall(
-            """
-            SELECT
-                B.BrandID,
-                B.BrandName
-            FROM catProductBrandCategory C
-            INNER JOIN catProductBrandCategoryRelation R
-                ON R.ProductBrandCategoryID = C.ProductBrandCategoryID
-            INNER JOIN catBrand B
-                ON B.BrandID = R.BrandID
-            WHERE C.ProductBrandCategoryName = ?
-              AND C.DeletedOn IS NULL
-              AND R.DeletedOn IS NULL
-              AND B.DeletedOn IS NULL
-            ORDER BY B.BrandName
-            """,
-            (categoria,),
-        )
-
-    def obtener_partidas_documento_erp(self, document_id):
-        partidas = self.buscar_partidas_documento(int(document_id))
-        nuevas_partidas = []
-
-        for partida in partidas:
-            cantidad = float(partida.get("Quantity") or 0)
-            costo = float(partida.get("CostPrice") or 0)
-            total = float(partida.get("total") or cantidad * costo)
-            nuevas_partidas.append({
-                "ProductID": partida.get("ProductID"),
-                "Category": partida.get("Category1"),
-                "ProductKey": partida.get("ProductKey"),
-                "ProductName": partida.get("ProductName"),
-                "Quantity": cantidad,
-                "CostPrice": costo,
-                "total": total,
-            })
-
-        return nuevas_partidas
 
 @cache
-def obtener_base_datos():
+def obtener_base_datos() -> BaseDatos:
     return BaseDatos()

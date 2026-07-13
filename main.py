@@ -1,86 +1,106 @@
+import os
 from pathlib import Path
-import re
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 from app.routes.login import router as login_router
-from app.routes.relacion_documentos import (
-    router as relacion_documentos_router,
-)
+from app.routes.modulo_carnico import router as modulo_carnico_router
+from app.routes.relacion_documentos import router as relacion_router
+from app.utils.base_de_datos import obtener_base_datos
 from app.utils.seguridad import seguridad_sesion
 
 
-RUTA_PROYECTO = Path(__file__).resolve().parent
-RUTA_APP = RUTA_PROYECTO / "app"
-
-PATRON_ASSET_ESTATICO = re.compile(
-    r'(?P<prefijo>(?:href|src)=")'
-    r'(?P<url>/static/(?P<ruta>[^"?]+))'
-    r'(?:\?v=[^"]*)?'
-    r'(?P<sufijo>")'
-)
+BASE_DIR = Path(__file__).resolve().parent
+APP_DIR = BASE_DIR / 'app'
+STATIC_DIR = APP_DIR / 'static'
 
 app = FastAPI(
-    title="CAYAL - Módulo Cárnico",
+    title='CAYAL - Módulo Cárnico Web',
+    version='1.0.0',
 )
 
 app.mount(
-    "/static",
-    StaticFiles(directory=RUTA_APP / "static"),
-    name="static",
+    '/static',
+    StaticFiles(directory=STATIC_DIR),
+    name='static',
 )
+templates = Jinja2Templates(directory=APP_DIR / 'templates')
 
 app.include_router(login_router)
-app.include_router(relacion_documentos_router)
+app.include_router(modulo_carnico_router)
+app.include_router(relacion_router)
 
 
-def responder_template(nombre_archivo: str) -> HTMLResponse:
-    ruta_template = RUTA_APP / "templates" / nombre_archivo
-    contenido = ruta_template.read_text(encoding="utf-8")
+def obtener_version_assets() -> int:
+    versiones = []
 
-    def agregar_version(coincidencia):
-        ruta_asset = RUTA_APP / "static" / coincidencia.group("ruta")
-
+    for ruta in (
+        STATIC_DIR / 'css' / 'styles.css',
+        STATIC_DIR / 'js' / 'app.js',
+    ):
         try:
-            version = ruta_asset.stat().st_mtime_ns
+            versiones.append(ruta.stat().st_mtime_ns)
         except FileNotFoundError:
-            return coincidencia.group(0)
+            continue
 
-        return (
-            f'{coincidencia.group("prefijo")}'
-            f'{coincidencia.group("url")}?v={version}'
-            f'{coincidencia.group("sufijo")}'
-        )
+    return max(versiones) if versiones else 0
 
-    contenido_versionado = PATRON_ASSET_ESTATICO.sub(
-        agregar_version,
-        contenido,
+
+@app.exception_handler(RuntimeError)
+async def manejar_runtime_error(_: Request, error: RuntimeError):
+    return JSONResponse(
+        status_code=503,
+        content={'detail': str(error)},
     )
 
-    return HTMLResponse(contenido_versionado)
 
-
-@app.get("/", include_in_schema=False)
+@app.get('/', include_in_schema=False)
 def mostrar_login(request: Request):
     if seguridad_sesion.obtener_sesion(request):
-        return RedirectResponse("/dashboard", status_code=303)
+        return RedirectResponse('/dashboard', status_code=303)
+    return templates.TemplateResponse(
+        request=request,
+        name='login.html',
+        context={'asset_version': obtener_version_assets()},
+    )
 
-    return responder_template("login.html")
 
-
-@app.get("/dashboard", include_in_schema=False)
+@app.get('/dashboard', include_in_schema=False)
 def mostrar_dashboard(request: Request):
-    if not seguridad_sesion.obtener_sesion(request):
-        return RedirectResponse("/", status_code=303)
+    sesion = seguridad_sesion.obtener_sesion(request)
+    if not sesion:
+        return RedirectResponse('/', status_code=303)
+    return templates.TemplateResponse(
+        request=request,
+        name='dashboard.html',
+        context={
+            'sesion': sesion,
+            'asset_version': obtener_version_assets(),
+        },
+    )
 
-    return responder_template("dashboard.html")
 
-
-@app.get("/salud", tags=["Sistema"])
+@app.get('/salud', tags=['Sistema'])
 def comprobar_salud():
+    try:
+        conexion = obtener_base_datos().probar_conexion()
+        detalle = 'Conexión SQL Server disponible.'
+    except Exception as error:
+        conexion = False
+        detalle = str(error)
+
     return {
-        "estado": "ok",
-        "aplicacion": "Módulo Cárnico CAYAL",
+        'aplicacion': 'Módulo Cárnico CAYAL',
+        'api': True,
+        'base_de_datos': conexion,
+        'detalle': detalle,
     }

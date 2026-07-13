@@ -2,25 +2,16 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <title>Acceso | Transformación Cárnica</title>
-
-    <link
-        rel="stylesheet"
-        href="/app/static/css/styles.css"
-    >
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acceso | Transformacion Carnica</title>
+    <link rel="stylesheet" href="/static/css/styles.css?v={{ asset_version }}">
 </head>
 
 <body class="login-body">
     <main id="loginPage" class="login-container">
         <section class="login-card" aria-labelledby="loginTitle">
             <h1>CAYAL</h1>
-            <h2 id="loginTitle">Módulo de Transformación Cárnica</h2>
-
+            <h2 id="loginTitle">Modulo de Transformacion Carnica</h2>
             <p>Ingresa tus credenciales para continuar</p>
 
             <form
@@ -37,18 +28,18 @@
                     required
                 >
 
-                <label for="password">Contraseña</label>
+                <label for="password">Contrasena</label>
                 <input
                     type="password"
                     id="password"
                     name="password"
-                    placeholder="Contraseña"
+                    placeholder="Contrasena"
                     autocomplete="current-password"
                     required
                 >
 
-                <button type="submit">
-                    Iniciar sesión
+                <button id="loginButton" type="submit">
+                    Iniciar sesion
                 </button>
 
                 <p
@@ -60,6 +51,6 @@
         </section>
     </main>
 
-    <script src="/app/static/js/app.js"></script>
+    <script src="/static/js/app.js?v={{ asset_version }}"></script>
 </body>
 </html>

@@ -1,210 +1,1070 @@
-const API = "/api/relaciones-documentos";
+"use strict";
 
-const formulario = document.getElementById("form-relacion");
-const salidaSelect = document.getElementById("source-document-id");
-const entradaSelect = document.getElementById("destination-document-id");
-const movimientoSelect = document.getElementById("tipo-movimiento");
-const proveedorSelect = document.getElementById("proveedor-id");
-const usuarioFisicoSelect = document.getElementById("usuario-fisico-id");
-const fechaInput = document.getElementById("fecha-movimiento");
-const botonRelacionar = document.getElementById("boton-relacionar");
-const mensaje = document.getElementById("mensaje");
+const API_CARNICO = "/api/carnico";
 
-    function hoyLocal() {
-        const fecha = new Date();
-        const diferencia = fecha.getTimezoneOffset() *60_000;
-        return new Date(fecha.getTime() - diferencia).toISOString().slice(0, 10);
+let productosCarnicosDraft = [];
+let configuracionCarnicosSucia = false;
+let productosDisponiblesConfig = [];
+let paginaProductosDisponibles = 1;
+let modoEliminarConfig = false;
+const PRODUCTOS_POR_PAGINA_CONFIG = 6;
+
+async function solicitarJson(url, opciones = {}) {
+    const respuesta = await fetch(url, {
+        credentials: "same-origin",
+        headers: {
+            "Content-Type": "application/json",
+            ...(opciones.headers || {}),
+        },
+        ...opciones,
+    });
+
+    let datos = {};
+    try {
+        datos = await respuesta.json(); 
+    } catch (_) {
+        datos = {};
     }
 
-    async function solicitar(url, opciones = {}) {
-        const respuesta = await fetch(url, {
-            credentials: "same-origin",
-            headers: {
-                "Content-Type": "application/json",
-                ...(opciones.headers || {}),
-            },
-            ...opciones,
+    if (respuesta.status === 401 && !document.getElementById("loginPage")) {
+        window.location.assign("/");
+        throw new Error("La sesion termino.");
+    }
+
+    if (!respuesta.ok) {
+        let detalle = datos.detail || "No fue posible completar la operacion.";
+        if (Array.isArray(detalle)) {
+            detalle = detalle.map((item) => item.msg).join(" ");
+        }
+        throw new Error(detalle);
+    }
+
+    return datos;
+}
+
+function mostrarMensaje(elemento, texto, tipo = "error") {
+    if (!elemento) {
+        return;
+    }
+    elemento.textContent = texto;
+    elemento.className = `mensaje visible ${tipo}`;
+}
+
+function limpiarMensaje(elemento) {
+    if (!elemento) {
+        return;
+    }
+    elemento.textContent = "";
+    elemento.className = "mensaje";
+}
+
+function hayModalVisible() {
+    return Array.from(document.querySelectorAll(".modal-overlay"))
+        .some((modal) => !modal.classList.contains("hidden"));
+}
+
+function actualizarBloqueoModal() {
+    document.body.classList.toggle("modal-open", hayModalVisible());
+}
+
+function pedirConfirmacionModulo(opciones) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById("modal-dialogo-modulo");
+        const form = document.getElementById("form-dialogo-modulo");
+        const etiqueta = document.getElementById("dialogo-modulo-etiqueta");
+        const titulo = document.getElementById("dialogo-modulo-titulo");
+        const texto = document.getElementById("dialogo-modulo-texto");
+        const campo = document.getElementById("dialogo-modulo-campo");
+        const label = document.getElementById("dialogo-modulo-label");
+        const input = document.getElementById("dialogo-modulo-input");
+        const error = document.getElementById("dialogo-modulo-error");
+        const aceptar = document.getElementById("dialogo-modulo-aceptar");
+        const cancelar = document.getElementById("dialogo-modulo-cancelar");
+        const requiereTexto = Boolean(opciones.requiereTexto);
+
+        etiqueta.textContent = opciones.etiqueta || "Confirmacion";
+        titulo.textContent = opciones.titulo || "Confirmar accion";
+        texto.textContent = opciones.texto || "";
+        label.textContent = opciones.label || "Usuario";
+        input.value = "";
+        input.placeholder = opciones.placeholder || "";
+        error.textContent = "";
+        aceptar.textContent = opciones.aceptarTexto || "Aceptar";
+        cancelar.textContent = opciones.cancelarTexto || "Cancelar";
+        campo.classList.toggle("hidden", !requiereTexto);
+
+        function cerrar(resultado) {
+            form.onsubmit = null;
+            cancelar.onclick = null;
+            modal.classList.add("hidden");
+            actualizarBloqueoModal();
+            resolve(resultado);
+        }
+
+        form.onsubmit = (evento) => {
+            evento.preventDefault();
+            const valor = input.value.trim();
+
+            if (requiereTexto && !valor) {
+                error.textContent = "Escribe el dato solicitado para continuar.";
+                input.focus();
+                return;
+            }
+
+            cerrar({
+                confirmado: true,
+                valor,
+            });
+        };
+
+        cancelar.onclick = () => cerrar({
+            confirmado: false,
+            valor: "",
         });
 
-        if (respuesta.status === 401) {
-            window.location.assign("/");
-            throw new Error ("La Sesión Termino");
-        }
+        modal.classList.remove("hidden");
+        actualizarBloqueoModal();
 
-        const contenido = await respuesta.json().catch(() => ({}));
-
-        if (!respuesta.ok) {
-            throw new Error(contenido.detall || "No fue posible completar la operacion");
-        }
-
-        return contenido;
-    }
-
-    function llenarSelect(select, registro, configuracion) {
-        select.replaceChildren();
-
-        const opcionInicial = document.createElement("option");
-        opcionInicial.value = "";
-        opcionInicial.textContent = configuracion.placeholder;
-        select.appendChild(opcionInicial);
-
-        registro.forEach((registro) => {
-          const opcion = document.createElement("option");
-          opcionInicial.value = registro[configuracion.valor];
-          opcion.textContent = configuracion.texto(registro);
-          select.appendChild(opcion);
-        });
-    }
-
-    function mostrarMensaje(texto,tipo) {
-        mensaje.textContent = texto;
-        mensaje.className = `mensaje visible ${tipo}`;
-    }
-
-    function limpiarMensaje() {
-        mensaje.textContent = "";
-        mensaje.className = "mensaje";
-    }
-
-    function CrearTablaPartidas(partidas) {
-        if (!partidas.length) {
-            return "<p>No hay partidas para mostrar.</p>"
-        }
-
-        const filas = partidas.map((partida) => `
-            <tr>
-                <td>${partida.ProductKey || ""}</td>
-                <td>${partida.ProductName || ""}</td>
-                <td>${partida.Quantity || "0.00"}</td>
-                <td>${partida.total || "$0.00"}</td>
-            </tr>
-                    
-        `).join("");
-
-        return `
-            <table class="tabla-partida">
-            <thead>
-                <tr>
-                    <th>Clave</th>
-                    <th>Producto</th>
-                    <th>Cantidad</th>
-                    <th>Total</th>
-                </tr>
-            </thead>
-            <tbody>${filas}</tbody>
-            </table>
-        `;
-    }
-
-    async function cargarPartidas(documentId, contenedorId) {
-      const contenedor = document.getElementById(contenedorId);
-      contenedor.innerHTML = "";
-
-      if (!contenedor) {
-          return;
-      }
-
-      try {
-        const partidas = await solicitar(`${API}/documentos/${documentId}/partidas`);
-        contenedor.innerHTML = crearTablaPartidas(partidas);
-      } catch (error) {
-        contenedor.innerHTML = `<p>${error.message}</p>`;
-      }
-    }
-
-    async function cargarCatalogos() {
-    const [catalogos, salidas, entradas] = await Promise.all([
-        solicitar(`${API}/catalogos`),
-        solicitar(`${API}/documentos-disponibles/203`),
-        solicitar(`${API}/documentos-disponibles/202`),
-    ]);
-
-    llenarSelect(salidaSelect, salidas, {
-        placeholder: "Selecciona una salida",
-        valor: "DocumentID",
-        texto: (r) => `${r.DocFolio} · ${r.UserName || "Sin usuario"}`,
-    });
-
-    llenarSelect(entradaSelect, entradas, {
-        placeholder: "Selecciona una entrada",
-        valor: "DocumentID",
-        texto: (r) => `${r.DocFolio} · ${r.UserName || "Sin usuario"}`,
-    });
-
-    llenarSelect(movimientoSelect, catalogos.movimientos, {
-        placeholder: "Selecciona el movimiento",
-        valor: "ItemValue",
-        texto: (r) => r.ItemValue,
-    });
-
-    llenarSelect(proveedorSelect, catalogos.proveedores, {
-        placeholder: "Selecciona el proveedor",
-        valor: "BusinessEntityID",
-        texto: (r) => r.OfficialName,
-    });
-
-    llenarSelect(usuarioFisicoSelect, catalogos.usuarios_fisicos, {
-        placeholder: "Selecciona el usuario físico",
-        valor: "UserID",
-        texto: (r) => r.OfficialName,
+        setTimeout(() => {
+            if (requiereTexto) {
+                input.focus();
+            } else {
+                aceptar.focus();
+            }
+        }, 0);
     });
 }
 
-salidaSelect.addEventListener("change", () => {
-    cargarPartidas(salidaSelect.value, "partidas-salida");
-});
+async function iniciarSesion() {
+    const usuario = document.getElementById("usuario");
+    const password = document.getElementById("password");
+    const mensaje = document.getElementById("loginError");
+    const boton = document.getElementById("loginButton");
 
-entradaSelect.addEventListener("change", () => {
-    cargarPartidas(entradaSelect.value, "partidas-entrada");
-});
-
-formulario.addEventListener("submit", async (evento) => {
-    evento.preventDefault();
-    limpiarMensaje();
-
-    const sourceBrand = document.getElementById("source-brand-id").value;
-    const destinationBrand = document.getElementById("destination-brand-id").value;
-
-    const datos = {
-        source_document_id: Number(salidaSelect.value),
-        destination_document_id: Number(entradaSelect.value),
-        tipo_movimiento: movimientoSelect.value,
-        proveedor_id: Number(proveedorSelect.value),
-        usuario_fisico_id: Number(usuarioFisicoSelect.value),
-        fecha_movimiento: fechaInput.value,
-        source_brand_id: sourceBrand ? Number(sourceBrand) : null,
-        destination_brand_id: destinationBrand ? Number(destinationBrand) : null,
-    };
-
-    botonRelacionar.disabled = true;
-    botonRelacionar.textContent = "Relacionando...";
+    mensaje.textContent = "";
+    boton.disabled = true;
+    boton.textContent = "Validando...";
 
     try {
-        const resultado = await solicitar(API, {
+        await solicitarJson("/login/", {
             method: "POST",
-            body: JSON.stringify(datos),
+            body: JSON.stringify({
+                usuario: usuario.value.trim(),
+                password: password.value,
+            }),
+        });
+        window.location.assign("/dashboard");
+    } catch (error) {
+        mensaje.textContent = error.message;
+        password.focus();
+        password.select();
+    } finally {
+        boton.disabled = false;
+        boton.textContent = "Iniciar sesion";
+    }
+}
+
+window.iniciarSesion = iniciarSesion;
+
+function formatoNumero(valor, decimales = 2) {
+    return Number(valor || 0).toLocaleString("es-MX", {
+        maximumFractionDigits: decimales,
+        minimumFractionDigits: decimales,
+    });
+}
+
+function crearCelda(texto) {
+    const celda = document.createElement("td");
+    celda.textContent = texto ?? "";
+    return celda;
+}
+
+function crearTabla(encabezados, filas, mensajeVacio) {
+    const contenedor = document.createElement("div");
+
+    if (!filas.length) {
+        const vacio = document.createElement("p");
+        vacio.className = "estado-vacio";
+        vacio.textContent = mensajeVacio;
+        contenedor.appendChild(vacio);
+        return contenedor;
+    }
+
+    const tabla = document.createElement("table");
+    const thead = document.createElement("thead");
+    const trHead = document.createElement("tr");
+    const tbody = document.createElement("tbody");
+
+    tabla.className = "tabla-partidas";
+    encabezados.forEach((titulo) => {
+        const th = document.createElement("th");
+        th.textContent = titulo;
+        trHead.appendChild(th);
+    });
+    thead.appendChild(trHead);
+
+    filas.forEach((filaDatos) => {
+        const tr = document.createElement("tr");
+        filaDatos.forEach((dato) => tr.appendChild(crearCelda(dato)));
+        tbody.appendChild(tr);
+    });
+
+    tabla.append(thead, tbody);
+    contenedor.appendChild(tabla);
+    return contenedor;
+}
+
+function cambiarVista(nombre) {
+    document.querySelectorAll(".vista").forEach((vista) => {
+        vista.classList.toggle("hidden", vista.id !== `vista-${nombre}`);
+    });
+    document.querySelectorAll(".nav-boton").forEach((boton) => {
+        boton.classList.toggle("is-active", boton.dataset.vista === nombre);
+    });
+
+    if (nombre === "historial") {
+        cargarModuloCarnico();
+    }
+}
+
+function iniciarNavegacion() {
+    document.querySelectorAll(".nav-boton").forEach((boton) => {
+        boton.addEventListener("click", () => cambiarVista(boton.dataset.vista));
+    });
+
+    document.getElementById("boton-salir")?.addEventListener("click", async () => {
+        try {
+            await solicitarJson("/login/logout", { method: "POST" });
+        } finally {
+            window.location.assign("/");
+        }
+    });
+}
+
+function textoProducto(producto) {
+    const clave = producto.clave ? `${producto.clave} - ` : "";
+    const categoria = producto.opcion_creacion
+        ? ` (${producto.opcion_creacion})`
+        : "";
+    return `${clave}${producto.nombre_producto}${categoria}`;
+}
+
+async function buscarProductosCarnicos(termino, limite = 12) {
+    const datos = await solicitarJson(
+        `${API_CARNICO}/productos-erp?q=${encodeURIComponent(termino)}&limite=${limite}`,
+    );
+    return datos.productos || [];
+}
+
+function configurarAutocompleteProducto(inputId, hiddenId, listaId) {
+    const input = document.getElementById(inputId);
+    const hidden = document.getElementById(hiddenId);
+    const lista = document.getElementById(listaId);
+
+    if (!input || !hidden || !lista) {
+        return;
+    }
+
+    let temporizador = null;
+    let solicitud = 0;
+
+    function ocultar() {
+        lista.classList.add("hidden");
+        lista.replaceChildren();
+    }
+
+    input.addEventListener("input", () => {
+        hidden.value = "";
+        const termino = input.value.trim();
+        clearTimeout(temporizador);
+
+        if (termino.length < 2) {
+            ocultar();
+            return;
+        }
+
+        temporizador = setTimeout(async () => {
+            const solicitudActual = ++solicitud;
+
+            try {
+                const productos = await buscarProductosCarnicos(termino);
+
+                if (solicitudActual !== solicitud) {
+                    return;
+                }
+
+                lista.replaceChildren();
+                if (!productos.length) {
+                    const vacio = document.createElement("div");
+                    vacio.className = "autocomplete-empty";
+                    vacio.textContent = "Sin resultados.";
+                    lista.appendChild(vacio);
+                    lista.classList.remove("hidden");
+                    return;
+                }
+
+                productos.forEach((producto) => {
+                    const boton = document.createElement("button");
+                    boton.type = "button";
+                    boton.className = "autocomplete-item";
+                    boton.innerHTML = `
+                        <strong>${textoProducto(producto)}</strong>
+                        <span>${producto.categoria || "SIN CATEGORIA"} · ${producto.unidad || "KILO"}</span>
+                    `;
+                    boton.textContent = "";
+                    const nombre = document.createElement("strong");
+                    const meta = document.createElement("span");
+                    nombre.textContent = textoProducto(producto);
+                    meta.textContent = `${producto.categoria || "SIN CATEGORIA"} - ${producto.unidad || "KILO"}`;
+                    boton.append(nombre, meta);
+                    boton.addEventListener("click", () => {
+                        hidden.value = producto.product_id;
+                        input.value = textoProducto(producto);
+                        ocultar();
+                    });
+                    lista.appendChild(boton);
+                });
+                lista.classList.remove("hidden");
+            } catch (error) {
+                lista.replaceChildren();
+                const mensaje = document.createElement("div");
+                mensaje.className = "autocomplete-empty";
+                mensaje.textContent = error.message;
+                lista.appendChild(mensaje);
+                lista.classList.remove("hidden");
+            }
+        }, 220);
+    });
+
+    input.addEventListener("blur", () => {
+        setTimeout(ocultar, 160);
+    });
+}
+
+function sugerirMerma() {
+    const salida = Number(document.getElementById("cantidad-salida-carnico")?.value || 0);
+    const entrada = Number(document.getElementById("cantidad-entrada-carnico")?.value || 0);
+    const merma = document.getElementById("cantidad-merma-carnico");
+
+    if (!merma || merma.dataset.editado === "1") {
+        return;
+    }
+
+    if (salida > 0 && entrada > 0) {
+        merma.value = Math.max(salida - entrada, 0).toFixed(3);
+    }
+}
+
+function actualizarResumenHistorial(resumen) {
+    document.getElementById("historial-total-mes").textContent =
+        formatoNumero(resumen?.total_movimientos || resumen?.total_transformaciones || 0, 0);
+    document.getElementById("historial-rendimiento").textContent =
+        `${formatoNumero(resumen?.rendimiento || 0, 2)}%`;
+    document.getElementById("historial-merma").textContent =
+        `${formatoNumero(resumen?.kilos_merma || 0, 3)} kg`;
+}
+
+function renderizarHistorialCarnico(registros) {
+    const contenedor = document.getElementById("tabla-historial-carnico");
+
+    if (!contenedor) {
+        return;
+    }
+
+    contenedor.replaceChildren();
+
+    if (!registros.length) {
+        const vacio = document.createElement("p");
+        vacio.className = "estado-vacio";
+        vacio.textContent = "Aun no hay movimientos registrados.";
+        contenedor.appendChild(vacio);
+        return;
+    }
+
+    const lista = document.createElement("div");
+    lista.className = "historial-lista";
+
+    registros.forEach((registro) => {
+        const tipo = String(registro.tipo_movimiento || "Entrada").toLowerCase();
+        const fecha = String(registro.fecha || "").replace("T", " ").slice(0, 19);
+        const articulo = document.createElement("article");
+        const encabezado = document.createElement("div");
+        const badge = document.createElement("span");
+        const titulo = document.createElement("strong");
+        const meta = document.createElement("div");
+
+        articulo.className = "historial-item";
+        encabezado.className = "historial-item-header";
+        badge.className = `historial-badge ${tipo}`;
+        badge.textContent = tipo === "salida" ? "Salida" : "Entrada";
+        titulo.className = "historial-title";
+        titulo.textContent = tipo === "salida"
+            ? registro.producto_salida_nombre || "Salida sin producto"
+            : `${registro.producto_salida_nombre || "Salida"} -> ${registro.producto_entrada_nombre || "Entrada"}`;
+        meta.className = "historial-meta";
+
+        const chips = [
+            `Folio ${registro.id_registro}`,
+            fecha || "Sin fecha",
+            `Salida ${formatoNumero(registro.cantidad_salida, 3)} kg`,
+        ];
+
+        if (tipo !== "salida") {
+            chips.push(`Entrada ${formatoNumero(registro.cantidad_entrada, 3)} kg`);
+            chips.push(`Merma ${formatoNumero(registro.cantidad_merma, 3)} kg`);
+            chips.push(`Rend. ${formatoNumero(registro.rendimiento, 2)}%`);
+        }
+
+        if (registro.proveedor_nombre) {
+            chips.push(`Proveedor ${registro.proveedor_nombre}`);
+        }
+        if (registro.usuario_confirmacion_nombre) {
+            chips.push(`Usuario ${registro.usuario_confirmacion_nombre}`);
+        }
+        if (registro.estado) {
+            chips.push(registro.estado);
+        }
+        if (registro.observaciones) {
+            chips.push(`Obs. ${registro.observaciones}`);
+        }
+
+        chips.forEach((texto) => {
+            const chip = document.createElement("span");
+            chip.className = "historial-chip";
+            chip.textContent = texto;
+            meta.appendChild(chip);
         });
 
+        encabezado.append(badge, titulo);
+        articulo.append(encabezado, meta);
+        lista.appendChild(articulo);
+    });
+
+    contenedor.appendChild(lista);
+}
+
+async function verificarPermisosConfiguracion() {
+    const boton = document.getElementById("boton-configuracion-carnicos");
+
+    if (!boton) {
+        return;
+    }
+
+    try {
+        const datos = await solicitarJson(`${API_CARNICO}/permisos`);
+        boton.classList.toggle("hidden", !datos.puede_configurar);
+        boton.disabled = !datos.puede_configurar;
+    } catch (_) {
+        boton.classList.add("hidden");
+        boton.disabled = true;
+    }
+}
+
+async function cargarModuloCarnico() {
+    const mensaje = document.getElementById("mensaje-carnico");
+
+    try {
+        const datos = await solicitarJson(`${API_CARNICO}/resumen`);
+        actualizarResumenHistorial(datos.resumen || {});
+        renderizarHistorialCarnico(datos.registros || []);
+        limpiarMensaje(mensaje);
+    } catch (error) {
+        mostrarMensaje(mensaje, error.message, "error");
+    }
+}
+
+async function registrarTransformacionCarnica(evento) {
+    evento.preventDefault();
+
+    const mensaje = document.getElementById("mensaje-carnico");
+    const boton = document.getElementById("boton-registrar-carnico");
+    const salidaId = Number(document.getElementById("producto-salida-carnico").value);
+    const entradaId = Number(document.getElementById("producto-entrada-carnico").value);
+
+    if (!salidaId || !entradaId) {
         mostrarMensaje(
-            `${resultado.mensaje} ${resultado.folio_salida} → ${resultado.folio_entrada}`,
-            "exito",
+            mensaje,
+            "Selecciona salida y entrada desde la lista de sugerencias.",
+            "error",
+        );
+        return;
+    }
+
+    const decision = await pedirConfirmacionModulo({
+        etiqueta: "Transformacion",
+        titulo: "Registrar transformacion",
+        texto: "Confirma el usuario que realiza el registro. Al aceptar se guardara la transformacion.",
+        requiereTexto: true,
+        label: "Usuario que registra",
+        placeholder: "Nombre de usuario",
+        aceptarTexto: "Registrar",
+        cancelarTexto: "Cancelar",
+    });
+
+    if (!decision.confirmado) {
+        return;
+    }
+
+    const usuario = decision.valor;
+
+    const payload = {
+        producto_salida_id: salidaId,
+        producto_entrada_id: entradaId,
+        cantidad_salida: Number(document.getElementById("cantidad-salida-carnico").value),
+        cantidad_entrada: Number(document.getElementById("cantidad-entrada-carnico").value),
+        cantidad_merma: Number(document.getElementById("cantidad-merma-carnico").value || 0),
+        observaciones: document.getElementById("observaciones-carnico").value.trim() || null,
+        usuario_confirmacion_nombre: usuario.trim(),
+    };
+
+    boton.disabled = true;
+    boton.textContent = "Registrando...";
+    limpiarMensaje(mensaje);
+
+    try {
+        const resultado = await solicitarJson(`${API_CARNICO}/transformaciones`, {
+            method: "POST",
+            body: JSON.stringify(payload),
+        });
+        mostrarMensaje(mensaje, resultado.mensaje, "exito");
+        document.getElementById("form-transformacion-carnica").reset();
+        document.getElementById("producto-salida-carnico").value = "";
+        document.getElementById("producto-entrada-carnico").value = "";
+        document.getElementById("cantidad-merma-carnico").dataset.editado = "";
+        actualizarResumenHistorial(resultado.resumen || {});
+        renderizarHistorialCarnico(resultado.registros || []);
+    } catch (error) {
+        mostrarMensaje(mensaje, error.message, "error");
+    } finally {
+        boton.disabled = false;
+        boton.textContent = "Registrar transformacion";
+    }
+}
+
+async function registrarSalidaCarnica(evento) {
+    evento.preventDefault();
+
+    const mensaje = document.getElementById("mensaje-salida-carnico");
+    const boton = document.getElementById("boton-registrar-salida");
+    const productoId = Number(document.getElementById("producto-base-carnico").value);
+
+    if (!productoId) {
+        mostrarMensaje(
+            mensaje,
+            "Selecciona el producto base desde la lista de sugerencias.",
+            "error",
+        );
+        return;
+    }
+
+    const decision = await pedirConfirmacionModulo({
+        etiqueta: "Salida",
+        titulo: "Registrar salida de almacen",
+        texto: "Se guardara la salida del producto base en el historial del modulo.",
+        aceptarTexto: "Registrar",
+        cancelarTexto: "Cancelar",
+    });
+
+    if (!decision.confirmado) {
+        return;
+    }
+
+    const payload = {
+        producto_salida_id: productoId,
+        cantidad_salida: Number(document.getElementById("cantidad-salida-base").value),
+        proveedor_nombre: document.getElementById("proveedor-salida-carnico").value.trim(),
+        usuario_confirmacion_nombre: document.getElementById("usuario-salida-carnico").value.trim(),
+        observaciones: document.getElementById("observaciones-salida-carnico").value.trim() || null,
+    };
+
+    boton.disabled = true;
+    boton.textContent = "Registrando...";
+    limpiarMensaje(mensaje);
+
+    try {
+        const resultado = await solicitarJson(`${API_CARNICO}/salidas`, {
+            method: "POST",
+            body: JSON.stringify(payload),
+        });
+        mostrarMensaje(mensaje, resultado.mensaje, "exito");
+        document.getElementById("form-salida-carnica").reset();
+        document.getElementById("producto-base-carnico").value = "";
+        actualizarResumenHistorial(resultado.resumen || {});
+        renderizarHistorialCarnico(resultado.registros || []);
+    } catch (error) {
+        mostrarMensaje(mensaje, error.message, "error");
+    } finally {
+        boton.disabled = false;
+        boton.textContent = "Registrar salida";
+    }
+}
+
+function renderizarConfiguracionCarnicos() {
+    const contenedor = document.getElementById("tabla-configuracion-carnicos");
+    const tabla = document.createElement("table");
+    const thead = document.createElement("thead");
+    const tbody = document.createElement("tbody");
+    const trHead = document.createElement("tr");
+
+    tabla.className = "tabla-partidas";
+    const encabezados = ["Estado", "Producto", "Proveedor", "Categoria", "Unidad", "Merma"];
+    if (modoEliminarConfig) {
+        encabezados.push("Accion");
+    }
+
+    encabezados.forEach((titulo) => {
+        const th = document.createElement("th");
+        th.textContent = titulo;
+        trHead.appendChild(th);
+    });
+    thead.appendChild(trHead);
+
+    productosCarnicosDraft.forEach((producto, indice) => {
+        const tr = document.createElement("tr");
+
+        tr.classList.toggle("fila-inactiva", !producto.activo);
+        tr.append(
+            crearCelda(producto.activo ? "Activo" : "Oculto"),
+            crearCelda(producto.nombre_producto),
+            crearCelda(producto.proveedor_nombre || "-"),
+            crearCelda(producto.categoria || "-"),
+            crearCelda(producto.unidad || "KILO"),
+            crearCelda(`${formatoNumero(producto.porcentaje_merma || 0, 2)}%`),
         );
 
-        formulario.reset();
-        fechaInput.value = hoyLocal();
-        document.getElementById("partidas-salida").innerHTML = "";
-        document.getElementById("partidas-entrada").innerHTML = "";
-        await cargarCatalogos();
-    } catch (error) {
-        mostrarMensaje(error.message, "error");
-    } finally {
-        botonRelacionar.disabled = false;
-        botonRelacionar.textContent = "Relacionar documentos";
+        if (modoEliminarConfig) {
+            const accion = document.createElement("button");
+            const tdAccion = document.createElement("td");
+
+            accion.type = "button";
+            accion.className = "boton-tabla";
+            accion.textContent = producto.activo ? "Ocultar" : "Reactivar";
+            accion.addEventListener("click", () => {
+                productosCarnicosDraft[indice].activo = !productosCarnicosDraft[indice].activo;
+                configuracionCarnicosSucia = true;
+                renderizarConfiguracionCarnicos();
+            });
+
+            tdAccion.appendChild(accion);
+            tr.appendChild(tdAccion);
+        }
+
+        tbody.appendChild(tr);
+    });
+
+    tabla.append(thead, tbody);
+    contenedor.replaceChildren();
+
+    if (!productosCarnicosDraft.length) {
+        const vacio = document.createElement("p");
+        vacio.className = "estado-vacio";
+        vacio.textContent = "No hay productos configurados.";
+        contenedor.appendChild(vacio);
+        return;
     }
-});
 
-fechaInput.value = hoyLocal();
+    contenedor.appendChild(tabla);
+}
 
-cargarCatalogos().catch((error) => {
-    mostrarMensaje(error.message, "error");
+function mostrarFormularioConfigProducto(producto = null) {
+    const formulario = document.getElementById("form-producto-carnico");
+    const id = document.getElementById("config-producto-id");
+    const clave = document.getElementById("config-producto-clave");
+    const nombre = document.getElementById("config-producto-nombre");
+    const proveedor = document.getElementById("config-producto-proveedor");
+    const categoria = document.getElementById("config-producto-categoria");
+    const resultante = document.getElementById("config-producto-resultante");
+    const unidad = document.getElementById("config-producto-unidad");
+    const merma = document.getElementById("config-producto-merma");
+
+    formulario.classList.remove("hidden");
+    formulario.reset();
+    id.value = producto?.product_id || "";
+    clave.value = producto?.clave || "";
+    nombre.value = producto?.nombre_producto || "";
+    proveedor.value = producto?.proveedor_nombre || "";
+    categoria.value = producto?.categoria || "CERDO";
+    resultante.value = producto?.opcion_creacion || producto?.categoria_resultante || "";
+    unidad.value = producto?.unidad || "KILO";
+    merma.value = producto?.porcentaje_merma ?? "";
+    nombre.focus();
+}
+
+function renderizarProductosDisponiblesConfig() {
+    const contenedor = document.getElementById("tabla-productos-disponibles");
+    const info = document.getElementById("config-pagina-info");
+    const anterior = document.getElementById("config-pagina-anterior");
+    const siguiente = document.getElementById("config-pagina-siguiente");
+    const tabla = document.createElement("table");
+    const thead = document.createElement("thead");
+    const tbody = document.createElement("tbody");
+    const trHead = document.createElement("tr");
+    const totalPaginas = Math.max(
+        1,
+        Math.ceil(productosDisponiblesConfig.length / PRODUCTOS_POR_PAGINA_CONFIG),
+    );
+
+    paginaProductosDisponibles = Math.min(paginaProductosDisponibles, totalPaginas);
+    tabla.className = "tabla-partidas tabla-seleccionable";
+    ["Clave", "Nombre producto", "Unidad"].forEach((titulo) => {
+        const th = document.createElement("th");
+        th.textContent = titulo;
+        trHead.appendChild(th);
+    });
+    thead.appendChild(trHead);
+
+    const inicio = (paginaProductosDisponibles - 1) * PRODUCTOS_POR_PAGINA_CONFIG;
+    const productosPagina = productosDisponiblesConfig.slice(
+        inicio,
+        inicio + PRODUCTOS_POR_PAGINA_CONFIG,
+    );
+
+    productosPagina.forEach((producto) => {
+        const tr = document.createElement("tr");
+        tr.tabIndex = 0;
+        tr.append(
+            crearCelda(producto.clave || "-"),
+            crearCelda(producto.nombre_producto || "-"),
+            crearCelda(producto.unidad || "KILO"),
+        );
+        tr.addEventListener("click", () => mostrarFormularioConfigProducto(producto));
+        tr.addEventListener("keydown", (evento) => {
+            if (evento.key === "Enter" || evento.key === " ") {
+                evento.preventDefault();
+                mostrarFormularioConfigProducto(producto);
+            }
+        });
+        tbody.appendChild(tr);
+    });
+
+    tabla.append(thead, tbody);
+    contenedor.replaceChildren();
+
+    if (!productosDisponiblesConfig.length) {
+        const vacio = document.createElement("p");
+        vacio.className = "estado-vacio";
+        vacio.textContent = "No se encontraron productos disponibles.";
+        contenedor.appendChild(vacio);
+    } else {
+        contenedor.appendChild(tabla);
+    }
+
+    info.textContent =
+        `Pagina ${paginaProductosDisponibles} de ${totalPaginas} (${productosDisponiblesConfig.length} productos)`;
+    anterior.disabled = paginaProductosDisponibles <= 1;
+    siguiente.disabled = paginaProductosDisponibles >= totalPaginas;
+}
+
+async function cargarProductosDisponiblesConfig(termino = "") {
+    const mensaje = document.getElementById("mensaje-configuracion-carnicos");
+
+    try {
+        productosDisponiblesConfig = await buscarProductosCarnicos(termino, 50);
+        paginaProductosDisponibles = 1;
+        renderizarProductosDisponiblesConfig();
+        limpiarMensaje(mensaje);
+    } catch (error) {
+        mostrarMensaje(mensaje, error.message, "error");
+    }
+}
+
+async function abrirConfiguracionCarnicos() {
+    const modal = document.getElementById("modal-configuracion-carnicos");
+    const mensaje = document.getElementById("mensaje-configuracion-carnicos");
+
+    modal.classList.remove("hidden");
+    actualizarBloqueoModal();
+    limpiarMensaje(mensaje);
+
+    try {
+        const datos = await solicitarJson(`${API_CARNICO}/productos?incluir_inactivos=true`);
+        productosCarnicosDraft = (datos.productos || []).map((producto) => ({ ...producto }));
+        configuracionCarnicosSucia = false;
+        modoEliminarConfig = false;
+        renderizarConfiguracionCarnicos();
+        await cargarProductosDisponiblesConfig("");
+    } catch (error) {
+        mostrarMensaje(mensaje, error.message, "error");
+    }
+}
+
+async function cerrarConfiguracionCarnicos() {
+    if (
+        configuracionCarnicosSucia
+    ) {
+        const decision = await pedirConfirmacionModulo({
+            etiqueta: "Configuracion",
+            titulo: "Cerrar sin guardar",
+            texto: "Hay cambios de configuracion sin guardar. Si cierras ahora se perderan.",
+            aceptarTexto: "Cerrar sin guardar",
+            cancelarTexto: "Volver",
+        });
+
+        if (!decision.confirmado) {
+            return;
+        }
+    }
+    document.getElementById("modal-configuracion-carnicos").classList.add("hidden");
+    actualizarBloqueoModal();
+}
+
+function agregarProductoCarnico(evento) {
+    evento.preventDefault();
+
+    const productoId = document.getElementById("config-producto-id");
+    const clave = document.getElementById("config-producto-clave");
+    const nombre = document.getElementById("config-producto-nombre");
+    const proveedor = document.getElementById("config-producto-proveedor");
+    const categoria = document.getElementById("config-producto-categoria");
+    const resultante = document.getElementById("config-producto-resultante");
+    const unidad = document.getElementById("config-producto-unidad");
+    const merma = document.getElementById("config-producto-merma");
+    const nombreValor = nombre.value.trim();
+    const proveedorValor = proveedor.value.trim();
+
+    if (!nombreValor || !proveedorValor) {
+        nombre.reportValidity();
+        proveedor.reportValidity();
+        return;
+    }
+
+    const productIdValor = Number(productoId.value || 0) || null;
+    const producto = {
+        id_configuracion: null,
+        product_id: productIdValor,
+        clave: clave.value.trim(),
+        proveedor_id: null,
+        proveedor_nombre: proveedorValor,
+        nombre_producto: nombreValor,
+        categoria: categoria.value,
+        categoria_resultante: resultante.value.trim(),
+        unidad: unidad.value,
+        porcentaje_merma: Number(merma.value || 0),
+        activo: true,
+    };
+    const indiceExistente = productosCarnicosDraft.findIndex((registro) => (
+        (productIdValor && Number(registro.product_id) === productIdValor)
+        || (
+            !productIdValor
+            && registro.nombre_producto.trim().toUpperCase() === nombreValor.toUpperCase()
+            && String(registro.proveedor_nombre || "").trim().toUpperCase()
+                === proveedorValor.toUpperCase()
+        )
+    ));
+
+    if (indiceExistente >= 0) {
+        productosCarnicosDraft[indiceExistente] = {
+            ...productosCarnicosDraft[indiceExistente],
+            ...producto,
+            id_configuracion: productosCarnicosDraft[indiceExistente].id_configuracion,
+        };
+    } else {
+        productosCarnicosDraft.push(producto);
+    }
+
+    evento.target.reset();
+    productoId.value = "";
+    clave.value = "";
+    categoria.value = "CERDO";
+    unidad.value = "KILO";
+    configuracionCarnicosSucia = true;
+    renderizarConfiguracionCarnicos();
+    mostrarMensaje(
+        document.getElementById("mensaje-configuracion-carnicos"),
+        "Producto agregado al borrador. Presiona Guardar para confirmar.",
+        "exito",
+    );
+}
+
+async function confirmarLimpiezaConfiguracion() {
+    if (!productosCarnicosDraft.length) {
+        return;
+    }
+
+    const decision = await pedirConfirmacionModulo({
+        etiqueta: "Configuracion",
+        titulo: "Limpiar productos agregados",
+        texto: "Los productos se marcaran como ocultos en el borrador. Guarda para aplicar el cambio.",
+        aceptarTexto: "Limpiar",
+        cancelarTexto: "Cancelar",
+    });
+
+    if (!decision.confirmado) {
+        return;
+    }
+
+    productosCarnicosDraft = productosCarnicosDraft.map((producto) => ({
+        ...producto,
+        activo: false,
+    }));
+    configuracionCarnicosSucia = true;
+    renderizarConfiguracionCarnicos();
+}
+
+function alternarModoEliminarConfig() {
+    modoEliminarConfig = !modoEliminarConfig;
+    const boton = document.getElementById("config-boton-eliminar");
+    boton.classList.toggle("is-active", modoEliminarConfig);
+    boton.textContent = modoEliminarConfig ? "Terminar" : "Eliminar";
+    renderizarConfiguracionCarnicos();
+}
+
+function mostrarSelectorCaptura() {
+    document.getElementById("panel-tipo-captura")?.classList.remove("hidden");
+    document.getElementById("panel-captura-carnica")?.classList.add("hidden");
+    document.getElementById("panel-captura-salida")?.classList.add("hidden");
+    document.getElementById("panel-tipo-captura")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+    });
+}
+
+function seleccionarTipoCaptura(tipo) {
+    const esEntrada = tipo === "entrada";
+    document.getElementById("panel-tipo-captura")?.classList.add("hidden");
+    document.getElementById("panel-captura-carnica")?.classList.toggle("hidden", !esEntrada);
+    document.getElementById("panel-captura-salida")?.classList.toggle("hidden", esEntrada);
+
+    if (esEntrada) {
+        document.getElementById("producto-salida-busqueda")?.focus();
+    } else {
+        document.getElementById("producto-base-busqueda")?.focus();
+    }
+}
+
+async function guardarConfiguracionCarnicos() {
+    const mensaje = document.getElementById("mensaje-configuracion-carnicos");
+    const decision = await pedirConfirmacionModulo({
+        etiqueta: "Configuracion",
+        titulo: "Guardar configuracion",
+        texto: "Confirma el usuario que realizo los cambios. Al aceptar se guardara la configuracion.",
+        requiereTexto: true,
+        label: "Usuario que autoriza",
+        placeholder: "Nombre de usuario",
+        aceptarTexto: "Guardar",
+        cancelarTexto: "Cancelar",
+    });
+
+    if (!decision.confirmado) {
+        return;
+    }
+
+    const usuario = decision.valor;
+    const confirmacion = await pedirConfirmacionModulo({
+        etiqueta: "Configuracion",
+        titulo: "Confirmar guardado",
+        texto: "Seguro que quieres guardar los cambios de configuracion?",
+        aceptarTexto: "Si, guardar",
+        cancelarTexto: "Cancelar",
+    });
+
+    if (!confirmacion.confirmado) {
+        return;
+    }
+
+    try {
+        const datos = await solicitarJson(`${API_CARNICO}/productos`, {
+            method: "PUT",
+            body: JSON.stringify({
+                usuario_confirmacion_nombre: usuario.trim(),
+                productos: productosCarnicosDraft,
+            }),
+        });
+        productosCarnicosDraft = (datos.productos || []).map((producto) => ({ ...producto }));
+        configuracionCarnicosSucia = false;
+        renderizarConfiguracionCarnicos();
+        mostrarMensaje(mensaje, "Configuracion guardada.", "exito");
+        await cargarModuloCarnico();
+    } catch (error) {
+        mostrarMensaje(mensaje, error.message, "error");
+    }
+}
+
+function iniciarModuloCarnico() {
+    document.getElementById("form-transformacion-carnica")
+        ?.addEventListener("submit", registrarTransformacionCarnica);
+    document.getElementById("form-salida-carnica")
+        ?.addEventListener("submit", registrarSalidaCarnica);
+    document.getElementById("cantidad-salida-carnico")
+        ?.addEventListener("input", sugerirMerma);
+    document.getElementById("cantidad-entrada-carnico")
+        ?.addEventListener("input", sugerirMerma);
+    document.getElementById("cantidad-merma-carnico")
+        ?.addEventListener("input", (evento) => {
+            evento.target.dataset.editado = "1";
+        });
+    document.getElementById("boton-iniciar-captura")
+        ?.addEventListener("click", mostrarSelectorCaptura);
+    document.querySelectorAll(".tipo-captura-card").forEach((boton) => {
+        boton.addEventListener("click", () => seleccionarTipoCaptura(boton.dataset.captura));
+    });
+    document.getElementById("boton-configuracion-carnicos")
+        ?.addEventListener("click", abrirConfiguracionCarnicos);
+    document.getElementById("cerrar-configuracion-carnicos")
+        ?.addEventListener("click", cerrarConfiguracionCarnicos);
+    document.getElementById("form-producto-carnico")
+        ?.addEventListener("submit", agregarProductoCarnico);
+    document.getElementById("guardar-configuracion-carnicos")
+        ?.addEventListener("click", guardarConfiguracionCarnicos);
+    document.getElementById("config-boton-agregar")
+        ?.addEventListener("click", () => mostrarFormularioConfigProducto());
+    document.getElementById("config-boton-buscar")
+        ?.addEventListener("click", () => {
+            const termino = document.getElementById("config-buscar-producto")?.value.trim() || "";
+            void cargarProductosDisponiblesConfig(termino);
+        });
+    document.getElementById("config-buscar-producto")
+        ?.addEventListener("keydown", (evento) => {
+            if (evento.key === "Enter") {
+                evento.preventDefault();
+                const termino = evento.target.value.trim();
+                void cargarProductosDisponiblesConfig(termino);
+            }
+        });
+    document.getElementById("config-boton-eliminar")
+        ?.addEventListener("click", alternarModoEliminarConfig);
+    document.getElementById("limpiar-configuracion-carnicos")
+        ?.addEventListener("click", confirmarLimpiezaConfiguracion);
+    document.getElementById("config-pagina-anterior")
+        ?.addEventListener("click", () => {
+            paginaProductosDisponibles = Math.max(1, paginaProductosDisponibles - 1);
+            renderizarProductosDisponiblesConfig();
+        });
+    document.getElementById("config-pagina-siguiente")
+        ?.addEventListener("click", () => {
+            const totalPaginas = Math.max(
+                1,
+                Math.ceil(productosDisponiblesConfig.length / PRODUCTOS_POR_PAGINA_CONFIG),
+            );
+            paginaProductosDisponibles = Math.min(totalPaginas, paginaProductosDisponibles + 1);
+            renderizarProductosDisponiblesConfig();
+        });
+
+    configurarAutocompleteProducto(
+        "producto-salida-busqueda",
+        "producto-salida-carnico",
+        "sugerencias-salida-carnico",
+    );
+    configurarAutocompleteProducto(
+        "producto-entrada-busqueda",
+        "producto-entrada-carnico",
+        "sugerencias-entrada-carnico",
+    );
+    configurarAutocompleteProducto(
+        "producto-base-busqueda",
+        "producto-base-carnico",
+        "sugerencias-base-carnico",
+    );
+
+    verificarPermisosConfiguracion();
+    cargarModuloCarnico();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    if (!document.getElementById("dashboardPage")) {
+        return;
+    }
+
+    iniciarNavegacion();
+    iniciarModuloCarnico();
 });
