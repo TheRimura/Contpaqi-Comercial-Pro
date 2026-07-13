@@ -89,6 +89,22 @@ def buscar_productos_erp(
     })
 
 
+@router.get("/receta")
+def obtener_receta_producto(
+    request: Request,
+    producto_id: int,
+    cantidad: float = 1,
+    repositorio: ModuloCarnicoRepository = Depends(obtener_repositorio),
+):
+    exigir_sesion(request)
+    return jsonable_encoder({
+        "insumos": repositorio.obtener_receta_producto(
+            producto_entrada_id=producto_id,
+            cantidad_entrada=cantidad,
+        )
+    })
+
+
 @router.get("/productos")
 def listar_productos(
     request: Request,

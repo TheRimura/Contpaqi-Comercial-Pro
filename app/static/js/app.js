@@ -7,7 +7,12 @@ let configuracionCarnicosSucia = false;
 let productosDisponiblesConfig = [];
 let paginaProductosDisponibles = 1;
 let modoEliminarConfig = false;
+let historialRegistros = [];
+let historialFiltro = "todos";
+let paginaHistorial = 1;
 const PRODUCTOS_POR_PAGINA_CONFIG = 6;
+const HISTORIAL_POR_PAGINA = 6;
+const MERMA_OPTIMA = 8;
 
 async function solicitarJson(url, opciones = {}) {
     const respuesta = await fetch(url, {
@@ -173,6 +178,87 @@ function formatoNumero(valor, decimales = 2) {
     });
 }
 
+function numeroDesdeEntrada(valor) {
+    const limpio = String(valor || "")
+        .replace(/\s+/g, "")
+        .replace(/kg/ig, "")
+        .replace(/%/g, "")
+        .replace(",", ".")
+        .replace(/[^\d.]/g, "");
+    const numero = Number(limpio);
+    return Number.isFinite(numero) ? numero : 0;
+}
+
+function formatoDecimalComa(valor, decimales = 3) {
+    const numero = Number(valor || 0);
+    const texto = numero.toFixed(decimales).replace(/\.?0+$/, "");
+    return (texto || "0").replace(".", ",");
+}
+
+function formatoKg(valor) {
+    return `${formatoDecimalComa(valor, 3)} kg`;
+}
+
+function formatoCantidadUnidad(valor, unidad) {
+    const unidadNormalizada = String(unidad || "KILO").toUpperCase();
+    const abreviatura = unidadNormalizada.includes("LITRO")
+        ? "l"
+        : unidadNormalizada.includes("PIEZA")
+            ? "pza"
+            : unidadNormalizada.includes("GRAM")
+                ? "g"
+                : "kg";
+    return `${formatoDecimalComa(valor, abreviatura === "pza" ? 0 : 3)} ${abreviatura}`;
+}
+
+function limitarCampoKg(input) {
+    if (!input) {
+        return;
+    }
+
+    let valor = input.value.replace(".", ",").replace(/[^\d,]/g, "");
+    const partes = valor.split(",");
+    if (partes.length > 2) {
+        valor = `${partes.shift()},${partes.join("")}`;
+    }
+
+    const numero = numeroDesdeEntrada(valor);
+    if (numero > 999) {
+        valor = "999";
+    }
+
+    input.value = valor;
+}
+
+function limitarCampoPorcentaje(input) {
+    if (!input) {
+        return;
+    }
+
+    let valor = input.value.replace(".", ",").replace(/[^\d,]/g, "");
+    const partes = valor.split(",");
+    if (partes.length > 2) {
+        valor = `${partes.shift()},${partes.join("")}`;
+    }
+
+    const numero = numeroDesdeEntrada(valor);
+    if (numero > 99) {
+        valor = "99";
+    }
+
+    input.value = valor ? `${valor}%` : "";
+}
+
+function calcularMermaKgDesdePorcentaje(cantidadEntrada, porcentajeMerma) {
+    if (cantidadEntrada <= 0 || porcentajeMerma <= 0) {
+        return 0;
+    }
+    if (porcentajeMerma >= 100) {
+        return 0;
+    }
+    return cantidadEntrada * porcentajeMerma / (100 - porcentajeMerma);
+}
+
 function crearCelda(texto) {
     const celda = document.createElement("td");
     celda.textContent = texto ?? "";
@@ -275,6 +361,9 @@ function configurarAutocompleteProducto(inputId, hiddenId, listaId) {
 
     input.addEventListener("input", () => {
         hidden.value = "";
+        hidden.dataset.categoria = "";
+        hidden.dataset.nombre = "";
+        hidden.dataset.proveedor = "";
         const termino = input.value.trim();
         clearTimeout(temporizador);
 
@@ -319,7 +408,17 @@ function configurarAutocompleteProducto(inputId, hiddenId, listaId) {
                     boton.append(nombre, meta);
                     boton.addEventListener("click", () => {
                         hidden.value = producto.product_id;
+                        hidden.dataset.categoria = producto.categoria || "";
+                        hidden.dataset.nombre = producto.nombre_producto || "";
+                        hidden.dataset.proveedor = producto.proveedor_nombre || "";
                         input.value = textoProducto(producto);
+                        if (hiddenId === "producto-entrada-carnico" && producto.categoria) {
+                            const categoria = document.getElementById("categoria-base-carnico");
+                            if (categoria) {
+                                categoria.value = producto.categoria;
+                            }
+                        }
+                        ocultarPanelInsumos();
                         ocultar();
                     });
                     lista.appendChild(boton);
@@ -341,18 +440,43 @@ function configurarAutocompleteProducto(inputId, hiddenId, listaId) {
     });
 }
 
-function sugerirMerma() {
-    const salida = Number(document.getElementById("cantidad-salida-carnico")?.value || 0);
-    const entrada = Number(document.getElementById("cantidad-entrada-carnico")?.value || 0);
-    const merma = document.getElementById("cantidad-merma-carnico");
+function calcularPorcentajeMermaEntrada() {
+    return numeroDesdeEntrada(
+        document.getElementById("cantidad-merma-carnico")?.value,
+    );
+}
 
-    if (!merma || merma.dataset.editado === "1") {
+function actualizarEstadoMerma() {
+    const estado = document.getElementById("estado-merma-carnico");
+    const campo = document.getElementById("cantidad-merma-carnico");
+    const porcentaje = calcularPorcentajeMermaEntrada();
+
+    if (!estado) {
         return;
     }
 
-    if (salida > 0 && entrada > 0) {
-        merma.value = Math.max(salida - entrada, 0).toFixed(3);
+    estado.className = "ayuda-campo";
+
+    if (!String(campo?.value || "").trim()) {
+        estado.textContent = "Merma optima: 8%.";
+        return;
     }
+
+    if (porcentaje < MERMA_OPTIMA) {
+        estado.textContent =
+            `Merma ${formatoDecimalComa(porcentaje, 2)}%: debajo del 8%, revisar practica.`;
+        estado.classList.add("alerta");
+        return;
+    }
+
+    estado.textContent =
+        `Merma ${formatoDecimalComa(porcentaje, 2)}%: base correcta.`;
+    estado.classList.add("ok");
+}
+
+function ocultarPanelInsumos() {
+    document.getElementById("panel-insumos-transformacion")?.classList.add("hidden");
+    document.getElementById("tabla-insumos-transformacion")?.replaceChildren();
 }
 
 function actualizarResumenHistorial(resumen) {
@@ -364,7 +488,50 @@ function actualizarResumenHistorial(resumen) {
         `${formatoNumero(resumen?.kilos_merma || 0, 3)} kg`;
 }
 
-function renderizarHistorialCarnico(registros) {
+function registrosHistorialFiltrados() {
+    if (historialFiltro === "todos") {
+        return historialRegistros;
+    }
+
+    return historialRegistros.filter((registro) => {
+        const tipo = String(registro.tipo_movimiento || "").toLowerCase();
+        const categoria = String(registro.categoria_base || "").toUpperCase();
+
+        if (historialFiltro === "entrada" || historialFiltro === "salida") {
+            return tipo === historialFiltro;
+        }
+
+        return categoria === historialFiltro;
+    });
+}
+
+function actualizarPaginacionHistorial(totalRegistros) {
+    const totalPaginas = Math.max(
+        1,
+        Math.ceil(totalRegistros / HISTORIAL_POR_PAGINA),
+    );
+    const anterior = document.getElementById("historial-pagina-anterior");
+    const siguiente = document.getElementById("historial-pagina-siguiente");
+    const info = document.getElementById("historial-pagina-info");
+
+    paginaHistorial = Math.min(paginaHistorial, totalPaginas);
+
+    if (info) {
+        info.textContent = `Pagina ${paginaHistorial} de ${totalPaginas} (${totalRegistros} registros)`;
+    }
+    if (anterior) {
+        anterior.disabled = paginaHistorial <= 1;
+    }
+    if (siguiente) {
+        siguiente.disabled = paginaHistorial >= totalPaginas;
+    }
+}
+
+function renderizarHistorialCarnico(registros = null) {
+    if (Array.isArray(registros)) {
+        historialRegistros = registros;
+    }
+
     const contenedor = document.getElementById("tabla-historial-carnico");
 
     if (!contenedor) {
@@ -373,7 +540,10 @@ function renderizarHistorialCarnico(registros) {
 
     contenedor.replaceChildren();
 
-    if (!registros.length) {
+    const filtrados = registrosHistorialFiltrados();
+    actualizarPaginacionHistorial(filtrados.length);
+
+    if (!filtrados.length) {
         const vacio = document.createElement("p");
         vacio.className = "estado-vacio";
         vacio.textContent = "Aun no hay movimientos registrados.";
@@ -384,7 +554,10 @@ function renderizarHistorialCarnico(registros) {
     const lista = document.createElement("div");
     lista.className = "historial-lista";
 
-    registros.forEach((registro) => {
+    const inicio = (paginaHistorial - 1) * HISTORIAL_POR_PAGINA;
+    const registrosPagina = filtrados.slice(inicio, inicio + HISTORIAL_POR_PAGINA);
+
+    registrosPagina.forEach((registro) => {
         const tipo = String(registro.tipo_movimiento || "Entrada").toLowerCase();
         const fecha = String(registro.fecha || "").replace("T", " ").slice(0, 19);
         const articulo = document.createElement("article");
@@ -400,19 +573,22 @@ function renderizarHistorialCarnico(registros) {
         titulo.className = "historial-title";
         titulo.textContent = tipo === "salida"
             ? registro.producto_salida_nombre || "Salida sin producto"
-            : `${registro.producto_salida_nombre || "Salida"} -> ${registro.producto_entrada_nombre || "Entrada"}`;
+            : `${registro.categoria_base || "Base"} -> ${registro.producto_entrada_nombre || "Entrada"}`;
         meta.className = "historial-meta";
 
         const chips = [
             `Folio ${registro.id_registro}`,
             fecha || "Sin fecha",
-            `Salida ${formatoNumero(registro.cantidad_salida, 3)} kg`,
         ];
 
         if (tipo !== "salida") {
-            chips.push(`Entrada ${formatoNumero(registro.cantidad_entrada, 3)} kg`);
-            chips.push(`Merma ${formatoNumero(registro.cantidad_merma, 3)} kg`);
-            chips.push(`Rend. ${formatoNumero(registro.rendimiento, 2)}%`);
+            chips.push(`Base ${registro.categoria_base || "-"}`);
+            chips.push(`Entrada ${formatoKg(registro.cantidad_entrada)}`);
+            chips.push(`Merma ${formatoKg(registro.cantidad_merma)}`);
+            chips.push(`Rend. ${formatoDecimalComa(registro.rendimiento, 2)}%`);
+        } else {
+            chips.push(`Salida ${formatoKg(registro.cantidad_salida)}`);
+            chips.push(`Base ${registro.categoria_base || "-"}`);
         }
 
         if (registro.proveedor_nombre) {
@@ -431,6 +607,9 @@ function renderizarHistorialCarnico(registros) {
         chips.forEach((texto) => {
             const chip = document.createElement("span");
             chip.className = "historial-chip";
+            if (texto.toLowerCase() === "registrado") {
+                chip.classList.add("estado-registrado");
+            }
             chip.textContent = texto;
             meta.appendChild(chip);
         });
@@ -441,6 +620,22 @@ function renderizarHistorialCarnico(registros) {
     });
 
     contenedor.appendChild(lista);
+}
+
+function alternarMenuFiltros() {
+    document.getElementById("historial-menu-filtros")?.classList.toggle("hidden");
+}
+
+function seleccionarFiltroHistorial(boton) {
+    historialFiltro = boton.dataset.filtro || "todos";
+    paginaHistorial = 1;
+    document.querySelectorAll(".boton-filtro").forEach((item) => {
+        item.classList.toggle("is-active", item === boton);
+    });
+    document.getElementById("historial-filtro-activo").textContent =
+        boton.textContent.trim();
+    document.getElementById("historial-menu-filtros")?.classList.add("hidden");
+    renderizarHistorialCarnico();
 }
 
 async function verificarPermisosConfiguracion() {
@@ -466,6 +661,7 @@ async function cargarModuloCarnico() {
     try {
         const datos = await solicitarJson(`${API_CARNICO}/resumen`);
         actualizarResumenHistorial(datos.resumen || {});
+        paginaHistorial = 1;
         renderizarHistorialCarnico(datos.registros || []);
         limpiarMensaje(mensaje);
     } catch (error) {
@@ -478,13 +674,38 @@ async function registrarTransformacionCarnica(evento) {
 
     const mensaje = document.getElementById("mensaje-carnico");
     const boton = document.getElementById("boton-registrar-carnico");
-    const salidaId = Number(document.getElementById("producto-salida-carnico").value);
     const entradaId = Number(document.getElementById("producto-entrada-carnico").value);
+    const cantidadEntrada = numeroDesdeEntrada(
+        document.getElementById("cantidad-entrada-carnico").value,
+    );
+    const porcentajeMerma = calcularPorcentajeMermaEntrada();
+    const cantidadMerma = calcularMermaKgDesdePorcentaje(
+        cantidadEntrada,
+        porcentajeMerma,
+    );
 
-    if (!salidaId || !entradaId) {
+    if (!entradaId) {
         mostrarMensaje(
             mensaje,
-            "Selecciona salida y entrada desde la lista de sugerencias.",
+            "Selecciona el producto de entrada desde la lista de sugerencias.",
+            "error",
+        );
+        return;
+    }
+
+    if (cantidadEntrada <= 0 || cantidadEntrada > 999) {
+        mostrarMensaje(
+            mensaje,
+            "La cantidad de entrada debe ser mayor a 0 y maximo 999 kg.",
+            "error",
+        );
+        return;
+    }
+
+    if (porcentajeMerma < 0 || porcentajeMerma >= 100) {
+        mostrarMensaje(
+            mensaje,
+            "La merma debe ser un porcentaje menor a 100.",
             "error",
         );
         return;
@@ -493,7 +714,9 @@ async function registrarTransformacionCarnica(evento) {
     const decision = await pedirConfirmacionModulo({
         etiqueta: "Transformacion",
         titulo: "Registrar transformacion",
-        texto: "Confirma el usuario que realiza el registro. Al aceptar se guardara la transformacion.",
+        texto: porcentajeMerma < MERMA_OPTIMA
+            ? "La merma esta debajo del 8%. Confirma el usuario que realiza el registro."
+            : "Confirma el usuario que realiza el registro. Al aceptar se guardara la transformacion.",
         requiereTexto: true,
         label: "Usuario que registra",
         placeholder: "Nombre de usuario",
@@ -508,11 +731,10 @@ async function registrarTransformacionCarnica(evento) {
     const usuario = decision.valor;
 
     const payload = {
-        producto_salida_id: salidaId,
         producto_entrada_id: entradaId,
-        cantidad_salida: Number(document.getElementById("cantidad-salida-carnico").value),
-        cantidad_entrada: Number(document.getElementById("cantidad-entrada-carnico").value),
-        cantidad_merma: Number(document.getElementById("cantidad-merma-carnico").value || 0),
+        categoria_base: document.getElementById("categoria-base-carnico").value,
+        cantidad_entrada: cantidadEntrada,
+        cantidad_merma: cantidadMerma,
         observaciones: document.getElementById("observaciones-carnico").value.trim() || null,
         usuario_confirmacion_nombre: usuario.trim(),
     };
@@ -528,10 +750,11 @@ async function registrarTransformacionCarnica(evento) {
         });
         mostrarMensaje(mensaje, resultado.mensaje, "exito");
         document.getElementById("form-transformacion-carnica").reset();
-        document.getElementById("producto-salida-carnico").value = "";
         document.getElementById("producto-entrada-carnico").value = "";
-        document.getElementById("cantidad-merma-carnico").dataset.editado = "";
+        ocultarPanelInsumos();
+        actualizarEstadoMerma();
         actualizarResumenHistorial(resultado.resumen || {});
+        paginaHistorial = 1;
         renderizarHistorialCarnico(resultado.registros || []);
     } catch (error) {
         mostrarMensaje(mensaje, error.message, "error");
@@ -547,11 +770,23 @@ async function registrarSalidaCarnica(evento) {
     const mensaje = document.getElementById("mensaje-salida-carnico");
     const boton = document.getElementById("boton-registrar-salida");
     const productoId = Number(document.getElementById("producto-base-carnico").value);
+    const cantidadSalida = numeroDesdeEntrada(
+        document.getElementById("cantidad-salida-base").value,
+    );
 
     if (!productoId) {
         mostrarMensaje(
             mensaje,
             "Selecciona el producto base desde la lista de sugerencias.",
+            "error",
+        );
+        return;
+    }
+
+    if (cantidadSalida <= 0 || cantidadSalida > 999) {
+        mostrarMensaje(
+            mensaje,
+            "Los kilos de salida deben ser mayores a 0 y maximo 999 kg.",
             "error",
         );
         return;
@@ -571,7 +806,7 @@ async function registrarSalidaCarnica(evento) {
 
     const payload = {
         producto_salida_id: productoId,
-        cantidad_salida: Number(document.getElementById("cantidad-salida-base").value),
+        cantidad_salida: cantidadSalida,
         proveedor_nombre: document.getElementById("proveedor-salida-carnico").value.trim(),
         usuario_confirmacion_nombre: document.getElementById("usuario-salida-carnico").value.trim(),
         observaciones: document.getElementById("observaciones-salida-carnico").value.trim() || null,
@@ -590,6 +825,7 @@ async function registrarSalidaCarnica(evento) {
         document.getElementById("form-salida-carnica").reset();
         document.getElementById("producto-base-carnico").value = "";
         actualizarResumenHistorial(resultado.resumen || {});
+        paginaHistorial = 1;
         renderizarHistorialCarnico(resultado.registros || []);
     } catch (error) {
         mostrarMensaje(mensaje, error.message, "error");
@@ -599,71 +835,125 @@ async function registrarSalidaCarnica(evento) {
     }
 }
 
-function renderizarConfiguracionCarnicos() {
-    const contenedor = document.getElementById("tabla-configuracion-carnicos");
-    const tabla = document.createElement("table");
-    const thead = document.createElement("thead");
-    const tbody = document.createElement("tbody");
-    const trHead = document.createElement("tr");
+function renderizarInsumosTransformacion(insumos) {
+    const contenedor = document.getElementById("tabla-insumos-transformacion");
 
-    tabla.className = "tabla-partidas";
-    const encabezados = ["Estado", "Producto", "Proveedor", "Categoria", "Unidad", "Merma"];
-    if (modoEliminarConfig) {
-        encabezados.push("Accion");
-    }
-
-    encabezados.forEach((titulo) => {
-        const th = document.createElement("th");
-        th.textContent = titulo;
-        trHead.appendChild(th);
-    });
-    thead.appendChild(trHead);
-
-    productosCarnicosDraft.forEach((producto, indice) => {
-        const tr = document.createElement("tr");
-
-        tr.classList.toggle("fila-inactiva", !producto.activo);
-        tr.append(
-            crearCelda(producto.activo ? "Activo" : "Oculto"),
-            crearCelda(producto.nombre_producto),
-            crearCelda(producto.proveedor_nombre || "-"),
-            crearCelda(producto.categoria || "-"),
-            crearCelda(producto.unidad || "KILO"),
-            crearCelda(`${formatoNumero(producto.porcentaje_merma || 0, 2)}%`),
-        );
-
-        if (modoEliminarConfig) {
-            const accion = document.createElement("button");
-            const tdAccion = document.createElement("td");
-
-            accion.type = "button";
-            accion.className = "boton-tabla";
-            accion.textContent = producto.activo ? "Ocultar" : "Reactivar";
-            accion.addEventListener("click", () => {
-                productosCarnicosDraft[indice].activo = !productosCarnicosDraft[indice].activo;
-                configuracionCarnicosSucia = true;
-                renderizarConfiguracionCarnicos();
-            });
-
-            tdAccion.appendChild(accion);
-            tr.appendChild(tdAccion);
-        }
-
-        tbody.appendChild(tr);
-    });
-
-    tabla.append(thead, tbody);
-    contenedor.replaceChildren();
-
-    if (!productosCarnicosDraft.length) {
-        const vacio = document.createElement("p");
-        vacio.className = "estado-vacio";
-        vacio.textContent = "No hay productos configurados.";
-        contenedor.appendChild(vacio);
+    if (!contenedor) {
         return;
     }
 
-    contenedor.appendChild(tabla);
+    if (!insumos.length) {
+        const vacio = document.createElement("p");
+        vacio.className = "estado-vacio";
+        vacio.textContent = "No hay receta previa para este producto.";
+        contenedor.replaceChildren(vacio);
+        return;
+    }
+
+    const filas = insumos.map((insumo) => [
+        `${insumo.nombre_producto || "-"}${insumo.clave ? ` | ${insumo.clave}` : ""}`,
+        insumo.tipo || "Insumo",
+        insumo.unidad || "KILO",
+        formatoCantidadUnidad(insumo.cantidad, insumo.unidad),
+    ]);
+
+    contenedor.replaceChildren(
+        crearTabla(
+            ["Producto", "Tipo", "Unidad", "Peso / cantidad"],
+            filas,
+            "No hay insumos configurados.",
+        ),
+    );
+}
+
+async function cargarInsumosTransformacion() {
+    const mensaje = document.getElementById("mensaje-carnico");
+    const panel = document.getElementById("panel-insumos-transformacion");
+    const productoId = Number(document.getElementById("producto-entrada-carnico").value);
+    const cantidad = numeroDesdeEntrada(
+        document.getElementById("cantidad-entrada-carnico").value,
+    );
+
+    if (!productoId || cantidad <= 0) {
+        mostrarMensaje(
+            mensaje,
+            "Selecciona producto de entrada y cantidad para calcular insumos.",
+            "error",
+        );
+        return;
+    }
+
+    try {
+        const datos = await solicitarJson(
+            `${API_CARNICO}/receta?producto_id=${productoId}&cantidad=${cantidad}`,
+        );
+        renderizarInsumosTransformacion(datos.insumos || []);
+        panel.classList.remove("hidden");
+        limpiarMensaje(mensaje);
+    } catch (error) {
+        mostrarMensaje(mensaje, error.message, "error");
+    }
+}
+
+function renderizarConfiguracionCarnicos() {
+    renderizarProductosDisponiblesConfig();
+}
+
+function claveProductoConfig(producto) {
+    return producto.product_id
+        ? `id:${producto.product_id}`
+        : `custom:${String(producto.nombre_producto || "").trim().toUpperCase()}:${String(producto.proveedor_nombre || "").trim().toUpperCase()}`;
+}
+
+function obtenerProductosTablaConfiguracion() {
+    const mapa = new Map();
+    const ocultos = new Set();
+
+    productosCarnicosDraft.forEach((producto) => {
+        const clave = claveProductoConfig(producto);
+        if (producto.activo) {
+            mapa.set(clave, producto);
+        } else {
+            ocultos.add(clave);
+        }
+    });
+
+    productosDisponiblesConfig.forEach((producto) => {
+        const clave = claveProductoConfig(producto);
+        if (!ocultos.has(clave) && !mapa.has(clave)) {
+            mapa.set(clave, producto);
+        }
+    });
+
+    return Array.from(mapa.values());
+}
+
+function ocultarProductoConfiguracion(producto) {
+    const clave = claveProductoConfig(producto);
+    const indice = productosCarnicosDraft.findIndex((registro) => (
+        claveProductoConfig(registro) === clave
+    ));
+
+    if (indice >= 0) {
+        productosCarnicosDraft[indice].activo = false;
+    } else {
+        productosCarnicosDraft.push({
+            id_configuracion: null,
+            product_id: producto.product_id || null,
+            clave: producto.clave || "",
+            proveedor_id: producto.proveedor_id || null,
+            proveedor_nombre: producto.proveedor_nombre || "",
+            nombre_producto: producto.nombre_producto || "",
+            categoria: producto.categoria || "CERDO",
+            categoria_resultante: producto.opcion_creacion || "",
+            unidad: producto.unidad || "KILO",
+            porcentaje_merma: Number(producto.porcentaje_merma || 0),
+            activo: false,
+        });
+    }
+
+    configuracionCarnicosSucia = true;
+    renderizarConfiguracionCarnicos();
 }
 
 function mostrarFormularioConfigProducto(producto = null) {
@@ -699,14 +989,20 @@ function renderizarProductosDisponiblesConfig() {
     const thead = document.createElement("thead");
     const tbody = document.createElement("tbody");
     const trHead = document.createElement("tr");
+    const productosTabla = obtenerProductosTablaConfiguracion();
     const totalPaginas = Math.max(
         1,
-        Math.ceil(productosDisponiblesConfig.length / PRODUCTOS_POR_PAGINA_CONFIG),
+        Math.ceil(productosTabla.length / PRODUCTOS_POR_PAGINA_CONFIG),
     );
 
     paginaProductosDisponibles = Math.min(paginaProductosDisponibles, totalPaginas);
     tabla.className = "tabla-partidas tabla-seleccionable";
-    ["Clave", "Nombre producto", "Unidad"].forEach((titulo) => {
+    const encabezados = ["Clave", "Nombre producto", "Proveedor", "Unidad"];
+    if (modoEliminarConfig) {
+        encabezados.push("Accion");
+    }
+
+    encabezados.forEach((titulo) => {
         const th = document.createElement("th");
         th.textContent = titulo;
         trHead.appendChild(th);
@@ -714,7 +1010,7 @@ function renderizarProductosDisponiblesConfig() {
     thead.appendChild(trHead);
 
     const inicio = (paginaProductosDisponibles - 1) * PRODUCTOS_POR_PAGINA_CONFIG;
-    const productosPagina = productosDisponiblesConfig.slice(
+    const productosPagina = productosTabla.slice(
         inicio,
         inicio + PRODUCTOS_POR_PAGINA_CONFIG,
     );
@@ -725,8 +1021,26 @@ function renderizarProductosDisponiblesConfig() {
         tr.append(
             crearCelda(producto.clave || "-"),
             crearCelda(producto.nombre_producto || "-"),
+            crearCelda(producto.proveedor_nombre || "-"),
             crearCelda(producto.unidad || "KILO"),
         );
+
+        if (modoEliminarConfig) {
+            const tdAccion = document.createElement("td");
+            const accion = document.createElement("button");
+            accion.type = "button";
+            accion.className = "boton-tabla boton-icono";
+            accion.textContent = "🗑";
+            accion.title = "Ocultar producto";
+            accion.setAttribute("aria-label", "Ocultar producto");
+            accion.addEventListener("click", (evento) => {
+                evento.stopPropagation();
+                ocultarProductoConfiguracion(producto);
+            });
+            tdAccion.appendChild(accion);
+            tr.appendChild(tdAccion);
+        }
+
         tr.addEventListener("click", () => mostrarFormularioConfigProducto(producto));
         tr.addEventListener("keydown", (evento) => {
             if (evento.key === "Enter" || evento.key === " ") {
@@ -740,7 +1054,7 @@ function renderizarProductosDisponiblesConfig() {
     tabla.append(thead, tbody);
     contenedor.replaceChildren();
 
-    if (!productosDisponiblesConfig.length) {
+    if (!productosTabla.length) {
         const vacio = document.createElement("p");
         vacio.className = "estado-vacio";
         vacio.textContent = "No se encontraron productos disponibles.";
@@ -750,7 +1064,7 @@ function renderizarProductosDisponiblesConfig() {
     }
 
     info.textContent =
-        `Pagina ${paginaProductosDisponibles} de ${totalPaginas} (${productosDisponiblesConfig.length} productos)`;
+        `Pagina ${paginaProductosDisponibles} de ${totalPaginas} (${productosTabla.length} productos)`;
     anterior.disabled = paginaProductosDisponibles <= 1;
     siguiente.disabled = paginaProductosDisponibles >= totalPaginas;
 }
@@ -926,7 +1240,7 @@ function seleccionarTipoCaptura(tipo) {
     document.getElementById("panel-captura-salida")?.classList.toggle("hidden", esEntrada);
 
     if (esEntrada) {
-        document.getElementById("producto-salida-busqueda")?.focus();
+        document.getElementById("producto-entrada-busqueda")?.focus();
     } else {
         document.getElementById("producto-base-busqueda")?.focus();
     }
@@ -985,19 +1299,48 @@ function iniciarModuloCarnico() {
         ?.addEventListener("submit", registrarTransformacionCarnica);
     document.getElementById("form-salida-carnica")
         ?.addEventListener("submit", registrarSalidaCarnica);
-    document.getElementById("cantidad-salida-carnico")
-        ?.addEventListener("input", sugerirMerma);
     document.getElementById("cantidad-entrada-carnico")
-        ?.addEventListener("input", sugerirMerma);
+        ?.addEventListener("input", (evento) => {
+            limitarCampoKg(evento.target);
+            ocultarPanelInsumos();
+            actualizarEstadoMerma();
+        });
     document.getElementById("cantidad-merma-carnico")
         ?.addEventListener("input", (evento) => {
-            evento.target.dataset.editado = "1";
+            limitarCampoPorcentaje(evento.target);
+            ocultarPanelInsumos();
+            actualizarEstadoMerma();
+        });
+    document.getElementById("boton-ver-insumos")
+        ?.addEventListener("click", cargarInsumosTransformacion);
+    document.getElementById("cantidad-salida-base")
+        ?.addEventListener("input", (evento) => {
+            limitarCampoKg(evento.target);
         });
     document.getElementById("boton-iniciar-captura")
         ?.addEventListener("click", mostrarSelectorCaptura);
     document.querySelectorAll(".tipo-captura-card").forEach((boton) => {
         boton.addEventListener("click", () => seleccionarTipoCaptura(boton.dataset.captura));
     });
+    document.getElementById("boton-toggle-filtros")
+        ?.addEventListener("click", alternarMenuFiltros);
+    document.querySelectorAll(".boton-filtro").forEach((boton) => {
+        boton.addEventListener("click", () => seleccionarFiltroHistorial(boton));
+    });
+    document.getElementById("historial-pagina-anterior")
+        ?.addEventListener("click", () => {
+            paginaHistorial = Math.max(1, paginaHistorial - 1);
+            renderizarHistorialCarnico();
+        });
+    document.getElementById("historial-pagina-siguiente")
+        ?.addEventListener("click", () => {
+            const totalPaginas = Math.max(
+                1,
+                Math.ceil(registrosHistorialFiltrados().length / HISTORIAL_POR_PAGINA),
+            );
+            paginaHistorial = Math.min(totalPaginas, paginaHistorial + 1);
+            renderizarHistorialCarnico();
+        });
     document.getElementById("boton-configuracion-carnicos")
         ?.addEventListener("click", abrirConfiguracionCarnicos);
     document.getElementById("cerrar-configuracion-carnicos")
@@ -1023,8 +1366,6 @@ function iniciarModuloCarnico() {
         });
     document.getElementById("config-boton-eliminar")
         ?.addEventListener("click", alternarModoEliminarConfig);
-    document.getElementById("limpiar-configuracion-carnicos")
-        ?.addEventListener("click", confirmarLimpiezaConfiguracion);
     document.getElementById("config-pagina-anterior")
         ?.addEventListener("click", () => {
             paginaProductosDisponibles = Math.max(1, paginaProductosDisponibles - 1);
@@ -1032,19 +1373,15 @@ function iniciarModuloCarnico() {
         });
     document.getElementById("config-pagina-siguiente")
         ?.addEventListener("click", () => {
+            const totalProductos = obtenerProductosTablaConfiguracion().length;
             const totalPaginas = Math.max(
                 1,
-                Math.ceil(productosDisponiblesConfig.length / PRODUCTOS_POR_PAGINA_CONFIG),
+                Math.ceil(totalProductos / PRODUCTOS_POR_PAGINA_CONFIG),
             );
             paginaProductosDisponibles = Math.min(totalPaginas, paginaProductosDisponibles + 1);
             renderizarProductosDisponiblesConfig();
         });
 
-    configurarAutocompleteProducto(
-        "producto-salida-busqueda",
-        "producto-salida-carnico",
-        "sugerencias-salida-carnico",
-    );
     configurarAutocompleteProducto(
         "producto-entrada-busqueda",
         "producto-entrada-carnico",

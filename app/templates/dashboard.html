@@ -79,15 +79,13 @@
                         </div>
 
                         <div class="campos">
-                            <div class="campo autocomplete-wrap">
-                                <label for="producto-salida-busqueda">Salida</label>
-                                <input id="producto-salida-busqueda" type="text" autocomplete="off" placeholder="Nombre del Producto" required>
-                                <input id="producto-salida-carnico" type="hidden" required>
-                                <div id="sugerencias-salida-carnico" class="autocomplete-list hidden"></div>
-                            </div>
                             <div class="campo">
-                                <label for="cantidad-salida-carnico">Cantidad de salida</label>
-                                <input id="cantidad-salida-carnico" type="number" min="0.001" step="0.001" placeholder="0.000" required>
+                                <label for="categoria-base-carnico">Producto madre / base</label>
+                                <select id="categoria-base-carnico" required>
+                                    <option value="CERDO">CERDO</option>
+                                    <option value="POLLO">POLLO</option>
+                                    <option value="RES LOCAL">RES LOCAL</option>
+                                </select>
                             </div>
                             <div class="campo autocomplete-wrap">
                                 <label for="producto-entrada-busqueda">Entrada</label>
@@ -97,17 +95,34 @@
                             </div>
                             <div class="campo">
                                 <label for="cantidad-entrada-carnico">Cantidad de entrada</label>
-                                <input id="cantidad-entrada-carnico" type="number" min="0.001" step="0.001" placeholder="0.000" required>
+                                <div class="campo-con-unidad">
+                                    <input id="cantidad-entrada-carnico" type="text" inputmode="decimal" maxlength="7" placeholder="0,0" required>
+                                    <span>KG</span>
+                                </div>
                             </div>
                             <div class="campo">
                                 <label for="cantidad-merma-carnico">Merma</label>
-                                <input id="cantidad-merma-carnico" type="number" min="0" step="0.001" placeholder="0.000" required>
+                                <input id="cantidad-merma-carnico" type="text" inputmode="decimal" maxlength="6" value="8%" placeholder="8%" required>
+                                <p id="estado-merma-carnico" class="ayuda-campo">Merma optima: 8%.</p>
                             </div>
                             <div class="campo campo-completo">
                                 <label for="observaciones-carnico">Observaciones</label>
                                 <input id="observaciones-carnico" type="text" maxlength="300" placeholder="(OPCIONAL)">
                             </div>
                         </div>
+
+                        <div class="acciones-secundarias">
+                            <button id="boton-ver-insumos" type="button" class="boton-secundario">
+                                Ver insumos usados
+                            </button>
+                        </div>
+                        <section id="panel-insumos-transformacion" class="panel-insumos hidden">
+                            <div class="titulo-seccion">
+                                <h3>Insumos calculados</h3>
+                                <p>Solo lectura, ajustados a la cantidad de entrada.</p>
+                            </div>
+                            <div id="tabla-insumos-transformacion" class="tabla-scroll"></div>
+                        </section>
 
                         <div id="mensaje-carnico" class="mensaje" role="status" aria-live="polite"></div>
                         <button id="boton-registrar-carnico" type="submit">
@@ -136,7 +151,10 @@
                             </div>
                             <div class="campo">
                                 <label for="cantidad-salida-base">Kilos de salida</label>
-                                <input id="cantidad-salida-base" type="number" min="0.001" step="0.001" placeholder="0.000" required>
+                                <div class="campo-con-unidad">
+                                    <input id="cantidad-salida-base" type="text" inputmode="decimal" maxlength="7" placeholder="0,0" required>
+                                    <span>KG</span>
+                                </div>
                             </div>
                             <div class="campo">
                                 <label for="proveedor-salida-carnico">Proveedor</label>
@@ -182,7 +200,26 @@
                             <strong id="historial-merma">0 kg</strong>
                         </div>
                     </div>
+                    <div class="historial-controles">
+                        <button id="boton-toggle-filtros" type="button" class="boton-secundario boton-filtros">
+                            Filtros
+                        </button>
+                        <span id="historial-filtro-activo" class="filtro-activo">Todos</span>
+                        <div id="historial-menu-filtros" class="historial-filtros hidden" aria-label="Filtros de historial">
+                            <button type="button" class="boton-filtro is-active" data-filtro="todos">Todos</button>
+                            <button type="button" class="boton-filtro" data-filtro="entrada">Entradas</button>
+                            <button type="button" class="boton-filtro" data-filtro="salida">Salidas</button>
+                            <button type="button" class="boton-filtro" data-filtro="CERDO">Cerdo</button>
+                            <button type="button" class="boton-filtro" data-filtro="POLLO">Pollo</button>
+                            <button type="button" class="boton-filtro" data-filtro="RES LOCAL">Res local</button>
+                        </div>
+                    </div>
                     <div id="tabla-historial-carnico" class="tabla-scroll"></div>
+                    <div class="paginacion-config historial-paginacion">
+                        <button id="historial-pagina-anterior" type="button" class="boton-secundario">Anterior</button>
+                        <span id="historial-pagina-info">Pagina 1</span>
+                        <button id="historial-pagina-siguiente" type="button">Siguiente</button>
+                    </div>
                 </section>
             </section>
         </main>
@@ -235,14 +272,6 @@
                         <span id="config-pagina-info">Pagina 1</span>
                         <button id="config-pagina-siguiente" type="button">Siguiente</button>
                     </div>
-                </section>
-
-                <section class="config-section">
-                    <div class="config-section-title">
-                        <h3>Productos agregados al modulo</h3>
-                        <button id="limpiar-configuracion-carnicos" type="button">Limpiar</button>
-                    </div>
-                    <div id="tabla-configuracion-carnicos" class="tabla-scroll"></div>
                 </section>
                 <div id="mensaje-configuracion-carnicos" class="mensaje" role="status" aria-live="polite"></div>
             </section>

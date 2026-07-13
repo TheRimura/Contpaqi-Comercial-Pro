@@ -31,16 +31,20 @@ class GuardarProductosCarnicos(BaseModel):
 
 
 class RegistrarTransformacionCarnica(BaseModel):
-    producto_salida_id: int = Field(gt=0)
+    producto_salida_id: int | None = Field(default=None, gt=0)
     producto_entrada_id: int = Field(gt=0)
-    cantidad_salida: Decimal = Field(gt=0)
-    cantidad_entrada: Decimal = Field(gt=0)
+    categoria_base: str | None = Field(default=None, max_length=100)
+    cantidad_salida: Decimal | None = Field(default=None, gt=0)
+    cantidad_entrada: Decimal = Field(gt=0, le=999)
     cantidad_merma: Decimal = Field(default=0, ge=0)
     usuario_confirmacion_nombre: str = Field(min_length=1, max_length=150)
     observaciones: str | None = Field(default=None, max_length=300)
 
     @model_validator(mode="after")
     def validar_balance(self):
+        if self.cantidad_salida is None:
+            return self
+
         if self.cantidad_entrada > self.cantidad_salida:
             raise ValueError(
                 "La entrada no puede ser mayor que la salida."
