@@ -124,7 +124,6 @@ class SeguridadSesion:
             path="/",
         )
 
-
 @cache
 def obtener_seguridad():
     return SeguridadSesion(obtener_base_datos())

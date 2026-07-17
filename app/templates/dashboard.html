@@ -3,312 +3,231 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Modulo carnico | CAYAL</title>
+    <title>Relacionar documentos | CAYAL</title>
     <link rel="stylesheet" href="/static/css/styles.css?v={{ asset_version }}">
 </head>
-<body>
-    <div id="dashboardPage" data-usuario="{{ sesion.usuario }}">
-        <header class="barra-superior">
-            <div class="marca-cabecera">
-                <span class="brand-mark">C</span>
+<body class="app-body">
+    <header class="app-header">
+        <div class="app-brand">
+            <span class="brand-mark">C</span>
+            <div>
+                <small>Carnes CAYAL</small>
+                <h1>Módulo de almacén</h1>
+            </div>
+        </div>
+        <div class="app-session">
+            <div>
+                <span>Usuario activo</span>
+                <strong>{{ sesion.usuario }}</strong>
+            </div>
+            <button id="boton-Configuracion" type="button" class="btn btn-primary"> Configuracion</button>
+            <button id="boton-salir" type="button" class="button-outline">Cerrar sesión</button>
+        </div>
+    </header>
+
+    <main class="workspace">
+        <section id="panel-inicio" class="page-heading landing-card">
+            <div>
+                <p class="eyebrow">Operación</p>
+                <h2>Registro</h2>
+            </div>
+            <button id="boton-iniciar-captura" type="button">Iniciar</button>
+        </section>
+
+        <form id="form-relacion" class="capture-shell hidden" data-usuario="{{ sesion.usuario }}" novalidate>
+            <section class="capture-toolbar">
                 <div>
-                    <p class="etiqueta">Carnes Cayal</p>
-                    <h1>Modulo de transformacion carnica</h1>
+                    <p id="etiqueta-movimiento-seleccionado" class="eyebrow">Nueva relación</p>
+                    <h2 id="titulo-movimiento-seleccionado">Relacionar documentos</h2>
+                    <p id="descripcion-movimiento-seleccionado">Selecciona los documentos, comprueba sus partidas y completa el movimiento.</p>
                 </div>
+                <div class="capture-toolbar-actions">
+                    <button id="boton-volver" type="button" class="button-outline">Volver al inicio</button>
+                    <button id="boton-actualizar" type="button" class="button-outline">Actualizar documentos</button>
+                </div>
+            </section>
+            <div id="espacio-transformacion" class="transformation-workspace">
+            <section id="datos-transformacion" class="transformation-card hidden">
+                <div class="card-heading">
+                    <span class="step">1</span>
+                    <div>
+                        <p class="eyebrow">Preparar transformación</p>
+                        <h3>Registra una transformación</h3>
+                        <p>Sigue los pasos en orden. El sistema completará lo demás.</p>
+                    </div>
+                </div>
+                <div class="simple-steps" aria-label="Pasos para preparar una transformación">
+                    <div class="simple-step">
+                        <span class="route-number">1</span>
+                        <div class="field">
+                            <label for="linea-transformacion">¿Qué tipo de carne vas a trabajar?</label>
+                            <select id="linea-transformacion"><option value="">Selecciona Cerdo, Pollo o Res Local</option></select>
+                        </div>
+                    </div>
+                    <div class="simple-step">
+                        <span class="route-number">2</span>
+                        <div class="field">
+                            <label for="transformacion-precargada">¿Qué producto vas a preparar?</label>
+                            <select id="transformacion-precargada" disabled><option value="">Primero selecciona el tipo de carne</option></select>
+                        </div>
+                    </div>
+                    <div class="simple-step">
+                        <span class="route-number">3</span>
+                        <div class="transformation-grid simple-capture-fields">
+                            <div class="field">
+                                <label for="tablajero-transformacion">¿Quién realizará el trabajo?</label>
+                                <select id="tablajero-transformacion" disabled><option value="">Selecciona un tablajero</option></select>
+                            </div>
+                            <div class="field quantity-field">
+                                <label for="cantidad-base-transformacion">¿Cuántos kilos usarás?</label>
+                                <div class="quantity-control"><input id="cantidad-base-transformacion" type="number" min="0.001" step="0.001" value="1"><span>kg</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="hidden" aria-hidden="true">
+                    <div class="field">
+                        <label for="base-transformacion">Producto base</label>
+                        <select id="base-transformacion" disabled><option value="">Se completará automáticamente</option></select>
+                    </div>
+                    <div class="field">
+                        <label for="resultante-transformacion">Producto resultante</label>
+                        <select id="resultante-transformacion" disabled><option value="">Se completará automáticamente</option></select>
+                    </div>
+                    <input id="cantidad-resultante-transformacion" type="number" value="0.920" readonly>
+                </div>
+                <div id="resumen-sencillo-transformacion" class="simple-result hidden">
+                    <div><small>Se utilizará</small><strong id="nombre-base-sencillo">—</strong></div>
+                    <span aria-hidden="true">→</span>
+                    <div><small>Se obtendrá aproximadamente</small><strong><span id="peso-resultante-sencillo">0.920 kg</span> de <span id="nombre-resultante-sencillo">—</span></strong></div>
+                </div>
+                <p id="resumen-merma-transformacion" class="transformation-summary merma-normal">El cálculo considera la merma normal del proceso.</p>
+                <button id="localizar-documentos" type="button" class="simple-primary-action">Continuar y revisar</button>
+            </section>
+
+            <section id="panel-documentos" class="document-grid">
+                <article class="document-card document-out">
+                    <div class="card-heading">
+                        <span class="step">1</span>
+                        <div>
+                            <p class="eyebrow">Documento origen · Módulo 203</p>
+                            <h3>Salida: productos consumidos</h3>
+                            <p class="card-caption">Producto base e insumos de la receta</p>
+                        </div>
+                    </div>
+                    <label class="selector-documento-label" for="documento-salida">Folio de salida</label>
+                    <select id="documento-salida" required>
+                        <option value="">Selecciona una salida</option>
+                    </select>
+                    <div id="resumen-salida" class="document-summary empty">Selecciona un documento para revisar sus partidas.</div>
+                    <div id="partidas-salida" class="items-table"></div>
+                </article>
+
+                <div class="relation-arrow" aria-hidden="true">→</div>
+
+                <article class="document-card document-in">
+                    <div class="card-heading">
+                        <span class="step">2</span>
+                        <div>
+                            <p class="eyebrow">Documento destino · Módulo 202</p>
+                            <h3>Entrada: producto obtenido</h3>
+                            <p class="card-caption">Resultado esperado después de la merma</p>
+                        </div>
+                    </div>
+                    <label class="selector-documento-label" for="documento-entrada">Folio de entrada</label>
+                    <select id="documento-entrada" required>
+                        <option value="">Selecciona una entrada</option>
+                    </select>
+                    <div id="resumen-entrada" class="document-summary empty">Selecciona un documento para revisar sus partidas.</div>
+                    <div id="partidas-entrada" class="items-table"></div>
+                </article>
+            </section>
             </div>
 
-            <nav class="nav-principal" aria-label="Navegacion principal">
-                <button type="button" class="nav-boton is-active" data-vista="inicio">
-                    Inicio
-                </button>
-                <button type="button" class="nav-boton" data-vista="historial">
-                    Historial
-                </button>
-            </nav>
-
-            <div class="sesion-cabecera">
-                <div>
-                    <span>Usuario activo</span>
-                    <strong id="usuario-activo">{{ sesion.usuario }}</strong>
+            <section id="resumen-registro-transformacion" class="registration-summary hidden">
+                <div class="card-heading">
+                    <span class="step">4</span>
+                    <div>
+                        <p class="eyebrow">Datos completados por el sistema</p>
+                        <h3>Resumen del registro</h3>
+                    </div>
                 </div>
-                <button id="boton-configuracion-carnicos" type="button" class="boton-secundario hidden">
-                    Configuracion
-                </button>
-                <button id="boton-salir" type="button" class="boton-secundario">
-                    Cerrar sesion
-                </button>
+                <div class="registration-table-wrap">
+                    <table class="registration-table">
+                        <thead><tr><th>Dato</th><th>Valor</th></tr></thead>
+                        <tbody>
+                            <tr><td>Tipo de movimiento</td><td>TRANSFORMACIÓN</td></tr>
+                            <tr><td>Folios relacionados</td><td id="resumen-folios-transformacion">—</td></tr>
+                            <tr><td>Fecha de registro</td><td id="resumen-fecha-transformacion">—</td></tr>
+                            <tr><td>Usuario responsable</td><td id="resumen-usuario-transformacion">—</td></tr>
+                            <tr><td>Tablajero responsable</td><td id="resumen-tablajero-transformacion">—</td></tr>
+                            <tr><td>Nivel técnico de merma</td><td id="resumen-nivel-merma">—</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section id="datos-movimiento-fisico" class="movement-card hidden">
+                <div class="card-heading movement-heading">
+                    <span class="step">3</span>
+                    <div>
+                        <p class="eyebrow">Datos de la relación</p>
+                        <h3>Movimiento físico</h3>
+                        <p>Los datos adicionales son obligatorios únicamente para movimientos de Análisis.</p>
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <select id="tipo-movimiento" class="hidden" required aria-hidden="true" tabindex="-1">
+                        <option value="">Selecciona el movimiento</option>
+                    </select>
+                    <div class="field movement-date">
+                        <label for="fecha-movimiento">Fecha de lote</label>
+                        <input id="fecha-movimiento" type="date" required>
+                    </div>
+                    <div id="campos-analisis" class="analysis-fields hidden">
+                        <div class="field">
+                            <label for="proveedor">Proveedor</label>
+                            <select id="proveedor"><option value="">Selecciona proveedor</option></select>
+                        </div>
+                        <div class="field">
+                            <label for="marca">Marca</label>
+                            <input id="marca" type="text" maxlength="150" list="lista-marcas" placeholder="Escribe o selecciona una marca">
+                            <datalist id="lista-marcas"></datalist>
+                        </div>
+                        <div class="field">
+                            <label for="usuario-fisico">Tablajero</label>
+                            <select id="usuario-fisico"><option value="">Selecciona tablajero</option></select>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <div id="mensaje-relacion" class="message" role="status" aria-live="polite"></div>
+            <div class="form-actions">
+                <button id="boton-limpiar" type="button" class="button-outline">Limpiar</button>
+                <button id="boton-guardar" type="submit">Relacionar documentos</button>
             </div>
-        </header>
+        </form>
+    </main>
 
-        <main class="contenedor">
-            <section id="vista-inicio" class="vista">
-                <section class="modulo-hero">
-                    <div>
-                        <p class="etiqueta">Operacion</p>
-                        <h2>Registro</h2>
-                        <p>Captura el tipo de movimiento deseado.</p>
-                    </div>
-                    <div class="hero-actions">
-                        <button id="boton-iniciar-captura" type="button">
-                            Iniciar captura
-                        </button>
-                    </div>
-                </section>
-
-                <section id="panel-tipo-captura" class="captura-selector hidden" aria-label="Tipo de captura">
-                    <button type="button" class="tipo-captura-card" data-captura="entrada">
-                        <span>Entrada</span>
-                        <strong>Captura de transformacion</strong>
-                        <small>Registra producto transformado, merma y observaciones.</small>
-                    </button>
-                    <button type="button" class="tipo-captura-card" data-captura="salida">
-                        <span>Salida</span>
-                        <strong>Producto base de almacen</strong>
-                        <small>Registra kilos, proveedor y usuario responsable.</small>
-                    </button>
-                </section>
-
-                <section id="panel-captura-carnica" class="modulo-layout hidden">
-                    <form id="form-transformacion-carnica" class="tarjeta captura-carnica">
-                        <div class="titulo-tarjeta">
-                            <span class="paso">1</span>
-                            <div>
-                                <h2>Entrada de transformacion</h2>
-                                <p>Captura el producto transformado con los datos del carton.</p>
-                            </div>
-                        </div>
-
-                        <div class="campos">
-                            <div class="campo">
-                                <label for="categoria-base-carnico">Producto madre / base</label>
-                                <select id="categoria-base-carnico" required>
-                                    <option value="CERDO">CERDO</option>
-                                    <option value="POLLO">POLLO</option>
-                                    <option value="RES LOCAL">RES LOCAL</option>
-                                </select>
-                            </div>
-                            <div class="campo autocomplete-wrap">
-                                <label for="producto-entrada-busqueda">Entrada</label>
-                                <input id="producto-entrada-busqueda" type="text" autocomplete="off" placeholder="Nombre del Producto" required>
-                                <input id="producto-entrada-carnico" type="hidden" required>
-                                <div id="sugerencias-entrada-carnico" class="autocomplete-list hidden"></div>
-                            </div>
-                            <div class="campo">
-                                <label for="cantidad-entrada-carnico">Cantidad de entrada</label>
-                                <div class="campo-con-unidad">
-                                    <input id="cantidad-entrada-carnico" type="text" inputmode="decimal" maxlength="7" placeholder="0,0" required>
-                                    <span>KG</span>
-                                </div>
-                            </div>
-                            <div class="campo">
-                                <label for="cantidad-merma-carnico">Merma</label>
-                                <input id="cantidad-merma-carnico" type="text" inputmode="decimal" maxlength="6" value="8%" placeholder="8%" required>
-                                <p id="estado-merma-carnico" class="ayuda-campo">Merma optima: 8%.</p>
-                            </div>
-                            <div class="campo campo-completo">
-                                <label for="observaciones-carnico">Observaciones</label>
-                                <input id="observaciones-carnico" type="text" maxlength="300" placeholder="(OPCIONAL)">
-                            </div>
-                        </div>
-
-                        <div class="acciones-secundarias">
-                            <button id="boton-ver-insumos" type="button" class="boton-secundario">
-                                Ver insumos usados
-                            </button>
-                        </div>
-                        <section id="panel-insumos-transformacion" class="panel-insumos hidden">
-                            <div class="titulo-seccion">
-                                <h3>Insumos calculados</h3>
-                                <p>Solo lectura, ajustados a la cantidad de entrada.</p>
-                            </div>
-                            <div id="tabla-insumos-transformacion" class="tabla-scroll"></div>
-                        </section>
-
-                        <div id="mensaje-carnico" class="mensaje" role="status" aria-live="polite"></div>
-                        <button id="boton-registrar-carnico" type="submit">
-                            Registrar transformacion
-                        </button>
-                    </form>
-
-                </section>
-
-                <section id="panel-captura-salida" class="modulo-layout hidden">
-                    <form id="form-salida-carnica" class="tarjeta captura-carnica">
-                        <div class="titulo-tarjeta">
-                            <span class="paso">1</span>
-                            <div>
-                                <h2>Salida de almacen</h2>
-                                <p>Registra el producto base que sale para trabajarse.</p>
-                            </div>
-                        </div>
-
-                        <div class="campos">
-                            <div class="campo autocomplete-wrap">
-                                <label for="producto-base-busqueda">Producto base</label>
-                                <input id="producto-base-busqueda" type="text" autocomplete="off" placeholder="Cerdo, pollo o res local" required>
-                                <input id="producto-base-carnico" type="hidden" required>
-                                <div id="sugerencias-base-carnico" class="autocomplete-list hidden"></div>
-                            </div>
-                            <div class="campo">
-                                <label for="cantidad-salida-base">Kilos de salida</label>
-                                <div class="campo-con-unidad">
-                                    <input id="cantidad-salida-base" type="text" inputmode="decimal" maxlength="7" placeholder="0,0" required>
-                                    <span>KG</span>
-                                </div>
-                            </div>
-                            <div class="campo">
-                                <label for="proveedor-salida-carnico">Proveedor</label>
-                                <input id="proveedor-salida-carnico" type="text" maxlength="150" placeholder="Nombre del proveedor" required>
-                            </div>
-                            <div class="campo">
-                                <label for="usuario-salida-carnico">Usuario que saco producto</label>
-                                <input id="usuario-salida-carnico" type="text" maxlength="150" placeholder="Nombre del usuario" required>
-                            </div>
-                            <div class="campo campo-completo">
-                                <label for="observaciones-salida-carnico">Observaciones</label>
-                                <input id="observaciones-salida-carnico" type="text" maxlength="300" placeholder="Opcional">
-                            </div>
-                        </div>
-
-                        <div id="mensaje-salida-carnico" class="mensaje" role="status" aria-live="polite"></div>
-                        <button id="boton-registrar-salida" type="submit">
-                            Registrar salida
-                        </button>
-                    </form>
-                </section>
-            </section>
-
-            <section id="vista-historial" class="vista hidden">
-                <section class="tarjeta historial-carnico historial-principal">
-                    <div class="titulo-tarjeta">
-                        <span class="paso">1</span>
-                        <div>
-                            <h2>Historial del modulo</h2>
-                        </div>
-                    </div>
-                    <div class="resumen-carnico resumen-historial">
-                        <div>
-                            <span>Productos del mes</span>
-                            <strong id="historial-total-mes">0</strong>
-                        </div>
-                        <div>
-                            <span>Rendimiento</span>
-                            <strong id="historial-rendimiento">0%</strong>
-                        </div>
-                        <div>
-                            <span>Merma</span>
-                            <strong id="historial-merma">0 kg</strong>
-                        </div>
-                    </div>
-                    <div class="historial-controles">
-                        <button id="boton-toggle-filtros" type="button" class="boton-secundario boton-filtros">
-                            Filtros
-                        </button>
-                        <span id="historial-filtro-activo" class="filtro-activo">Todos</span>
-                        <div id="historial-menu-filtros" class="historial-filtros hidden" aria-label="Filtros de historial">
-                            <button type="button" class="boton-filtro is-active" data-filtro="todos">Todos</button>
-                            <button type="button" class="boton-filtro" data-filtro="entrada">Entradas</button>
-                            <button type="button" class="boton-filtro" data-filtro="salida">Salidas</button>
-                            <button type="button" class="boton-filtro" data-filtro="CERDO">Cerdo</button>
-                            <button type="button" class="boton-filtro" data-filtro="POLLO">Pollo</button>
-                            <button type="button" class="boton-filtro" data-filtro="RES LOCAL">Res local</button>
-                        </div>
-                    </div>
-                    <div id="tabla-historial-carnico" class="tabla-scroll"></div>
-                    <div class="paginacion-config historial-paginacion">
-                        <button id="historial-pagina-anterior" type="button" class="boton-secundario">Anterior</button>
-                        <span id="historial-pagina-info">Pagina 1</span>
-                        <button id="historial-pagina-siguiente" type="button">Siguiente</button>
-                    </div>
-                </section>
-            </section>
-        </main>
-
-        <div id="modal-configuracion-carnicos" class="modal-overlay hidden" role="dialog" aria-modal="true">
-            <section class="modal-card">
-                <div class="modal-header">
-                    <div>
-                        <p class="etiqueta">Configuracion</p>
-                        <h2>Productos carnicos configurados</h2>
-                    </div>
-                    <button id="cerrar-configuracion-carnicos" type="button" class="boton-secundario">
-                        Cerrar
-                    </button>
-                </div>
-
-                <div class="config-toolbar">
-                    <input id="config-buscar-producto" type="search" placeholder="Clave o nombre del producto">
-                    <button id="config-boton-buscar" type="button">Buscar</button>
-                    <button id="config-boton-agregar" type="button">Agregar</button>
-                    <button id="config-boton-eliminar" type="button">Eliminar</button>
-                    <button id="guardar-configuracion-carnicos" type="button">Guardar</button>
-                </div>
-
-                <form id="form-producto-carnico" class="config-form config-form-inline hidden">
-                    <input id="config-producto-id" type="hidden">
-                    <input id="config-producto-clave" type="hidden">
-                    <input id="config-producto-nombre" type="text" placeholder="Nombre del producto" required>
-                    <input id="config-producto-proveedor" type="text" placeholder="Proveedor" required>
-                    <select id="config-producto-categoria">
-                        <option value="CERDO">CERDO</option>
-                        <option value="POLLO">POLLO</option>
-                        <option value="RES LOCAL">RES LOCAL</option>
-                    </select>
-                    <input id="config-producto-resultante" type="text" placeholder="Categoria resultante">
-                    <select id="config-producto-unidad">
-                        <option value="KILO">KILO</option>
-                        <option value="GRAMO">GRAMO</option>
-                        <option value="PIEZA">PIEZA</option>
-                    </select>
-                    <input id="config-producto-merma" type="number" min="0" max="100" step="0.01" placeholder="% merma">
-                    <button type="submit">Agregar producto</button>
-                </form>
-
-                <section class="config-section">
-                    <h3>Lista de productos disponibles</h3>
-                    <div id="tabla-productos-disponibles" class="tabla-scroll"></div>
-                    <div class="paginacion-config">
-                        <button id="config-pagina-anterior" type="button" class="boton-secundario">Anterior</button>
-                        <span id="config-pagina-info">Pagina 1</span>
-                        <button id="config-pagina-siguiente" type="button">Siguiente</button>
-                    </div>
-                </section>
-                <div id="mensaje-configuracion-carnicos" class="mensaje" role="status" aria-live="polite"></div>
-            </section>
-        </div>
-
-        <div id="modal-dialogo-modulo" class="modal-overlay hidden" role="dialog" aria-modal="true">
-            <section class="modal-card modal-card-confirmacion">
-                <form id="form-dialogo-modulo">
-                    <div class="modal-header">
-                        <div>
-                            <p id="dialogo-modulo-etiqueta" class="etiqueta">Confirmacion</p>
-                            <h2 id="dialogo-modulo-titulo">Confirmar accion</h2>
-                        </div>
-                    </div>
-                    <div class="dialogo-modulo-cuerpo">
-                        <p id="dialogo-modulo-texto"></p>
-                        <div id="dialogo-modulo-campo" class="dialogo-modulo-campo hidden">
-                            <label id="dialogo-modulo-label" for="dialogo-modulo-input">
-                                Usuario
-                            </label>
-                            <input id="dialogo-modulo-input" type="text" autocomplete="off">
-                        </div>
-                        <p id="dialogo-modulo-error" class="dialogo-modulo-error"></p>
-                    </div>
-                    <div class="modal-actions">
-                        <button id="dialogo-modulo-cancelar" type="button" class="boton-secundario">
-                            Cancelar
-                        </button>
-                        <button id="dialogo-modulo-aceptar" type="submit">
-                            Aceptar
-                        </button>
-                    </div>
-                </form>
-            </section>
-        </div>
+    <div id="modal-tipo-movimiento" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-tipo-movimiento">
+        <section class="movement-dialog">
+            <div class="dialog-icon" aria-hidden="true">1</div>
+            <p class="eyebrow">Empezar</p>
+            <h2 id="titulo-tipo-movimiento">¿Qué tipo de movimiento realizaremos?</h2>
+            <p>Selecciona el movimiento para preparar los datos necesarios.</p>
+            <label for="tipo-movimiento-inicial">Tipo de movimiento</label>
+            <select id="tipo-movimiento-inicial">
+                <option value="">Selecciona el movimiento</option>
+            </select>
+            <div class="dialog-actions">
+                <button id="cancelar-tipo-movimiento" type="button" class="button-outline">Cancelar</button>
+                <button id="continuar-tipo-movimiento" type="button">Continuar</button>
+            </div>
+        </section>
     </div>
 
-    <script src="/static/js/app.js?v={{ asset_version }}" defer></script>
+    <script src="/static/js/app.js?v={{ asset_version }}"></script>
 </body>
 </html>

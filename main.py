@@ -13,8 +13,8 @@ except ImportError:
     pass
 
 from app.routes.login import router as login_router
-from app.routes.modulo_carnico import router as modulo_carnico_router
 from app.routes.relacion_documentos import router as relacion_router
+from app.routes.configuracion import router as configuracion_router
 from app.utils.base_de_datos import obtener_base_datos
 from app.utils.seguridad import seguridad_sesion
 
@@ -24,7 +24,7 @@ APP_DIR = BASE_DIR / 'app'
 STATIC_DIR = APP_DIR / 'static'
 
 app = FastAPI(
-    title='CAYAL - Módulo Cárnico Web',
+    title='CAYAL - Relación de documentos de almacén',
     version='1.0.0',
 )
 
@@ -36,8 +36,8 @@ app.mount(
 templates = Jinja2Templates(directory=APP_DIR / 'templates')
 
 app.include_router(login_router)
-app.include_router(modulo_carnico_router)
 app.include_router(relacion_router)
+app.include_router(configuracion_router)
 
 
 def obtener_version_assets() -> int:
@@ -84,6 +84,34 @@ def mostrar_dashboard(request: Request):
         name='dashboard.html',
         context={
             'sesion': sesion,
+            'asset_version': obtener_version_assets(),
+        },
+    )
+
+
+@app.get('/configuracion', include_in_schema=False)
+def mostrar_configuracion(request: Request):
+    sesion = seguridad_sesion.obtener_sesion(request)
+    if not sesion:
+        return RedirectResponse('/', status_code=303)
+
+    base_datos = obtener_base_datos()
+    lineas = base_datos.listar_lineas_transformacion()
+    transformaciones = []
+    for linea in lineas:
+        transformaciones.extend(
+            base_datos.listar_transformaciones_precargadas(
+                linea.get('Category1', '')
+            )
+        )
+
+    return templates.TemplateResponse(
+        request=request,
+        name='configuracion.html',
+        context={
+            'sesion': sesion,
+            'lineas': lineas,
+            'transformaciones': transformaciones,
             'asset_version': obtener_version_assets(),
         },
     )

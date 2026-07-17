@@ -6,6 +6,7 @@ from fastapi.encoders import jsonable_encoder
 
 from app.schemas.relacion_documentos import (
     CrearRelacionDocumentos,
+    CrearTransformacion,
     RespuestaRelacionDocumentos,
 )
 from app.utils.base_de_datos import BaseDatos, obtener_base_datos
@@ -101,6 +102,214 @@ def consultar_catalogos(
     })
 
 
+@router.get('/transformacion/lineas')
+def consultar_lineas_transformacion(
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    exigir_sesion(request)
+    return jsonable_encoder(base_datos.listar_lineas_transformacion())
+
+
+@router.get('/transformacion/bases')
+def consultar_bases_transformacion(
+    request: Request,
+    linea: str = Query(min_length=1, max_length=100),
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    exigir_sesion(request)
+    return jsonable_encoder(
+        base_datos.listar_productos_base_transformacion(linea)
+    )
+
+
+@router.get('/transformacion/precargadas')
+def consultar_transformaciones_precargadas(
+    request: Request,
+    linea: str = Query(min_length=1, max_length=100),
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    exigir_sesion(request)
+    return jsonable_encoder(
+        base_datos.listar_transformaciones_precargadas(linea)
+    )
+
+
+@router.get('/transformacion/precargadas/{transformacion_id}')
+def consultar_detalle_transformacion_precargada(
+    transformacion_id: int,
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    exigir_sesion(request)
+    detalle = base_datos.obtener_transformacion_precargada(transformacion_id)
+    if not detalle:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='La transformación precargada no existe o está inactiva.',
+        )
+    return jsonable_encoder(detalle)
+
+
+@router.get('/transformacion/resultantes')
+def consultar_resultantes_transformacion(
+    request: Request,
+    linea: str = Query(min_length=1, max_length=100),
+    producto_base: str = Query(min_length=1, max_length=250),
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    exigir_sesion(request)
+    return jsonable_encoder(
+        base_datos.listar_productos_resultantes_transformacion(
+            linea,
+            producto_base,
+        )
+    )
+
+
+@router.get('/transformacion/documentos-sugeridos')
+def consultar_documentos_transformacion(
+    request: Request,
+    producto_base_id: int = Query(gt=0),
+    producto_resultante_id: int = Query(gt=0),
+    cantidad_base: Optional[float] = Query(default=None, gt=0),
+    cantidad_resultante: Optional[float] = Query(default=None, gt=0),
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    exigir_sesion(request)
+    return jsonable_encoder({
+        'salida': base_datos.sugerir_documento_por_producto(
+            203, producto_base_id, cantidad_base
+        ),
+        'entrada': base_datos.sugerir_documento_por_producto(
+            202, producto_resultante_id, cantidad_resultante
+        ),
+    })
+
+
+@router.get('/transformacion/folios-siguientes')
+def consultar_folios_transformacion(
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    exigir_sesion(request)
+    return jsonable_encoder(
+        base_datos.obtener_siguientes_folios_transformacion()
+    )
+
+
+@router.get('/transformacion/proveedores-productos')
+def consultar_proveedores_productos(
+    request: Request,
+    producto_base_id: int = Query(gt=0),
+    producto_resultante_id: int = Query(gt=0),
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    exigir_sesion(request)
+    return jsonable_encoder({
+        'producto_base': base_datos.obtener_proveedores_producto(
+            producto_base_id
+        ),
+        'producto_resultante': base_datos.obtener_proveedores_producto(
+            producto_resultante_id
+        ),
+    })
+
+
+@router.post(
+    '/transformacion/registrar',
+    response_model=RespuestaRelacionDocumentos,
+    status_code=status.HTTP_201_CREATED,
+)
+def registrar_transformacion(
+    datos: CrearTransformacion,
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    sesion = exigir_sesion(request)
+    usuario_erp = int(sesion.get('user_id') or 0)
+    if usuario_erp <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='La sesión no contiene un usuario ERP válido.',
+        )
+
+    configuracion = base_datos.obtener_transformacion_precargada(
+        datos.transformacion_config_id
+    )
+    if not configuracion:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail='La transformación precargada no es válida o está inactiva.',
+        )
+    resultado_configurado = configuracion['resultantes'][0]
+    if (
+        configuracion['linea'].upper() != datos.linea.upper()
+        or configuracion['producto_base_id'] != datos.producto_base_id
+        or resultado_configurado['product_id'] != datos.producto_resultante_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail='Los productos no corresponden a la transformación elegida.',
+        )
+
+    base_receta = next(
+        (
+            componente for componente in configuracion['componentes']
+            if componente['es_producto_base']
+        ),
+        None,
+    )
+    cantidad_base_receta = float(
+        (base_receta or {}).get('cantidad') or 0
+    )
+    factor = (
+        datos.cantidad_base / cantidad_base_receta
+        if cantidad_base_receta > 0 else 1
+    )
+    insumos = [
+        {
+            'producto_id': componente['product_id'],
+            'cantidad': round(float(componente['cantidad']) * factor, 6),
+        }
+        for componente in configuracion['componentes']
+        if not componente['es_producto_base']
+    ]
+
+    usuarios_fisicos = base_datos.obtener_usuarios_fisicos()
+    if not any(
+        int(usuario.get('UserID') or 0) == datos.usuario_fisico_id
+        for usuario in usuarios_fisicos
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail='El tablajero seleccionado no es válido o no está activo.',
+        )
+
+    resultado = base_datos.crear_documentos_transformacion(
+        producto_base_id=datos.producto_base_id,
+        producto_resultante_id=datos.producto_resultante_id,
+        cantidad_base=datos.cantidad_base,
+        cantidad_resultante=datos.cantidad_resultante,
+        usuario_erp=usuario_erp,
+        usuario_fisico_id=datos.usuario_fisico_id,
+        insumos=insumos,
+    )
+    if not resultado:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='SSM no devolvió los documentos creados.',
+        )
+
+    return RespuestaRelacionDocumentos(
+        mensaje='La transformación se registró y relacionó correctamente.',
+        source_document_id=resultado['SourceDocumentID'],
+        destination_document_id=resultado['DestinationDocumentID'],
+        folio_salida=resultado['FolioSalida'],
+        folio_entrada=resultado['FolioEntrada'],
+    )
+
+
 @router.get('/documentos-disponibles/{module_id}')
 def consultar_documentos_disponibles(
     module_id: int,
@@ -188,6 +397,13 @@ def crear_relacion(
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
     sesion = exigir_sesion(request)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            'Este movimiento está deshabilitado temporalmente. '
+            'Únicamente Transformación se encuentra disponible.'
+        ),
+    )
     usuario_erp = int(sesion.get('user_id') or 0)
     if usuario_erp <= 0:
         raise HTTPException(
@@ -245,6 +461,33 @@ def crear_relacion(
             ),
         )
 
+    es_analisis = movimiento_entrada == 24 and movimiento_salida == 21
+    marca_destino_id = datos.destination_brand_id
+    if es_analisis and not marca_destino_id and datos.marca_nombre:
+        categorias_entrada = sorted({
+                    str(partida.get('Category') or '').strip()
+                    for partida in base_datos.obtener_partidas_documento_erp(
+                        datos.destination_document_id
+                    )
+                    if str(partida.get('Category') or '').strip()
+                })
+        marca_destino_id = base_datos.obtener_o_crear_marca_modulo(
+            categoria=categorias_entrada[0] if categorias_entrada else '',
+            nombre=datos.marca_nombre,
+        )
+    if es_analisis and (
+        datos.proveedor_id <= 0
+        or datos.usuario_fisico_id <= 0
+        or not marca_destino_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                'Los movimientos de Análisis requieren proveedor, '
+                'marca y tablajero.'
+            ),
+        )
+
     folio_salida = base_datos.buscar_folio_documento(
         datos.source_document_id
     )
@@ -269,7 +512,7 @@ def crear_relacion(
         fecha_movimiento=datos.fecha_movimiento,
         user_id_erp=usuario_erp,
         source_brand_id=datos.source_brand_id,
-        destination_brand_id=datos.destination_brand_id,
+        destination_brand_id=marca_destino_id,
     )
 
     return RespuestaRelacionDocumentos(
