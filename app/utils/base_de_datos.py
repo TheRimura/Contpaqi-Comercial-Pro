@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import secrets
 
 from functools import cache
@@ -7,6 +8,8 @@ from platform import node
 from typing import Optional
 
 from cayal.comandos_base_datos import ComandosBaseDatos
+
+from app.settings import AJUSTES_MODULO
 
 
 _CLAVE_FIRMA_TEMPORAL = secrets.token_urlsafe(64)
@@ -295,13 +298,27 @@ class BaseDatos(ComandosBaseDatos):
     def listar_lineas_transformacion(self) -> list[dict]:
         return self.fetchall(
             """
-            SELECT Category1, COUNT(*) AS total_productos
-            FROM dbo.orgProduct
-            WHERE DiscontinuedOn IS NULL
-              AND UPPER(LTRIM(RTRIM(ISNULL(Category1, ''))))
+            SELECT
+                Linea.Category1,
+                COUNT(*) AS total_productos,
+                (
+                    SELECT COUNT(DISTINCT Formula.ProductID)
+                    FROM dbo.zvwFormulasListasPCocinar AS Formula
+                    INNER JOIN dbo.orgProduct AS Componente
+                        ON Componente.ProductID = Formula.ComponenteID
+                       AND Componente.DiscontinuedOn IS NULL
+                    INNER JOIN dbo.orgProduct AS Resultado
+                        ON Resultado.ProductID = Formula.ProductID
+                       AND Resultado.DiscontinuedOn IS NULL
+                    WHERE UPPER(LTRIM(RTRIM(ISNULL(Componente.Category1, '')))) =
+                          UPPER(LTRIM(RTRIM(Linea.Category1)))
+                ) AS total_recetas
+            FROM dbo.orgProduct AS Linea
+            WHERE Linea.DiscontinuedOn IS NULL
+              AND UPPER(LTRIM(RTRIM(ISNULL(Linea.Category1, ''))))
                   IN ('CERDO', 'POLLO', 'RES LOCAL')
-            GROUP BY Category1
-            ORDER BY Category1
+            GROUP BY Linea.Category1
+            ORDER BY Linea.Category1
             """,
             (),
         )
@@ -332,6 +349,7 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def listar_transformaciones_precargadas(self, linea: str) -> list[dict]:
+        self.asegurar_proveedor_transformaciones_usuario()
         return self.fetchall(
             """
             SELECT
@@ -339,10 +357,15 @@ class BaseDatos(ComandosBaseDatos):
                 T.nombre_transformacion,
                 T.producto_origen AS producto_base_id,
                 P.ProductName AS producto_base,
-                P.Category1 AS linea
+                P.Category1 AS linea,
+                ISNULL(E.OfficialName, '') AS proveedor
             FROM dbo.TransformacionesUsuario AS T
             INNER JOIN dbo.orgProduct AS P
                 ON P.ProductID = T.producto_origen
+            LEFT JOIN dbo.orgSupplier AS S
+                ON S.SupplierID = T.proveedor_id
+            LEFT JOIN dbo.orgBusinessEntity AS E
+                ON E.BusinessEntityID = S.BusinessEntityID
             WHERE T.activa = 1
               AND P.DiscontinuedOn IS NULL
               AND UPPER(LTRIM(RTRIM(P.Category1))) =
@@ -351,6 +374,177 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (str(linea).strip(),),
         )
+
+    def listar_transformaciones_disponibles(self) -> list[dict]:
+        return self.fetchall(
+            """
+            SELECT
+                P.ProductID AS transformacion_id,
+                P.ProductName AS nombre_transformacion,
+                Base.ProductID AS producto_base_id,
+                P.Category2 AS producto_base,
+                P.Category1 AS linea,
+                CAST(CASE WHEN EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.zvwFormulasListasPCocinar AS Formula
+                    WHERE Formula.ProductID = P.ProductID
+                ) THEN 1 ELSE 0 END AS BIT) AS tiene_formula,
+                CAST(1 AS BIT) AS origen_catalogo
+            FROM dbo.orgProduct AS P
+            OUTER APPLY
+            (
+                SELECT TOP 1 B.ProductID
+                FROM dbo.orgProduct AS B
+                WHERE B.DiscontinuedOn IS NULL
+                  AND UPPER(LTRIM(RTRIM(ISNULL(B.Category1, '')))) =
+                      UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
+                  AND UPPER(LTRIM(RTRIM(ISNULL(B.Category2, '')))) =
+                      UPPER(LTRIM(RTRIM(ISNULL(P.Category2, ''))))
+                ORDER BY
+                    CASE WHEN UPPER(LTRIM(RTRIM(B.ProductName))) =
+                              UPPER(LTRIM(RTRIM(P.Category2)))
+                         THEN 0 ELSE 1 END,
+                    B.ProductID
+            ) AS Base
+            WHERE P.DiscontinuedOn IS NULL
+              AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
+                  IN ('CERDO', 'POLLO', 'RES LOCAL')
+              AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
+              AND UPPER(LTRIM(RTRIM(P.ProductName))) <>
+                  UPPER(LTRIM(RTRIM(P.Category2)))
+            ORDER BY P.Category1, P.Category2, P.ProductName
+            """,
+            (),
+        )
+
+    def obtener_transformacion_catalogo(
+        self, producto_resultante_id: int
+    ) -> Optional[dict]:
+        disponibles = self.fetchall(
+            """
+            SELECT TOP 1
+                P.ProductID AS transformacion_id,
+                P.ProductName AS nombre_transformacion,
+                P.ProductID AS producto_resultante_id,
+                P.ProductName AS producto_resultante,
+                P.Unit AS unidad_resultante,
+                Base.Category1 AS linea,
+                Base.Componente AS producto_base,
+                Base.ComponenteID AS producto_base_id
+            FROM dbo.orgProduct AS P
+            CROSS APPLY
+            (
+                SELECT TOP 1
+                    F.ComponenteID,
+                    F.Componente,
+                    C.Category1,
+                    F.CantidadComp
+                FROM dbo.zvwFormulasListasPCocinar AS F
+                INNER JOIN dbo.orgProduct AS C
+                    ON C.ProductID = F.ComponenteID
+                   AND C.DiscontinuedOn IS NULL
+                WHERE F.ProductID = P.ProductID
+                  AND UPPER(LTRIM(RTRIM(ISNULL(C.Category1, ''))))
+                      IN ('CERDO', 'POLLO', 'RES LOCAL')
+                ORDER BY
+                    F.CantidadComp DESC,
+                    F.IDComp,
+                    F.ComponenteID
+            ) AS Base
+            WHERE P.ProductID = ?
+              AND P.DiscontinuedOn IS NULL
+              AND EXISTS
+              (
+                  SELECT 1
+                  FROM dbo.zvwFormulasListasPCocinar AS Formula
+                  WHERE Formula.ProductID = P.ProductID
+              )
+            """,
+            (int(producto_resultante_id),),
+        )
+        if not disponibles:
+            disponibles = self.fetchall(
+                """
+                SELECT TOP 1
+                    P.ProductID AS transformacion_id,
+                    P.ProductName AS nombre_transformacion,
+                    P.ProductID AS producto_resultante_id,
+                    P.ProductName AS producto_resultante,
+                    P.Unit AS unidad_resultante,
+                    P.Category1 AS linea,
+                    P.Category2 AS producto_base,
+                    Base.ProductID AS producto_base_id
+                FROM dbo.orgProduct AS P
+                OUTER APPLY
+                (
+                    SELECT TOP 1 B.ProductID
+                    FROM dbo.orgProduct AS B
+                    WHERE B.DiscontinuedOn IS NULL
+                      AND UPPER(LTRIM(RTRIM(ISNULL(B.Category1, '')))) =
+                          UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
+                      AND UPPER(LTRIM(RTRIM(ISNULL(B.Category2, '')))) =
+                          UPPER(LTRIM(RTRIM(ISNULL(P.Category2, ''))))
+                    ORDER BY
+                        CASE WHEN UPPER(LTRIM(RTRIM(B.ProductName))) =
+                                  UPPER(LTRIM(RTRIM(P.Category2)))
+                             THEN 0 ELSE 1 END,
+                        B.ProductID
+                ) AS Base
+                WHERE P.ProductID = ?
+                  AND P.DiscontinuedOn IS NULL
+                  AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
+                      IN ('CERDO', 'POLLO', 'RES LOCAL')
+                  AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
+                """,
+                (int(producto_resultante_id),),
+            )
+        if not disponibles or not disponibles[0].get('producto_base_id'):
+            return None
+        registro = disponibles[0]
+        componentes_formula = self.buscar_formula_producto_configuracion(
+            producto_resultante_id
+        )
+        componentes = []
+        base_en_formula = False
+        for orden, componente in enumerate(componentes_formula, start=1):
+            es_base = int(componente['product_id']) == int(registro['producto_base_id'])
+            base_en_formula = base_en_formula or es_base
+            componentes.append({
+                'product_id': int(componente['product_id']),
+                'producto': componente['producto'],
+                'cantidad': float(componente['cantidad']),
+                'unidad': componente.get('unidad') or 'KILO',
+                'es_producto_base': es_base,
+                'tipo_componente': 'PRODUCTO_BASE' if es_base else 'INSUMO',
+                'orden': orden,
+            })
+        if not base_en_formula:
+            componentes.insert(0, {
+                'product_id': int(registro['producto_base_id']),
+                'producto': registro['producto_base'],
+                'cantidad': 1.0,
+                'unidad': 'KILO',
+                'es_producto_base': True,
+                'tipo_componente': 'PRODUCTO_BASE',
+                'orden': 0,
+            })
+        return {
+            'transformacion_id': int(registro['transformacion_id']),
+            'nombre_transformacion': registro['nombre_transformacion'],
+            'producto_base_id': int(registro['producto_base_id']),
+            'producto_base': registro['producto_base'],
+            'linea': registro['linea'],
+            'porcentaje_merma': AJUSTES_MODULO.merma_tecnica_porcentaje,
+            'origen_catalogo': True,
+            'resultantes': [{
+                'product_id': int(registro['producto_resultante_id']),
+                'producto_resultante': registro['producto_resultante'],
+                'cantidad': AJUSTES_MODULO.factor_rendimiento,
+                'unidad': registro.get('unidad_resultante') or 'KILO',
+            }],
+            'componentes': componentes,
+        }
 
     def obtener_transformacion_precargada(
         self,
@@ -364,7 +558,7 @@ class BaseDatos(ComandosBaseDatos):
                 T.producto_origen AS producto_base_id,
                 P.ProductName AS producto_base,
                 P.Category1 AS linea,
-                CAST(8.00 AS DECIMAL(5,2)) AS porcentaje_merma
+                CAST(? AS DECIMAL(5,2)) AS porcentaje_merma
             FROM dbo.TransformacionesUsuario AS T
             INNER JOIN dbo.orgProduct AS P
                 ON P.ProductID = T.producto_origen
@@ -372,7 +566,10 @@ class BaseDatos(ComandosBaseDatos):
               AND T.activa = 1
               AND P.DiscontinuedOn IS NULL
             """,
-            (int(transformacion_id),),
+            (
+                AJUSTES_MODULO.merma_tecnica_porcentaje,
+                int(transformacion_id),
+            ),
         )
         if not encabezados:
             return None
@@ -573,9 +770,11 @@ class BaseDatos(ComandosBaseDatos):
         cantidad_resultante: float,
         usuario_erp: int,
         usuario_fisico_id: int,
+        tipo_movimiento_salida_id: int,
+        tipo_movimiento_entrada_id: int,
         insumos: Optional[list[dict]] = None,
     ) -> Optional[dict]:
-        relation_id = self.command(
+        relation_id = self.fetchone(
             """
             SET NOCOUNT ON;
             SET XACT_ABORT ON;
@@ -598,6 +797,7 @@ class BaseDatos(ComandosBaseDatos):
                 DECLARE @Insumos NVARCHAR(MAX) = ?;
                 DECLARE @SalidaID INT;
                 DECLARE @EntradaID INT;
+                DECLARE @RelacionID INT;
                 DECLARE @FolioSalida NVARCHAR(125);
                 DECLARE @FolioEntrada NVARCHAR(125);
 
@@ -657,15 +857,55 @@ class BaseDatos(ComandosBaseDatos):
                     ISNULL(FolioPrefix, '') + ISNULL(Folio, '')
                 FROM dbo.docDocument WHERE DocumentID = @EntradaID;
 
+                IF @SalidaID = @EntradaID
+                    THROW 50102, 'Los documentos no pueden ser el mismo.', 1;
+
+                IF NOT EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.docDocument WITH (UPDLOCK, HOLDLOCK)
+                    WHERE DocumentID = @SalidaID
+                      AND ModuleID = 203
+                      AND DeletedOn IS NULL
+                      AND CancelledOn IS NULL
+                      AND ISNULL(SourceDocumentID, 0) = 0
+                      AND ISNULL(DestinationDocumentID, 0) = 0
+                      AND ISNULL(Custom1, '') = ''
+                )
+                    THROW 50103, 'La salida no está disponible para relacionarse.', 1;
+
+                IF NOT EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.docDocument WITH (UPDLOCK, HOLDLOCK)
+                    WHERE DocumentID = @EntradaID
+                      AND ModuleID = 202
+                      AND DeletedOn IS NULL
+                      AND CancelledOn IS NULL
+                      AND ISNULL(SourceDocumentID, 0) = 0
+                      AND ISNULL(DestinationDocumentID, 0) = 0
+                      AND ISNULL(Custom1, '') = ''
+                )
+                    THROW 50104, 'La entrada no está disponible para relacionarse.', 1;
+
+                IF EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.docDocumentWarehouseRelation WITH (UPDLOCK, HOLDLOCK)
+                    WHERE SourceDocumentID = @SalidaID
+                       OR DestinationDocumentID = @EntradaID
+                )
+                    THROW 50105, 'La relación entre documentos ya existe.', 1;
+
                 UPDATE dbo.docDocument
                 SET DestinationDocumentID = @EntradaID,
-                    CustomCbo = '2',
+                    CustomCbo = ?,
                     Custom1 = @FolioEntrada
                 WHERE DocumentID = @SalidaID AND ModuleID = 203;
 
                 UPDATE dbo.docDocument
                 SET SourceDocumentID = @SalidaID,
-                    CustomCbo = '5',
+                    CustomCbo = ?,
                     Custom1 = @FolioSalida
                 WHERE DocumentID = @EntradaID AND ModuleID = 202;
 
@@ -681,8 +921,10 @@ class BaseDatos(ComandosBaseDatos):
                     0, ?, CAST(GETDATE() AS DATE),
                     ?, NULL, NULL, GETDATE()
                 );
+                SET @RelacionID = CONVERT(INT, SCOPE_IDENTITY());
 
                 COMMIT TRANSACTION;
+                SELECT @RelacionID;
             END TRY
             BEGIN CATCH
                 IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
@@ -697,6 +939,8 @@ class BaseDatos(ComandosBaseDatos):
                 float(cantidad_base),
                 int(producto_resultante_id),
                 float(cantidad_resultante),
+                int(tipo_movimiento_salida_id),
+                int(tipo_movimiento_entrada_id),
                 int(usuario_fisico_id),
                 int(usuario_erp),
             ),
@@ -749,6 +993,104 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (),
         )
+
+    def listar_historial_transformaciones(
+        self,
+        limite: int = 100,
+    ) -> list[dict]:
+        limite = min(max(int(limite), 1), 500)
+        filas = self.fetchall(
+            """
+            SELECT TOP (?)
+                R.DocumentWarehouseRelationID AS relacion_id,
+                COALESCE(
+                    R.MovementDate,
+                    CAST(R.CreatedOn AS DATE)
+                ) AS fecha,
+                R.CreatedOn AS fecha_hora,
+                ISNULL(S.FolioPrefix, '') +
+                    ISNULL(S.Folio, '') AS folio_salida,
+                ISNULL(E.FolioPrefix, '') +
+                    ISNULL(E.Folio, '') AS folio_entrada,
+                ISNULL(U.UserName, '') AS usuario,
+                ISNULL(Empleado.OfficialName, '') AS tablajero,
+                ISNULL(Base.ProductName, '') AS producto_base,
+                ISNULL(Base.Quantity, 0) AS cantidad_base,
+                ISNULL(Resultado.ProductName, '') AS producto_resultante,
+                ISNULL(Resultado.Quantity, 0) AS cantidad_resultante,
+                ISNULL(Partidas.total_partidas, 0) AS total_partidas_salida
+            FROM dbo.docDocumentWarehouseRelation AS R
+            INNER JOIN dbo.docDocument AS S
+                ON S.DocumentID = R.SourceDocumentID
+               AND S.ModuleID = 203
+            INNER JOIN dbo.docDocument AS E
+                ON E.DocumentID = R.DestinationDocumentID
+               AND E.ModuleID = 202
+            LEFT JOIN dbo.engUser AS U
+                ON U.UserID = R.ERPUserID
+            OUTER APPLY
+            (
+                SELECT TOP 1 EMP.OfficialName
+                FROM dbo.zvwEmpleadosCayalMenu AS EMP
+                WHERE EMP.UserID = R.PhysicalUserID
+                ORDER BY EMP.OfficialName
+            ) AS Empleado
+            OUTER APPLY
+            (
+                SELECT TOP 1 P.ProductName, DI.Quantity
+                FROM dbo.docDocumentItem AS DI
+                INNER JOIN dbo.orgProduct AS P
+                    ON P.ProductID = DI.ProductID
+                WHERE DI.DocumentID = S.DocumentID
+                  AND DI.DeletedOn IS NULL
+                ORDER BY
+                    CASE WHEN DI.Comments LIKE 'Producto base%'
+                         THEN 0 ELSE 1 END,
+                    DI.DocumentItemID
+            ) AS Base
+            OUTER APPLY
+            (
+                SELECT TOP 1 P.ProductName, DI.Quantity
+                FROM dbo.docDocumentItem AS DI
+                INNER JOIN dbo.orgProduct AS P
+                    ON P.ProductID = DI.ProductID
+                WHERE DI.DocumentID = E.DocumentID
+                  AND DI.DeletedOn IS NULL
+                ORDER BY DI.DocumentItemID
+            ) AS Resultado
+            OUTER APPLY
+            (
+                SELECT COUNT(*) AS total_partidas
+                FROM dbo.docDocumentItem AS DI
+                WHERE DI.DocumentID = S.DocumentID
+                  AND DI.DeletedOn IS NULL
+            ) AS Partidas
+            WHERE S.DeletedOn IS NULL
+              AND E.DeletedOn IS NULL
+              AND TRY_CONVERT(INT, S.CustomCbo) = 2
+              AND TRY_CONVERT(INT, E.CustomCbo) = 5
+            ORDER BY
+                R.CreatedOn DESC,
+                R.DocumentWarehouseRelationID DESC
+            """,
+            (limite,),
+        )
+        patron_rango = re.compile(
+            r"\s*\.?\s*1\s*\(\s*\d+\s*(?:-\s*\d+|\+)\s*\)\s*$",
+            re.IGNORECASE,
+        )
+        for fila in filas:
+            fila['producto_base'] = patron_rango.sub(
+                '', str(fila.get('producto_base') or '')
+            ).strip()
+            fila['producto_resultante'] = patron_rango.sub(
+                '', str(fila.get('producto_resultante') or '')
+            ).strip()
+            fila['total_insumos'] = max(
+                int(fila.pop('total_partidas_salida', 0) or 0) - 1,
+                0,
+            )
+        return filas
 
     def obtener_relacion_documento(
         self,
@@ -1636,6 +1978,42 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     # ---------------- CONFIGURACION DE TRANSFORMACIONES ----------------
+    def asegurar_proveedor_transformaciones_usuario(self) -> None:
+        self.command(
+            """
+            IF OBJECT_ID('dbo.TransformacionesUsuario', 'U') IS NOT NULL
+               AND COL_LENGTH('dbo.TransformacionesUsuario', 'proveedor_id') IS NULL
+            BEGIN
+                ALTER TABLE dbo.TransformacionesUsuario
+                ADD proveedor_id INT NULL;
+            END;
+            """,
+            (),
+        )
+
+    def obtener_proveedores_carnicos(self) -> list[dict]:
+        return self.fetchall(
+            """
+            SELECT DISTINCT
+                S.SupplierID AS proveedor_id,
+                LTRIM(RTRIM(E.OfficialName)) AS proveedor
+            FROM dbo.orgProductSupplier AS PS
+            INNER JOIN dbo.orgProduct AS P
+                ON P.ProductID = PS.ProductID
+               AND P.DiscontinuedOn IS NULL
+            INNER JOIN dbo.orgSupplier AS S
+                ON S.SupplierID = PS.SupplierID
+               AND S.DeletedOn IS NULL
+            INNER JOIN dbo.orgBusinessEntity AS E
+                ON E.BusinessEntityID = S.BusinessEntityID
+            WHERE UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
+                  IN ('CERDO', 'POLLO', 'RES LOCAL')
+              AND NULLIF(LTRIM(RTRIM(E.OfficialName)), '') IS NOT NULL
+            ORDER BY proveedor
+            """,
+            (),
+        )
+
     def buscar_productos_base_configuracion(
         self, linea: str, termino: str = ''
     ) -> list[dict]:
@@ -1700,6 +2078,7 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def crear_configuracion_transformacion(self, datos, usuario_id: int) -> int:
+        self.asegurar_proveedor_transformaciones_usuario()
         base = self.fetchall(
             """SELECT TOP 1 ProductID, Category1
                FROM dbo.orgProduct
@@ -1718,6 +2097,11 @@ class BaseDatos(ComandosBaseDatos):
             raise ValueError('El producto resultante no tiene fórmula en SSM.')
         if not any(int(c['product_id']) == datos.producto_base_id for c in formula):
             raise ValueError('El producto base no forma parte de la fórmula seleccionada.')
+        if not any(
+            int(proveedor['proveedor_id']) == int(datos.proveedor_id)
+            for proveedor in self.obtener_proveedores_carnicos()
+        ):
+            raise ValueError('El proveedor seleccionado no corresponde a productos cárnicos.')
         if self.fetchone(
             """SELECT TOP 1 T.id_transformacion_usuario
                FROM dbo.TransformacionesUsuario T
@@ -1747,9 +2131,9 @@ class BaseDatos(ComandosBaseDatos):
             BEGIN TRY
                 INSERT dbo.TransformacionesUsuario
                     (nombre_transformacion, producto_origen, producto_formula,
-                     cantidad_base, porcentaje_merma, usuario_creacion,
+                     cantidad_base, porcentaje_merma, proveedor_id, usuario_creacion,
                      activa, observaciones)
-                VALUES (?, ?, ?, ?, 8.00, ?, 1, ?);
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?);
                 DECLARE @id INT=CONVERT(INT,SCOPE_IDENTITY());
                 INSERT dbo.TransformacionesUsuarioDetalle
                     (id_transformacion_usuario, producto_resultante,
@@ -1775,7 +2159,8 @@ class BaseDatos(ComandosBaseDatos):
             (
                 datos.nombre, int(datos.producto_base_id),
                 int(datos.producto_resultante_id), float(datos.cantidad_base),
-                int(usuario_id), datos.observaciones,
+                AJUSTES_MODULO.merma_tecnica_porcentaje,
+                int(datos.proveedor_id), int(usuario_id), datos.observaciones,
                 int(datos.producto_resultante_id),
                 float(datos.cantidad_resultante),
                 json.dumps(componentes, ensure_ascii=False),

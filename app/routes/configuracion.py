@@ -9,6 +9,15 @@ from app.utils.seguridad import seguridad_sesion
 router = APIRouter(prefix='/api/configuracion', tags=['Configuración'])
 
 
+@router.get('/proveedores-carnicos')
+def proveedores_carnicos(
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    seguridad_sesion.requerir_permiso(request, 'ver_configuracion')
+    return jsonable_encoder(base_datos.obtener_proveedores_carnicos())
+
+
 @router.get('/productos-base')
 def productos_base(
     request: Request,
@@ -16,7 +25,7 @@ def productos_base(
     termino: str = Query(default='', max_length=100),
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
-    seguridad_sesion.requerir_sesion(request)
+    seguridad_sesion.requerir_permiso(request, 'ver_configuracion')
     return jsonable_encoder(
         base_datos.buscar_productos_base_configuracion(linea, termino)
     )
@@ -29,7 +38,7 @@ def productos_resultantes(
     termino: str = Query(default='', max_length=100),
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
-    seguridad_sesion.requerir_sesion(request)
+    seguridad_sesion.requerir_permiso(request, 'ver_configuracion')
     return jsonable_encoder(
         base_datos.buscar_productos_resultantes_configuracion(linea, termino)
     )
@@ -41,7 +50,7 @@ def formula_producto(
     request: Request,
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
-    seguridad_sesion.requerir_sesion(request)
+    seguridad_sesion.requerir_permiso(request, 'ver_configuracion')
     return jsonable_encoder(
         base_datos.buscar_formula_producto_configuracion(producto_id)
     )
@@ -53,7 +62,9 @@ def crear_transformacion(
     request: Request,
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
-    sesion = seguridad_sesion.requerir_sesion(request)
+    sesion = seguridad_sesion.requerir_permiso(
+        request, 'crear_configuracion'
+    )
     try:
         transformacion_id = base_datos.crear_configuracion_transformacion(
             datos=datos,
@@ -65,4 +76,3 @@ def crear_transformacion(
         'mensaje': 'Configuración guardada correctamente.',
         'transformacion_id': transformacion_id,
     }
-

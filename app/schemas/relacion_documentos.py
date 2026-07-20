@@ -3,6 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.settings import AJUSTES_MODULO
+
 
 class CrearRelacionDocumentos(BaseModel):
     source_document_id: int = Field(gt=0)
@@ -28,12 +30,16 @@ class CrearRelacionDocumentos(BaseModel):
 
 
 class CrearTransformacion(BaseModel):
-    transformacion_config_id: int = Field(gt=0)
+    transformacion_config_id: int = Field(default=0, ge=0)
     linea: str = Field(min_length=1, max_length=100)
     producto_base_id: int = Field(gt=0)
     producto_resultante_id: int = Field(gt=0)
-    cantidad_base: float = Field(gt=0)
-    cantidad_resultante: float = Field(gt=0)
+    cantidad_base: float = Field(
+        gt=0, le=AJUSTES_MODULO.maximo_kilos_por_transformacion
+    )
+    cantidad_resultante: float = Field(
+        gt=0, le=AJUSTES_MODULO.maximo_kilos_por_transformacion
+    )
     usuario_fisico_id: int = Field(gt=0)
 
     @field_validator('linea')
@@ -43,9 +49,14 @@ class CrearTransformacion(BaseModel):
 
     @model_validator(mode='after')
     def validar_rendimiento(self):
-        if self.cantidad_resultante > self.cantidad_base:
+        esperado = round(
+            self.cantidad_base * AJUSTES_MODULO.factor_rendimiento,
+            3,
+        )
+        if abs(self.cantidad_resultante - esperado) > 0.001:
             raise ValueError(
-                'El peso resultante no puede superar el peso base.'
+                'El peso resultante no corresponde a la merma técnica '
+                f'del {AJUSTES_MODULO.merma_tecnica_porcentaje:g}%.'
             )
         return self
 

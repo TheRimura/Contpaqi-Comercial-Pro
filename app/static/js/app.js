@@ -1,4 +1,7 @@
 const API_RELACIONES = "/api/relaciones-documentos";
+const AJUSTES_INTERFAZ = document.body?.dataset || {};
+const MERMA_TECNICA_PORCENTAJE = Number(AJUSTES_INTERFAZ.mermaTecnica || 8);
+const FACTOR_RENDIMIENTO = 1 - (MERMA_TECNICA_PORCENTAJE / 100);
 let catalogos = { movimientos: [], proveedores: [], usuarios_fisicos: [] };
 let documentos = { salida: [], entrada: [] };
 let partidasEntrada = [];
@@ -6,15 +9,33 @@ let datosCargados = false;
 let transformacionPreparada = false;
 let detalleTransformacionSeleccionada = null;
 let insumosTransformacionCalculados = [];
+let transformacionesDisponibles = [];
+let transformacionCatalogoActualId = "";
+let lineaTransformacionSeleccionada = "";
+let temporizadorVistaPreviaTransformacion = null;
+let transformacionesLineaActual = [];
+let paginaTransformacionesActual = 1;
+const TRANSFORMACIONES_POR_PAGINA = Number(AJUSTES_INTERFAZ.transformacionesPorPagina || 12);
 const API_CONFIGURACION = "/api/configuracion";
 let formulaActual = [];
 let lineaCatalogoActual = "";
 let temporizadorCatalogo = null;
+let productosCatalogoActual = [];
+let paginaCatalogoActual = 1;
+const PRODUCTOS_POR_PAGINA = Number(AJUSTES_INTERFAZ.productosPorPagina || 12);
+const HISTORIAL_POR_PAGINA = 10;
+let paginaHistorialActual = 1;
+
+function limpiarNombreProducto(nombre) {
+    return String(nombre || "")
+        .replace(/\s*\.?\s*1\s*\(\s*\d+\s*(?:-\s*\d+|\+)\s*\)\s*$/i, "")
+        .trim();
+}
 
 function llenarConfigSelect(elemento, registros, placeholder) {
     elemento.replaceChildren(new Option(placeholder, ""));
     registros.forEach((registro) => {
-        const opcion = new Option(registro.producto, String(registro.product_id));
+        const opcion = new Option(limpiarNombreProducto(registro.producto), String(registro.product_id));
         opcion.dataset.unidad = registro.unidad || "KILO";
         elemento.add(opcion);
     });
@@ -33,45 +54,100 @@ function limpiarMensajeConfiguracion() {
     mensaje.className = "message";
 }
 
-async function cargarProductosCatalogo(linea, termino = "") {
-    lineaCatalogoActual = linea;
-    const panel = document.getElementById("catalogo-productos");
-    const lista = document.getElementById("lista-productos-catalogo");
-    panel.classList.remove("hidden");
-    document.getElementById("catalogo-productos-titulo").textContent = linea;
-    document.getElementById("catalogo-productos-total").textContent = "";
-    lista.innerHTML = '<p class="catalog-loading">Consultando productos en SSM...</p>';
-    document.querySelectorAll(".configuration-line").forEach((boton) => {
-        boton.classList.toggle("active", boton.dataset.linea === linea);
-    });
+async function cargarProveedoresConfiguracion() {
+    const selector = document.getElementById("config-proveedor");
+    selector.disabled = true;
     try {
-        const productos = await solicitarJson(
-            `${API_CONFIGURACION}/productos-base?linea=${encodeURIComponent(linea)}&termino=${encodeURIComponent(termino)}`
+        const proveedores = await solicitarJson(`${API_CONFIGURACION}/proveedores-carnicos`);
+        llenarSelect(
+            "config-proveedor",
+            proveedores,
+            "proveedor_id",
+            "proveedor",
+            "Selecciona un proveedor cárnico"
         );
-        lista.replaceChildren();
-        productos.forEach((producto) => {
+        selector.disabled = proveedores.length === 0;
+        if (!proveedores.length) {
+            mensajeConfiguracion("SSM no tiene proveedores relacionados con productos cárnicos.");
+        }
+    } catch (error) {
+        mensajeConfiguracion(error.message);
+    }
+}
+
+function renderizarPaginaCatalogo() {
+    const lista = document.getElementById("lista-productos-catalogo");
+    const paginacion = document.getElementById("paginacion-productos-catalogo");
+    lista.replaceChildren();
+    if (!productosCatalogoActual.length) {
+        lista.innerHTML = '<p class="catalog-loading">No se encontraron productos.</p>';
+        paginacion.classList.add("hidden");
+        return;
+    }
+    const totalPaginas = Math.ceil(productosCatalogoActual.length / PRODUCTOS_POR_PAGINA);
+    paginaCatalogoActual = Math.min(Math.max(paginaCatalogoActual, 1), totalPaginas);
+    const inicio = (paginaCatalogoActual - 1) * PRODUCTOS_POR_PAGINA;
+    productosCatalogoActual
+        .slice(inicio, inicio + PRODUCTOS_POR_PAGINA)
+        .forEach((producto) => {
             const fila = document.createElement("div");
             fila.className = "catalog-product";
             const nombre = document.createElement("strong");
-            nombre.textContent = producto.producto;
+            nombre.textContent = limpiarNombreProducto(producto.producto);
             const unidad = document.createElement("span");
             unidad.textContent = producto.unidad || "SIN UNIDAD";
             fila.append(nombre, unidad);
             lista.appendChild(fila);
         });
-        if (!productos.length) lista.innerHTML = '<p class="catalog-loading">No se encontraron productos.</p>';
+    document.getElementById("catalogo-pagina-actual").textContent =
+        `Página ${paginaCatalogoActual} de ${totalPaginas}`;
+    document.getElementById("catalogo-pagina-anterior").disabled = paginaCatalogoActual === 1;
+    document.getElementById("catalogo-pagina-siguiente").disabled = paginaCatalogoActual === totalPaginas;
+    paginacion.classList.toggle("hidden", totalPaginas <= 1);
+}
+
+function cambiarPaginaCatalogo(cambio) {
+    paginaCatalogoActual += cambio;
+    renderizarPaginaCatalogo();
+    document.getElementById("catalogo-productos").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function cargarProductosCatalogo(linea, termino = "") {
+    lineaCatalogoActual = linea;
+    const panel = document.getElementById("catalogo-productos");
+    const lista = document.getElementById("lista-productos-catalogo");
+    panel.classList.remove("hidden");
+    document.getElementById("configuraciones-guardadas").classList.add("hidden");
+    document.getElementById("catalogo-productos-titulo").textContent = linea;
+    document.getElementById("catalogo-productos-total").textContent = "";
+    lista.innerHTML = '<p class="catalog-loading">Consultando productos en SSM...</p>';
+    document.getElementById("paginacion-productos-catalogo").classList.add("hidden");
+    document.querySelectorAll(".configuration-line").forEach((boton) => {
+        boton.classList.toggle("active", boton.dataset.linea === linea);
+    });
+    try {
+        productosCatalogoActual = await solicitarJson(
+            `${API_CONFIGURACION}/productos-base?linea=${encodeURIComponent(linea)}&termino=${encodeURIComponent(termino)}`
+        );
+        paginaCatalogoActual = 1;
+        renderizarPaginaCatalogo();
         document.getElementById("catalogo-productos-total").textContent =
-            `${productos.length} producto${productos.length === 1 ? "" : "s"}`;
+            `${productosCatalogoActual.length} producto${productosCatalogoActual.length === 1 ? "" : "s"}`;
     } catch (error) {
+        productosCatalogoActual = [];
+        document.getElementById("paginacion-productos-catalogo").classList.add("hidden");
         lista.innerHTML = `<p class="catalog-loading catalog-error">${error.message}</p>`;
     }
 }
 
 function cerrarCatalogoProductos() {
     document.getElementById("catalogo-productos").classList.add("hidden");
+    document.getElementById("configuraciones-guardadas").classList.remove("hidden");
     document.getElementById("buscar-producto-catalogo").value = "";
     document.querySelectorAll(".configuration-line").forEach((boton) => boton.classList.remove("active"));
     lineaCatalogoActual = "";
+    productosCatalogoActual = [];
+    paginaCatalogoActual = 1;
 }
 
 async function cargarResultantesConfiguracion() {
@@ -113,7 +189,7 @@ async function cargarFormulaConfiguracion() {
         cuerpo.replaceChildren();
         formulaActual.forEach((componente) => {
             const fila = document.createElement("tr");
-            [componente.producto, Number(componente.cantidad).toFixed(3), componente.unidad].forEach((valor) => {
+            [limpiarNombreProducto(componente.producto), Number(componente.cantidad).toFixed(3), componente.unidad].forEach((valor) => {
                 const celda = document.createElement("td");
                 celda.textContent = valor;
                 fila.appendChild(celda);
@@ -126,9 +202,33 @@ async function cargarFormulaConfiguracion() {
     } catch (error) { mensajeConfiguracion(error.message); }
 }
 
-function actualizarResultadoEsperado() {
-    const cantidad = Number(document.getElementById("config-cantidad-base").value || 0);
-    document.getElementById("config-cantidad-resultante").value = (cantidad * 0.92).toFixed(3);
+function abrirNuevaConfiguracion() {
+    const formulario = document.getElementById("form-nueva-configuracion");
+    formulario.classList.remove("hidden");
+    document.getElementById("boton-nueva-configuracion").disabled = true;
+    document.getElementById("config-linea").focus();
+    formulario.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function cerrarNuevaConfiguracion() {
+    const formulario = document.getElementById("form-nueva-configuracion");
+    formulario.reset();
+    formulaActual = [];
+    llenarConfigSelect(
+        document.getElementById("config-resultante"),
+        [],
+        "Selecciona la línea primero"
+    );
+    llenarConfigSelect(
+        document.getElementById("config-base"),
+        [],
+        "Selecciona el producto resultante"
+    );
+    document.getElementById("config-formula").classList.add("hidden");
+    limpiarMensajeConfiguracion();
+    formulario.classList.add("hidden");
+    document.getElementById("boton-nueva-configuracion").disabled = false;
+    document.getElementById("boton-nueva-configuracion").focus();
 }
 
 async function guardarNuevaConfiguracion(evento) {
@@ -146,6 +246,7 @@ async function guardarNuevaConfiguracion(evento) {
                 linea: document.getElementById("config-linea").value,
                 producto_base_id: Number(document.getElementById("config-base").value),
                 producto_resultante_id: Number(document.getElementById("config-resultante").value),
+                proveedor_id: Number(document.getElementById("config-proveedor").value),
                 cantidad_base: Number(document.getElementById("config-cantidad-base").value),
                 cantidad_resultante: Number(document.getElementById("config-cantidad-resultante").value),
                 observaciones: document.getElementById("config-observaciones").value.trim() || null,
@@ -161,6 +262,15 @@ async function guardarNuevaConfiguracion(evento) {
 }
 
 function iniciarPaginaConfiguracion() {
+    const formulario = document.getElementById("form-nueva-configuracion");
+    if (formulario) {
+        cargarProveedoresConfiguracion();
+        document.getElementById("boton-nueva-configuracion").addEventListener("click", abrirNuevaConfiguracion);
+        document.getElementById("cancelar-nueva-configuracion").addEventListener("click", cerrarNuevaConfiguracion);
+        document.getElementById("config-linea").addEventListener("change", cargarResultantesConfiguracion);
+        document.getElementById("config-resultante").addEventListener("change", cargarFormulaConfiguracion);
+        formulario.addEventListener("submit", guardarNuevaConfiguracion);
+    }
     document.querySelectorAll(".configuration-line").forEach((boton) => {
         boton.addEventListener("click", () => {
             document.getElementById("buscar-producto-catalogo").value = "";
@@ -168,16 +278,37 @@ function iniciarPaginaConfiguracion() {
         });
     });
     document.getElementById("cerrar-catalogo-productos").addEventListener("click", cerrarCatalogoProductos);
+    document.getElementById("catalogo-pagina-anterior").addEventListener("click", () => cambiarPaginaCatalogo(-1));
+    document.getElementById("catalogo-pagina-siguiente").addEventListener("click", () => cambiarPaginaCatalogo(1));
     document.getElementById("buscar-producto-catalogo").addEventListener("input", (evento) => {
         window.clearTimeout(temporizadorCatalogo);
         temporizadorCatalogo = window.setTimeout(() => {
             if (lineaCatalogoActual) cargarProductosCatalogo(lineaCatalogoActual, evento.target.value.trim());
         }, 250);
     });
-    document.getElementById("config-linea").addEventListener("change", cargarResultantesConfiguracion);
-    document.getElementById("config-resultante").addEventListener("change", cargarFormulaConfiguracion);
-    document.getElementById("config-cantidad-base").addEventListener("input", actualizarResultadoEsperado);
-    document.getElementById("form-nueva-configuracion").addEventListener("submit", guardarNuevaConfiguracion);
+}
+
+function renderizarPaginaHistorial() {
+    const filas = [...document.querySelectorAll("#filas-historial .history-row")];
+    const paginacion = document.getElementById("paginacion-historial");
+    if (!paginacion) return;
+
+    const totalPaginas = Math.max(Math.ceil(filas.length / HISTORIAL_POR_PAGINA), 1);
+    paginaHistorialActual = Math.min(Math.max(paginaHistorialActual, 1), totalPaginas);
+    const inicio = (paginaHistorialActual - 1) * HISTORIAL_POR_PAGINA;
+    const fin = inicio + HISTORIAL_POR_PAGINA;
+    filas.forEach((fila, indice) => fila.classList.toggle("hidden", indice < inicio || indice >= fin));
+
+    document.getElementById("historial-pagina-actual").textContent =
+        `Página ${paginaHistorialActual} de ${totalPaginas} (${filas.length} registros)`;
+    document.getElementById("historial-pagina-anterior").disabled = paginaHistorialActual <= 1;
+    document.getElementById("historial-pagina-siguiente").disabled = paginaHistorialActual >= totalPaginas;
+    paginacion.classList.toggle("hidden", filas.length <= HISTORIAL_POR_PAGINA);
+}
+
+function cambiarPaginaHistorial(desplazamiento) {
+    paginaHistorialActual += desplazamiento;
+    renderizarPaginaHistorial();
 }
 
 async function solicitarJson(url, opciones = {}) {
@@ -264,7 +395,7 @@ function renderizarPartidas(tipo, partidas) {
         cantidad += Number(partida.Quantity || 0);
         const fila = document.createElement("tr");
         [
-            partida.ProductName || "—",
+            limpiarNombreProducto(partida.ProductName) || "—",
             formatoNumero(partida.Quantity),
         ].forEach((texto) => {
             const celda = document.createElement("td");
@@ -352,7 +483,7 @@ function configurarApartadoMovimiento() {
         13: ["Koben", "Relaciona la salida y entrada correspondientes al movimiento Koben."],
         7: ["Preparados", "Comprueba y relaciona los documentos del movimiento de productos preparados."],
         26: ["Transformación de listas para cocinar", "Relaciona la salida y entrada del movimiento de listas para cocinar."],
-        5: ["Transformación", "Selecciona la línea, los productos, el tablajero y el peso de la transformación."],
+        5: ["Transformación"],
         31: ["Traspaso de almacén", "Relaciona y verifica los documentos correspondientes al traspaso de almacén."],
     };
     const [titulo, descripcion] = apartados[entradaId] || [
@@ -368,8 +499,8 @@ function limpiarVistaPreviaTransformacion() {
     transformacionPreparada = false;
     renderizarPartidas("salida", []);
     renderizarPartidas("entrada", []);
-    document.getElementById("resumen-salida").textContent = "Se rellenará al preparar la relación.";
-    document.getElementById("resumen-entrada").textContent = "Se rellenará al preparar la relación.";
+    document.getElementById("resumen-salida").textContent = "Se completará automáticamente al seleccionar la transformación.";
+    document.getElementById("resumen-entrada").textContent = "Se completará automáticamente al seleccionar la transformación.";
     document.getElementById("panel-documentos").classList.remove("hidden");
     document.getElementById("resumen-registro-transformacion").classList.add("hidden");
 }
@@ -403,7 +534,7 @@ async function prepararMovimientoSeleccionado() {
     document.getElementById("resultante-transformacion").disabled = true;
     document.getElementById("transformacion-precargada").disabled = true;
     detalleTransformacionSeleccionada = null;
-    document.getElementById("resumen-sencillo-transformacion").classList.add("hidden");
+    document.getElementById("resumen-sencillo-transformacion")?.classList.add("hidden");
     renderizarInsumosTransformacion();
     actualizarMermaTransformacion();
 }
@@ -416,7 +547,7 @@ async function cargarBasesTransformacion() {
     document.getElementById("documento-salida").value = "";
     document.getElementById("documento-entrada").value = "";
     detalleTransformacionSeleccionada = null;
-    document.getElementById("resumen-sencillo-transformacion").classList.add("hidden");
+    document.getElementById("resumen-sencillo-transformacion")?.classList.add("hidden");
     llenarSelect("base-transformacion", [], "product_id_base", "producto_base", "Se completa automáticamente");
     llenarSelect("resultante-transformacion", [], "product_id", "producto_resultante", "Selecciona un producto resultante");
     renderizarInsumosTransformacion();
@@ -452,9 +583,11 @@ async function cargarTransformacionPrecargada() {
         document.getElementById("base-transformacion").value = String(detalle.producto_base_id);
         llenarSelect("resultante-transformacion", detalle.resultantes, "product_id", "producto_resultante", "Producto resultante");
         document.getElementById("resultante-transformacion").value = String(detalle.resultantes[0].product_id);
-        document.getElementById("nombre-base-sencillo").textContent = detalle.producto_base;
-        document.getElementById("nombre-resultante-sencillo").textContent = detalle.resultantes[0].producto_resultante;
-        document.getElementById("resumen-sencillo-transformacion").classList.remove("hidden");
+        const nombreBaseSencillo = document.getElementById("nombre-base-sencillo");
+        const nombreResultanteSencillo = document.getElementById("nombre-resultante-sencillo");
+        if (nombreBaseSencillo) nombreBaseSencillo.textContent = limpiarNombreProducto(detalle.producto_base);
+        if (nombreResultanteSencillo) nombreResultanteSencillo.textContent = limpiarNombreProducto(detalle.resultantes[0].producto_resultante);
+        document.getElementById("resumen-sencillo-transformacion")?.classList.remove("hidden");
         actualizarMermaTransformacion();
         renderizarInsumosTransformacion();
         limpiarMensaje();
@@ -498,19 +631,23 @@ function renderizarInsumosTransformacion() {
 
 function actualizarMermaTransformacion() {
     const base = Number(document.getElementById("cantidad-base-transformacion").value || 0);
-    const resultante = base * 0.92;
+    const resultante = base * FACTOR_RENDIMIENTO;
     document.getElementById("cantidad-resultante-transformacion").value = resultante.toFixed(3);
-    const merma = base * 0.08;
-    const porcentaje = base > 0 ? 8 : 0;
-    const nivelNormal = porcentaje <= 8;
+    const pesoAproximado = document.getElementById("peso-aproximado-transformacion");
+    if (pesoAproximado) pesoAproximado.textContent = resultante.toFixed(3);
+    const merma = base * (MERMA_TECNICA_PORCENTAJE / 100);
+    const porcentaje = base > 0 ? MERMA_TECNICA_PORCENTAJE : 0;
+    const nivelNormal = porcentaje <= MERMA_TECNICA_PORCENTAJE;
     const resumen = document.getElementById("resumen-merma-transformacion");
-    resumen.textContent = base > 0
-        ? `De ${base.toFixed(3)} kg se obtendrán aproximadamente ${resultante.toFixed(3)} kg.`
-        : "Escribe los kilos que vas a utilizar.";
+    if (resumen) {
+        resumen.textContent = base > 0
+            ? `De ${base.toFixed(3)} kg se obtendrán aproximadamente ${resultante.toFixed(3)} kg.`
+            : "Escribe los kilos que vas a utilizar.";
+        resumen.classList.toggle("merma-normal", nivelNormal);
+        resumen.classList.toggle("merma-alerta", !nivelNormal);
+    }
     const pesoSencillo = document.getElementById("peso-resultante-sencillo");
     if (pesoSencillo) pesoSencillo.textContent = `${resultante.toFixed(3)} kg`;
-    resumen.classList.toggle("merma-normal", nivelNormal);
-    resumen.classList.toggle("merma-alerta", !nivelNormal);
     return { merma, porcentaje, nivelNormal };
 }
 
@@ -521,16 +658,16 @@ async function localizarDocumentosTransformacion() {
     const cantidadBase = Number(document.getElementById("cantidad-base-transformacion").value || 0);
     const cantidadResultante = Number(document.getElementById("cantidad-resultante-transformacion").value || 0);
     const tablajero = document.getElementById("tablajero-transformacion");
-    if (!transformacionConfigId || !baseId || !resultanteId || cantidadBase <= 0 || cantidadResultante <= 0 || !tablajero.value) {
-        mostrarMensaje("Selecciona la línea, la transformación precargada, el peso y el tablajero responsable.");
+    if (!detalleTransformacionSeleccionada || !baseId || !resultanteId || cantidadBase <= 0 || cantidadResultante <= 0) {
+        mostrarMensaje("No fue posible preparar la transformación. Revisa los kilos e inténtalo nuevamente.");
         return;
     }
     const boton = document.getElementById("localizar-documentos");
-    boton.disabled = true;
+    if (boton) boton.disabled = true;
     try {
         const folios = await solicitarJson(`${API_RELACIONES}/transformacion/folios-siguientes`);
-        const nombreBase = document.getElementById("base-transformacion").selectedOptions[0]?.textContent || "Producto base";
-        const nombreResultante = document.getElementById("resultante-transformacion").selectedOptions[0]?.textContent || "Producto resultante";
+        const nombreBase = limpiarNombreProducto(document.getElementById("base-transformacion").selectedOptions[0]?.textContent) || "Producto base";
+        const nombreResultante = limpiarNombreProducto(document.getElementById("resultante-transformacion").selectedOptions[0]?.textContent) || "Producto resultante";
         const partidasSalida = [
             { ProductKey: "BASE", ProductName: nombreBase, Quantity: cantidadBase, CostPrice: 0, total: 0 },
             ...insumosTransformacionCalculados.map((insumo) => ({
@@ -554,25 +691,30 @@ async function localizarDocumentosTransformacion() {
         document.getElementById("resumen-usuario-transformacion").textContent =
             document.getElementById("form-relacion").dataset.usuario || "Usuario activo";
         document.getElementById("resumen-tablajero-transformacion").textContent =
-            tablajero.selectedOptions[0]?.textContent || "—";
+            tablajero.value
+                ? tablajero.selectedOptions[0]?.textContent
+                : "Pendiente de seleccionar";
         const evaluacionMerma = actualizarMermaTransformacion();
         document.getElementById("resumen-nivel-merma").textContent = evaluacionMerma.nivelNormal
             ? `NORMAL · ${evaluacionMerma.porcentaje.toFixed(2)}%`
             : `FUERA DE NIVEL · ${evaluacionMerma.porcentaje.toFixed(2)}%`;
         document.getElementById("resumen-registro-transformacion").classList.remove("hidden");
         document.getElementById("boton-guardar").textContent = "Registrar transformación";
-        transformacionPreparada = true;
-        mostrarMensaje("La relación está preparada. SSM generará y relacionará ambos documentos al registrar.", "success");
-        document.getElementById("panel-documentos").scrollIntoView({ behavior: "smooth", block: "start" });
+        transformacionPreparada = Boolean(tablajero.value);
+        if (transformacionPreparada) {
+            mostrarMensaje("La relación está preparada. SSM generará y relacionará ambos documentos al registrar.", "success");
+        } else {
+            mostrarMensaje("Selecciona el tablajero responsable para completar la relación.");
+        }
     } catch (error) {
         limpiarVistaPreviaTransformacion();
         mostrarMensaje(error.message);
-    } finally { boton.disabled = false; }
+    } finally {
+        if (boton) boton.disabled = false;
+    }
 }
 
 async function cargarDatos() {
-    const boton = document.getElementById("boton-actualizar");
-    boton.disabled = true;
     try {
         const [datosCatalogos, salidas, entradas] = await Promise.all([
             solicitarJson(`${API_RELACIONES}/catalogos`),
@@ -597,22 +739,9 @@ async function cargarDatos() {
             opcion.dataset.salida = registro.SalidaID;
             movimiento.appendChild(opcion);
         });
-        const movimientoInicial = document.getElementById("tipo-movimiento-inicial");
-        movimientoInicial.innerHTML = '<option value="">Selecciona el movimiento</option>';
-        catalogos.movimientos.forEach((registro) => {
-            const disponible = Number(registro.EntradaID) === 5
-                && Number(registro.SalidaID) === 2;
-            if (!disponible) return;
-            const opcion = document.createElement("option");
-            opcion.value = registro.ItemValue;
-            opcion.textContent = registro.ItemValue;
-            movimientoInicial.appendChild(opcion);
-        });
         limpiarMensaje();
     } catch (error) {
         mostrarMensaje(error.message);
-    } finally {
-        boton.disabled = false;
     }
 }
 
@@ -620,38 +749,245 @@ async function solicitarTipoMovimiento() {
     const boton = document.getElementById("boton-iniciar-captura");
     boton.disabled = true;
     boton.textContent = "Preparando...";
-    if (!datosCargados) await cargarDatos();
-    boton.disabled = false;
-    boton.textContent = "Iniciar captura";
-    if (!datosCargados) return;
-    document.getElementById("tipo-movimiento-inicial").value = "";
-    document.getElementById("modal-tipo-movimiento").classList.remove("hidden");
-    document.body.classList.add("modal-open");
-    document.getElementById("tipo-movimiento-inicial").focus();
+    try {
+        if (!datosCargados) await cargarDatos();
+        if (!datosCargados) return;
+        transformacionesDisponibles = await solicitarJson(
+            `${API_RELACIONES}/transformacion/disponibles`
+        );
+        const movimientosPermitidos = catalogos.movimientos.filter((registro) =>
+            Number(registro.EntradaID) === 5 && Number(registro.SalidaID) === 2
+        );
+        llenarSelect(
+            "movimiento-inicial", movimientosPermitidos,
+            "ItemValue", "ItemValue", "Selecciona el movimiento"
+        );
+        const lineas = [...new Set(
+            transformacionesDisponibles.map((registro) => registro.linea).filter(Boolean)
+        )].sort((a, b) => a.localeCompare(b, "es"));
+        renderizarTiposTransformacion(lineas);
+        document.getElementById("movimiento-inicial").value = "";
+        document.getElementById("linea-inicial").value = "";
+        document.getElementById("campo-linea-inicial").classList.add("hidden");
+        document.getElementById("continuar-inicio-captura").disabled = true;
+        document.getElementById("modal-iniciar-captura").classList.remove("hidden");
+        document.body.classList.add("modal-open");
+        document.getElementById("movimiento-inicial").focus();
+    } catch (error) {
+        mostrarMensaje(error.message);
+        window.alert(error.message);
+    } finally {
+        boton.disabled = false;
+        boton.textContent = "Iniciar captura";
+    }
 }
 
-function cerrarSelectorMovimiento() {
-    document.getElementById("modal-tipo-movimiento").classList.add("hidden");
+function renderizarTiposTransformacion(lineas) {
+    const contenedor = document.getElementById("opciones-linea-inicial");
+    const selector = document.getElementById("linea-inicial");
+    contenedor.replaceChildren();
+    selector.value = "";
+    lineas.forEach((linea) => {
+        const boton = document.createElement("button");
+        boton.type = "button";
+        boton.className = "transformation-type-option";
+        boton.textContent = linea;
+        boton.setAttribute("aria-pressed", "false");
+        boton.addEventListener("click", () => {
+            selector.value = linea;
+            contenedor.querySelectorAll(".transformation-type-option").forEach((opcion) => {
+                const seleccionada = opcion === boton;
+                opcion.classList.toggle("active", seleccionada);
+                opcion.setAttribute("aria-pressed", String(seleccionada));
+            });
+            actualizarInicioCaptura();
+        });
+        contenedor.appendChild(boton);
+    });
+}
+
+function actualizarInicioCaptura() {
+    const movimiento = document.getElementById("movimiento-inicial").value;
+    const campoLinea = document.getElementById("campo-linea-inicial");
+    campoLinea.classList.toggle("hidden", !movimiento);
+    if (!movimiento) {
+        document.getElementById("linea-inicial").value = "";
+        document.querySelectorAll(".transformation-type-option").forEach((opcion) => {
+            opcion.classList.remove("active");
+            opcion.setAttribute("aria-pressed", "false");
+        });
+    }
+    document.getElementById("continuar-inicio-captura").disabled = !(
+        movimiento && document.getElementById("linea-inicial").value
+    );
+}
+
+function cerrarInicioCaptura() {
+    document.getElementById("modal-iniciar-captura").classList.add("hidden");
     document.body.classList.remove("modal-open");
 }
 
-async function mostrarCaptura() {
-    const movimientoInicial = document.getElementById("tipo-movimiento-inicial");
-    if (!movimientoInicial.value) {
-        movimientoInicial.setCustomValidity("Selecciona un tipo de movimiento.");
-        movimientoInicial.reportValidity();
+async function continuarInicioCaptura() {
+    const movimiento = document.getElementById("movimiento-inicial").value;
+    const linea = document.getElementById("linea-inicial").value;
+    if (!movimiento || !linea) return;
+    const boton = document.getElementById("continuar-inicio-captura");
+    boton.disabled = true;
+    boton.textContent = "Abriendo...";
+    try {
+        lineaTransformacionSeleccionada = linea;
+        document.getElementById("tipo-movimiento").value = movimiento;
+        actualizarCamposAnalisis();
+        cerrarInicioCaptura();
+        document.getElementById("panel-inicio").classList.add("hidden");
+        const formulario = document.getElementById("form-relacion");
+        formulario.classList.remove("hidden");
+        await prepararMovimientoSeleccionado();
+        document.getElementById("linea-transformacion").value = linea;
+
+        const tablajero = document.getElementById("tablajero-transformacion");
+        tablajero.value = "";
+        tablajero.disabled = false;
+        transformacionCatalogoActualId = "";
+        document.getElementById("linea-seleccionada-sencilla").textContent = linea;
+        document.getElementById("transformacion-seleccionada-sencilla").textContent = "Sin seleccionar";
+        document.getElementById("cantidad-base-transformacion").disabled = true;
+        document.getElementById("boton-cambiar-transformacion").textContent = "Seleccionar";
+        await abrirCambioTransformacion();
+        formulario.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (error) {
+        mostrarMensaje(error.message);
+    } finally {
+        boton.textContent = "Continuar";
+        actualizarInicioCaptura();
+    }
+}
+
+async function abrirCambioTransformacion() {
+    const panel = document.getElementById("selector-cambio-transformacion");
+    panel.classList.remove("hidden");
+    document.body.classList.add("modal-open");
+    document.getElementById("lista-transformaciones-alternativas").innerHTML =
+        '<p class="transformation-option-empty">Consultando transformaciones...</p>';
+    document.getElementById("paginacion-transformaciones").classList.add("hidden");
+    try {
+        if (!transformacionesDisponibles.length) {
+            transformacionesDisponibles = await solicitarJson(
+                `${API_RELACIONES}/transformacion/disponibles`
+            );
+        }
+        transformacionesLineaActual = transformacionesDisponibles.filter(
+            (registro) => registro.linea === lineaTransformacionSeleccionada
+        );
+        const indiceActual = transformacionesLineaActual.findIndex(
+            (registro) => String(registro.transformacion_id) === transformacionCatalogoActualId
+        );
+        paginaTransformacionesActual = indiceActual >= 0
+            ? Math.floor(indiceActual / TRANSFORMACIONES_POR_PAGINA) + 1
+            : 1;
+        renderizarPaginaTransformaciones();
+        if (!transformacionesLineaActual.length) {
+            mostrarMensaje(`No hay transformaciones configuradas para ${lineaTransformacionSeleccionada}.`);
+        } else {
+            document.querySelector(".transformation-option")?.focus();
+            limpiarMensaje();
+        }
+    } catch (error) { mostrarMensaje(error.message); }
+}
+
+function renderizarPaginaTransformaciones() {
+    const lista = document.getElementById("lista-transformaciones-alternativas");
+    const paginacion = document.getElementById("paginacion-transformaciones");
+    lista.replaceChildren();
+    if (!transformacionesLineaActual.length) {
+        lista.innerHTML = '<p class="transformation-option-empty">No hay transformaciones disponibles.</p>';
+        paginacion.classList.add("hidden");
         return;
     }
-    movimientoInicial.setCustomValidity("");
-    document.getElementById("tipo-movimiento").value = movimientoInicial.value;
-    actualizarCamposAnalisis();
-    cerrarSelectorMovimiento();
-    document.getElementById("panel-inicio").classList.add("hidden");
-    const formulario = document.getElementById("form-relacion");
-    formulario.classList.remove("hidden");
-    try { await prepararMovimientoSeleccionado(); }
-    catch (error) { mostrarMensaje(error.message); }
-    formulario.scrollIntoView({ behavior: "smooth", block: "start" });
+    const totalPaginas = Math.ceil(
+        transformacionesLineaActual.length / TRANSFORMACIONES_POR_PAGINA
+    );
+    paginaTransformacionesActual = Math.min(
+        Math.max(paginaTransformacionesActual, 1), totalPaginas
+    );
+    const inicio = (paginaTransformacionesActual - 1) * TRANSFORMACIONES_POR_PAGINA;
+    transformacionesLineaActual
+        .slice(inicio, inicio + TRANSFORMACIONES_POR_PAGINA)
+        .forEach((transformacion) => {
+            const boton = document.createElement("button");
+            boton.type = "button";
+            boton.className = "transformation-option";
+            boton.textContent = limpiarNombreProducto(transformacion.nombre_transformacion);
+            boton.classList.toggle(
+                "active",
+                String(transformacion.transformacion_id) === transformacionCatalogoActualId
+            );
+            boton.addEventListener("click", () =>
+                seleccionarTransformacionAlternativa(transformacion.transformacion_id)
+            );
+            lista.appendChild(boton);
+        });
+    document.getElementById("transformacion-pagina-actual").textContent =
+        `Página ${paginaTransformacionesActual} de ${totalPaginas}`;
+    document.getElementById("transformacion-pagina-anterior").disabled =
+        paginaTransformacionesActual === 1;
+    document.getElementById("transformacion-pagina-siguiente").disabled =
+        paginaTransformacionesActual === totalPaginas;
+    paginacion.classList.toggle("hidden", totalPaginas <= 1);
+}
+
+function cambiarPaginaTransformaciones(cambio) {
+    paginaTransformacionesActual += cambio;
+    renderizarPaginaTransformaciones();
+}
+
+function cerrarCambioTransformacion() {
+    document.getElementById("selector-cambio-transformacion").classList.add("hidden");
+    document.body.classList.remove("modal-open");
+}
+
+async function seleccionarTransformacionAlternativa(transformacionId) {
+    const seleccionada = transformacionesDisponibles.find(
+        (registro) => String(registro.transformacion_id) === String(transformacionId)
+    );
+    if (!seleccionada) return;
+    try {
+        limpiarVistaPreviaTransformacion();
+        const detalle = await solicitarJson(
+            `${API_RELACIONES}/transformacion/catalogo/${seleccionada.transformacion_id}`
+        );
+        detalleTransformacionSeleccionada = detalle;
+        document.getElementById("linea-transformacion").value = detalle.linea;
+        llenarSelect(
+            "base-transformacion",
+            [{ product_id_base: detalle.producto_base_id, producto_base: detalle.producto_base }],
+            "product_id_base", "producto_base", "Producto base"
+        );
+        document.getElementById("base-transformacion").value = String(detalle.producto_base_id);
+        llenarSelect(
+            "resultante-transformacion", detalle.resultantes,
+            "product_id", "producto_resultante", "Producto resultante"
+        );
+        document.getElementById("resultante-transformacion").value = String(detalle.resultantes[0].product_id);
+        llenarSelect(
+            "transformacion-precargada",
+            [{ transformacion_id: 0, nombre_transformacion: detalle.nombre_transformacion }],
+            "transformacion_id", "nombre_transformacion", "Transformación"
+        );
+        document.getElementById("transformacion-precargada").value = "0";
+        actualizarMermaTransformacion();
+        renderizarInsumosTransformacion();
+        document.getElementById("linea-seleccionada-sencilla").textContent = seleccionada.linea;
+        document.getElementById("transformacion-seleccionada-sencilla").textContent = limpiarNombreProducto(seleccionada.nombre_transformacion);
+        transformacionCatalogoActualId = String(seleccionada.transformacion_id);
+        document.getElementById("cantidad-base-transformacion").disabled = false;
+        document.getElementById("boton-cambiar-transformacion").textContent = "Cambiar";
+        cerrarCambioTransformacion();
+        await localizarDocumentosTransformacion();
+        document.getElementById("cantidad-base-transformacion").focus();
+        document.getElementById("cantidad-base-transformacion").select();
+        limpiarMensaje();
+    } catch (error) { mostrarMensaje(error.message); }
 }
 
 function volverAlInicio() {
@@ -677,6 +1013,39 @@ function limpiarFormulario() {
     limpiarMensaje();
 }
 
+function solicitarConfirmacionRegistro() {
+    return new Promise((resolve) => {
+        const modal = document.getElementById("modal-confirmar-registro");
+        const botonAceptar = document.getElementById("confirmar-registro-transformacion");
+        const botonCancelar = document.getElementById("cancelar-registro-transformacion");
+        const productoSalida = limpiarNombreProducto(document.getElementById("base-transformacion").selectedOptions[0]?.textContent) || "Producto consumido";
+        const productoEntrada = limpiarNombreProducto(document.getElementById("resultante-transformacion").selectedOptions[0]?.textContent) || "Producto obtenido";
+        const cantidadSalida = Number(document.getElementById("cantidad-base-transformacion").value || 0);
+        const cantidadEntrada = Number(document.getElementById("cantidad-resultante-transformacion").value || 0);
+
+        document.getElementById("confirmacion-producto-salida").textContent = productoSalida;
+        document.getElementById("confirmacion-producto-entrada").textContent = productoEntrada;
+        document.getElementById("confirmacion-cantidad-salida").textContent = `${cantidadSalida.toFixed(3)} kg`;
+        document.getElementById("confirmacion-cantidad-entrada").textContent = `${cantidadEntrada.toFixed(3)} kg`;
+
+        const cerrar = (confirmado) => {
+            modal.classList.add("hidden");
+            document.body.classList.remove("modal-open");
+            botonAceptar.removeEventListener("click", confirmar);
+            botonCancelar.removeEventListener("click", cancelar);
+            resolve(confirmado);
+        };
+        const confirmar = () => cerrar(true);
+        const cancelar = () => cerrar(false);
+
+        botonAceptar.addEventListener("click", confirmar);
+        botonCancelar.addEventListener("click", cancelar);
+        modal.classList.remove("hidden");
+        document.body.classList.add("modal-open");
+        botonAceptar.focus();
+    });
+}
+
 async function guardarRelacion(evento) {
     evento.preventDefault();
     const formulario = evento.currentTarget;
@@ -687,9 +1056,7 @@ async function guardarRelacion(evento) {
         mostrarMensaje("Primero prepara la relación de transformación.");
         return;
     }
-    if (registrandoTransformacion && !window.confirm(
-        "¿Está seguro de registrar la salida de esta transformación? Esta acción generará y relacionará los documentos en SSM."
-    )) {
+    if (registrandoTransformacion && !(await solicitarConfirmacionRegistro())) {
         return;
     }
     boton.disabled = true;
@@ -765,8 +1132,41 @@ async function iniciarSesion() {
     }
 }
 
+function mostrarVistaModulo(vista) {
+    const vistas = {
+        inicio: document.getElementById("vista-inicio"),
+        historial: document.getElementById("vista-historial"),
+        configuracion: document.getElementById("vista-configuracion"),
+    };
+    if (!vistas[vista]) return;
+
+    Object.entries(vistas).forEach(([nombre, elemento]) => {
+        if (elemento) elemento.classList.toggle("hidden", nombre !== vista);
+    });
+
+    const navegacion = {
+        inicio: document.getElementById("nav-inicio"),
+        historial: document.getElementById("nav-historial"),
+    };
+    Object.entries(navegacion).forEach(([nombre, boton]) => {
+        if (!boton) return;
+        const activo = nombre === vista;
+        boton.classList.toggle("active", activo);
+        if (activo) boton.setAttribute("aria-current", "page");
+        else boton.removeAttribute("aria-current");
+    });
+
+    document.getElementById("boton-Configuracion")?.classList.toggle(
+        "current-section",
+        vista === "configuracion"
+    );
+    const hash = vista === "inicio" ? "#inicio" : `#${vista}`;
+    window.history.replaceState(null, "", hash);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
 function abrirConfiguracion() {
-    window.location.assign("/configuracion");
+    mostrarVistaModulo("configuracion");
 }
 
 
@@ -777,19 +1177,29 @@ async function cerrarSesion() {
 
 document.addEventListener("DOMContentLoaded", () => {
     if (document.getElementById("loginPage")) return;
-    if (document.getElementById("form-nueva-configuracion")) {
-        iniciarPaginaConfiguracion();
-        return;
-    }
+    if (document.getElementById("vista-configuracion")) iniciarPaginaConfiguracion();
+    renderizarPaginaHistorial();
+    document.getElementById("nav-inicio")?.addEventListener("click", () => mostrarVistaModulo("inicio"));
+    document.getElementById("nav-historial")?.addEventListener("click", () => mostrarVistaModulo("historial"));
+    document.getElementById("actualizar-historial")?.addEventListener("click", () => {
+        window.location.hash = "historial";
+        window.location.reload();
+    });
+    document.getElementById("historial-pagina-anterior")?.addEventListener("click", () => cambiarPaginaHistorial(-1));
+    document.getElementById("historial-pagina-siguiente")?.addEventListener("click", () => cambiarPaginaHistorial(1));
     document.getElementById("fecha-movimiento").valueAsDate = new Date();
     document.getElementById("documento-salida").addEventListener("change", () => cargarPartidas("salida"));
     document.getElementById("documento-entrada").addEventListener("change", () => cargarPartidas("entrada"));
     document.getElementById("tipo-movimiento").addEventListener("change", actualizarCamposAnalisis);
     document.getElementById("boton-iniciar-captura").addEventListener("click", solicitarTipoMovimiento);
-    document.getElementById("cancelar-tipo-movimiento").addEventListener("click", cerrarSelectorMovimiento);
-    document.getElementById("continuar-tipo-movimiento").addEventListener("click", mostrarCaptura);
+    document.getElementById("movimiento-inicial").addEventListener("change", actualizarInicioCaptura);
+    document.getElementById("cancelar-inicio-captura").addEventListener("click", cerrarInicioCaptura);
+    document.getElementById("continuar-inicio-captura").addEventListener("click", continuarInicioCaptura);
+    document.getElementById("boton-cambiar-transformacion").addEventListener("click", abrirCambioTransformacion);
+    document.getElementById("cancelar-cambio-transformacion").addEventListener("click", cerrarCambioTransformacion);
+    document.getElementById("transformacion-pagina-anterior").addEventListener("click", () => cambiarPaginaTransformaciones(-1));
+    document.getElementById("transformacion-pagina-siguiente").addEventListener("click", () => cambiarPaginaTransformaciones(1));
     document.getElementById("boton-volver").addEventListener("click", volverAlInicio);
-    document.getElementById("boton-actualizar").addEventListener("click", cargarDatos);
     document.getElementById("boton-limpiar").addEventListener("click", limpiarFormulario);
     document.getElementById("boton-salir").addEventListener("click", cerrarSesion);
     document.getElementById("boton-Configuracion")?.addEventListener("click", abrirConfiguracion);
@@ -800,9 +1210,19 @@ document.addEventListener("DOMContentLoaded", () => {
         limpiarVistaPreviaTransformacion();
         actualizarMermaTransformacion();
         renderizarInsumosTransformacion();
+        window.clearTimeout(temporizadorVistaPreviaTransformacion);
+        if (detalleTransformacionSeleccionada) {
+            temporizadorVistaPreviaTransformacion = window.setTimeout(
+                localizarDocumentosTransformacion,
+                350
+            );
+        }
     });
-    document.getElementById("localizar-documentos").addEventListener("click", localizarDocumentosTransformacion);
     document.getElementById("tablajero-transformacion").addEventListener("change", () => {
-        limpiarVistaPreviaTransformacion();
+        if (detalleTransformacionSeleccionada) localizarDocumentosTransformacion();
     });
+    const vistaSolicitada = window.location.hash.replace("#", "");
+    if (["historial", "configuracion"].includes(vistaSolicitada)) {
+        mostrarVistaModulo(vistaSolicitada);
+    }
 });

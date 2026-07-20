@@ -6,35 +6,44 @@
     <title>Relacionar documentos | CAYAL</title>
     <link rel="stylesheet" href="/static/css/styles.css?v={{ asset_version }}">
 </head>
-<body class="app-body">
-    <header class="app-header">
+<body id="dashboardPage" class="app-body"
+      data-merma-tecnica="{{ ajustes.merma_tecnica_porcentaje }}"
+      data-transformaciones-por-pagina="{{ ajustes.transformaciones_por_pagina }}"
+      data-productos-por-pagina="{{ ajustes.productos_por_pagina }}">
+    <header class="app-header with-primary-nav">
         <div class="app-brand">
             <span class="brand-mark">C</span>
             <div>
                 <small>Carnes CAYAL</small>
-                <h1>Módulo de almacén</h1>
+                <h1>Módulo de transformación cárnica</h1>
             </div>
         </div>
+        <nav class="primary-nav" aria-label="Navegación principal">
+            <button id="nav-inicio" class="active" type="button" aria-current="page">Inicio</button>
+            {% if permisos.historial %}<button id="nav-historial" type="button">Historial</button>{% endif %}
+        </nav>
         <div class="app-session">
             <div>
                 <span>Usuario activo</span>
                 <strong>{{ sesion.usuario }}</strong>
             </div>
-            <button id="boton-Configuracion" type="button" class="btn btn-primary"> Configuracion</button>
+            {% if permisos.configuracion %}
+            <button id="boton-Configuracion" type="button" class="button-outline">Configuración</button>
+            {% endif %}
             <button id="boton-salir" type="button" class="button-outline">Cerrar sesión</button>
         </div>
     </header>
 
-    <main class="workspace">
+    <main id="vista-inicio" class="workspace">
         <section id="panel-inicio" class="page-heading landing-card">
             <div>
                 <p class="eyebrow">Operación</p>
                 <h2>Registro</h2>
             </div>
-            <button id="boton-iniciar-captura" type="button">Iniciar</button>
+            <button id="boton-iniciar-captura" type="button">Iniciar captura</button>
         </section>
 
-        <form id="form-relacion" class="capture-shell hidden" data-usuario="{{ sesion.usuario }}" novalidate>
+        <form id="form-relacion" class="capture-shell hidden" data-usuario="{{ sesion.usuario }}" data-usuario-id="{{ sesion.user_id }}" novalidate>
             <section class="capture-toolbar">
                 <div>
                     <p id="etiqueta-movimiento-seleccionado" class="eyebrow">Nueva relación</p>
@@ -43,7 +52,6 @@
                 </div>
                 <div class="capture-toolbar-actions">
                     <button id="boton-volver" type="button" class="button-outline">Volver al inicio</button>
-                    <button id="boton-actualizar" type="button" class="button-outline">Actualizar documentos</button>
                 </div>
             </section>
             <div id="espacio-transformacion" class="transformation-workspace">
@@ -56,36 +64,9 @@
                         <p>Sigue los pasos en orden. El sistema completará lo demás.</p>
                     </div>
                 </div>
-                <div class="simple-steps" aria-label="Pasos para preparar una transformación">
-                    <div class="simple-step">
-                        <span class="route-number">1</span>
-                        <div class="field">
-                            <label for="linea-transformacion">¿Qué tipo de carne vas a trabajar?</label>
-                            <select id="linea-transformacion"><option value="">Selecciona Cerdo, Pollo o Res Local</option></select>
-                        </div>
-                    </div>
-                    <div class="simple-step">
-                        <span class="route-number">2</span>
-                        <div class="field">
-                            <label for="transformacion-precargada">¿Qué producto vas a preparar?</label>
-                            <select id="transformacion-precargada" disabled><option value="">Primero selecciona el tipo de carne</option></select>
-                        </div>
-                    </div>
-                    <div class="simple-step">
-                        <span class="route-number">3</span>
-                        <div class="transformation-grid simple-capture-fields">
-                            <div class="field">
-                                <label for="tablajero-transformacion">¿Quién realizará el trabajo?</label>
-                                <select id="tablajero-transformacion" disabled><option value="">Selecciona un tablajero</option></select>
-                            </div>
-                            <div class="field quantity-field">
-                                <label for="cantidad-base-transformacion">¿Cuántos kilos usarás?</label>
-                                <div class="quantity-control"><input id="cantidad-base-transformacion" type="number" min="0.001" step="0.001" value="1"><span>kg</span></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
                 <div class="hidden" aria-hidden="true">
+                    <select id="linea-transformacion"><option value="">Línea</option></select>
+                    <select id="transformacion-precargada"><option value="">Transformación</option></select>
                     <div class="field">
                         <label for="base-transformacion">Producto base</label>
                         <select id="base-transformacion" disabled><option value="">Se completará automáticamente</option></select>
@@ -94,15 +75,44 @@
                         <label for="resultante-transformacion">Producto resultante</label>
                         <select id="resultante-transformacion" disabled><option value="">Se completará automáticamente</option></select>
                     </div>
-                    <input id="cantidad-resultante-transformacion" type="number" value="0.920" readonly>
+                    <input id="cantidad-resultante-transformacion" type="number" value="{{ '%.3f'|format(ajustes.factor_rendimiento) }}" readonly>
                 </div>
-                <div id="resumen-sencillo-transformacion" class="simple-result hidden">
-                    <div><small>Se utilizará</small><strong id="nombre-base-sencillo">—</strong></div>
-                    <span aria-hidden="true">→</span>
-                    <div><small>Se obtendrá aproximadamente</small><strong><span id="peso-resultante-sencillo">0.920 kg</span> de <span id="nombre-resultante-sencillo">—</span></strong></div>
+                <div class="transformation-operation-layout">
+                    <div class="transformation-loaded-data">
+                        <div class="automatic-selection">
+                            <div class="automatic-selection-heading">
+                                <p class="eyebrow">Transformación seleccionada</p>
+                                <button id="boton-cambiar-transformacion" type="button" class="button-outline button-compact">Seleccionar</button>
+                            </div>
+                            <div class="automatic-selection-grid">
+                                <div><small>Línea</small><strong id="linea-seleccionada-sencilla">—</strong></div>
+                                <div><small>Transformación</small><strong id="transformacion-seleccionada-sencilla">Sin seleccionar</strong></div>
+                                <div class="automatic-tablajero-field">
+                                    <label for="tablajero-transformacion">Tablajero responsable</label>
+                                    <select id="tablajero-transformacion" required disabled>
+                                        <option value="">Selecciona un tablajero</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="transformation-capture-action">
+                        <div class="weight-calculation-heading">
+                            <p class="eyebrow">Peso de la transformación</p>
+                        </div>
+                        <div class="weight-values-grid">
+                            <div class="simple-kilos-field field quantity-field">
+                                <label for="cantidad-base-transformacion">Entrada</label>
+                                <div class="quantity-control"><input id="cantidad-base-transformacion" type="number" min="0.001" max="{{ ajustes.maximo_kilos_por_transformacion }}" step="0.001" value="1" disabled><span>kg</span></div>
+                            </div>
+                            <div class="field expected-weight-field" aria-live="polite">
+                                <label>Salida aproximada</label>
+                                <div class="calculated-weight"><strong id="peso-aproximado-transformacion">{{ '%.3f'|format(ajustes.factor_rendimiento) }}</strong><span>kg</span></div>
+                            </div>
+                        </div>
+                        <p class="technical-loss-note">Merma: {{ ajustes.merma_tecnica_porcentaje }}%</p>
+                    </div>
                 </div>
-                <p id="resumen-merma-transformacion" class="transformation-summary merma-normal">El cálculo considera la merma normal del proceso.</p>
-                <button id="localizar-documentos" type="button" class="simple-primary-action">Continuar y revisar</button>
             </section>
 
             <section id="panel-documentos" class="document-grid">
@@ -110,7 +120,6 @@
                     <div class="card-heading">
                         <span class="step">1</span>
                         <div>
-                            <p class="eyebrow">Documento origen · Módulo 203</p>
                             <h3>Salida: productos consumidos</h3>
                             <p class="card-caption">Producto base e insumos de la receta</p>
                         </div>
@@ -129,7 +138,6 @@
                     <div class="card-heading">
                         <span class="step">2</span>
                         <div>
-                            <p class="eyebrow">Documento destino · Módulo 202</p>
                             <h3>Entrada: producto obtenido</h3>
                             <p class="card-caption">Resultado esperado después de la merma</p>
                         </div>
@@ -161,7 +169,7 @@
                             <tr><td>Fecha de registro</td><td id="resumen-fecha-transformacion">—</td></tr>
                             <tr><td>Usuario responsable</td><td id="resumen-usuario-transformacion">—</td></tr>
                             <tr><td>Tablajero responsable</td><td id="resumen-tablajero-transformacion">—</td></tr>
-                            <tr><td>Nivel técnico de merma</td><td id="resumen-nivel-merma">—</td></tr>
+                            <tr><td>Merma</td><td id="resumen-nivel-merma">—</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -211,19 +219,313 @@
         </form>
     </main>
 
-    <div id="modal-tipo-movimiento" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-tipo-movimiento">
+    {% if permisos.historial %}
+    <main id="vista-historial" class="workspace history-workspace hidden">
+        <section class="history-panel">
+            <div class="history-kpis" aria-label="Resumen de transformaciones del mes">
+                <article class="history-kpi">
+                    <small>Transformaciones del mes</small>
+                    <strong>{{ resumen_historial.transformaciones }}</strong>
+                </article>
+                <article class="history-kpi">
+                    <small>Kilos procesados</small>
+                    <strong>{{ '%.2f'|format(resumen_historial.kilos_procesados) }} <span>kg</span></strong>
+                </article>
+                <article class="history-kpi">
+                    <small>Merma acumulada</small>
+                    <strong>{{ '%.2f'|format(resumen_historial.merma_acumulada) }} <span>kg</span></strong>
+                </article>
+                <article class="history-kpi history-kpi-performance">
+                    <small>Rendimiento</small>
+                    <strong>{{ '%.1f'|format(resumen_historial.rendimiento) }}<span>%</span></strong>
+                </article>
+            </div>
+
+            <header class="history-table-heading">
+                <div>
+                    <p class="eyebrow">Historial</p>
+                    <h2>Transformaciones realizadas</h2>
+                </div>
+                <button id="actualizar-historial" type="button" class="button-outline">Actualizar historial</button>
+            </header>
+
+            <div class="history-table-wrap">
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th>Relación</th>
+                            <th>Fecha</th>
+                            <th>Responsable</th>
+                            <th>Producto origen</th>
+                            <th>Salida</th>
+                            <th>Entrada</th>
+                            <th>Merma</th>
+                            <th>Producto resultante</th>
+                            <th>Documentos SSM</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody id="filas-historial">
+            {% for registro in historial %}
+                        {% set cantidad_base = registro.cantidad_base|float %}
+                        {% set cantidad_resultante = registro.cantidad_resultante|float %}
+                        {% set merma = [cantidad_base - cantidad_resultante, 0]|max %}
+                        {% set porcentaje_merma = (merma / cantidad_base * 100) if cantidad_base > 0 else 0 %}
+                        <tr class="history-row">
+                            <td><strong>#{{ registro.relacion_id }}</strong></td>
+                            <td><span class="history-date">{{ registro.fecha_hora.strftime('%d/%m/%Y') }}</span><small>{{ registro.fecha_hora.strftime('%H:%M') }}</small></td>
+                            <td><strong>{{ registro.tablajero or 'No registrado' }}</strong><small>{{ registro.usuario or 'Sin usuario' }}</small></td>
+                            <td><strong>{{ registro.producto_base or 'No disponible' }}</strong>{% if registro.total_insumos %}<small>{{ registro.total_insumos }} insumos</small>{% endif %}</td>
+                            <td class="history-number">{{ '%.3f'|format(cantidad_base) }} kg</td>
+                            <td class="history-number">{{ '%.3f'|format(cantidad_resultante) }} kg</td>
+                            <td class="history-number"><strong>{{ '%.3f'|format(merma) }} kg</strong><small>{{ '%.1f'|format(porcentaje_merma) }}%</small></td>
+                            <td><strong>{{ registro.producto_resultante or 'No disponible' }}</strong></td>
+                            <td><span class="history-folios">{{ registro.folio_salida }} <b>→</b> {{ registro.folio_entrada }}</span></td>
+                            <td><span class="history-status">Relacionado</span></td>
+                        </tr>
+            {% else %}
+                        <tr><td colspan="10" class="history-empty">Aún no hay transformaciones registradas.</td></tr>
+            {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <nav id="paginacion-historial" class="catalog-pagination history-pagination hidden" aria-label="Páginas del historial">
+                <button id="historial-pagina-anterior" type="button" class="button-outline">Anterior</button>
+                <span id="historial-pagina-actual">Página 1 de 1</span>
+                <button id="historial-pagina-siguiente" type="button">Siguiente</button>
+            </nav>
+        </section>
+    </main>
+    {% endif %}
+
+    {% if permisos.configuracion %}
+    <main id="vista-configuracion" class="workspace configuration-workspace hidden">
+        <section class="capture-toolbar">
+            <div>
+                <p class="eyebrow">Configuración</p>
+                <h2>Relaciones de entrada y salida</h2>
+                <p>Define el producto base, sus insumos consumibles y el producto resultante.</p>
+            </div>
+            {% if permisos.crear_configuracion %}
+            <button id="boton-nueva-configuracion" type="button">Nuevo</button>
+            {% endif %}
+        </section>
+
+        {% if permisos.crear_configuracion %}
+        <form id="form-nueva-configuracion" class="configuration-create hidden" novalidate>
+            <div class="card-heading">
+                <span class="step">+</span>
+                <div>
+                    <p class="eyebrow">Nueva configuración</p>
+                    <h3>Registrar una transformación</h3>
+                    <p>Selecciona los productos. Los insumos y la merma se completarán automáticamente.</p>
+                </div>
+            </div>
+            <div class="configuration-essential-fields configuration-manual-fields">
+                <div class="field configuration-step-field">
+                    <span class="configuration-field-number">1</span>
+                    <label for="config-linea">Línea cárnica</label>
+                    <select id="config-linea" required>
+                        <option value="">Selecciona una línea</option>
+                        {% for linea in lineas %}<option value="{{ linea.Category1 }}">{{ linea.Category1 }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="field configuration-step-field">
+                    <span class="configuration-field-number">2</span>
+                    <label for="config-nombre">Nombre de la configuración</label>
+                    <input id="config-nombre" required maxlength="150" placeholder="Ej. Chuleta preparada">
+                </div>
+                <div class="field configuration-step-field">
+                    <span class="configuration-field-number">3</span>
+                    <label for="config-resultante">Producto resultante</label>
+                    <select id="config-resultante" required disabled><option value="">Selecciona la línea primero</option></select>
+                </div>
+                <div class="field configuration-step-field">
+                    <span class="configuration-field-number">4</span>
+                    <label for="config-base">Producto base</label>
+                    <select id="config-base" required disabled><option value="">Selecciona el producto resultante</option></select>
+                </div>
+                <div class="field configuration-step-field configuration-wide">
+                    <span class="configuration-field-number">5</span>
+                    <label for="config-proveedor">Proveedor cárnico</label>
+                    <select id="config-proveedor" required disabled><option value="">Consultando proveedores de SSM</option></select>
+                </div>
+                <div class="field configuration-step-field quantity-field">
+                    <span class="configuration-field-number">6</span>
+                    <label for="config-cantidad-base">Kilos de entrada</label>
+                    <div class="quantity-control"><input id="config-cantidad-base" type="number" min="0.001" max="{{ ajustes.maximo_kilos_por_transformacion }}" step="0.001" placeholder="0.000" required><span>kg</span></div>
+                </div>
+                <div class="field configuration-step-field quantity-field">
+                    <span class="configuration-field-number">7</span>
+                    <label for="config-cantidad-resultante">Kilos esperados de salida</label>
+                    <div class="quantity-control"><input id="config-cantidad-resultante" type="number" min="0.001" max="{{ ajustes.maximo_kilos_por_transformacion }}" step="0.001" placeholder="0.000" required><span>kg</span></div>
+                </div>
+            </div>
+            <input id="config-observaciones" type="hidden" value="">
+            <div class="configuration-rule-note">
+                <strong>Referencia técnica</strong>
+                <span>La merma normal esperada es de {{ ajustes.merma_tecnica_porcentaje }}%. Captura manualmente los kilos acordados para esta configuración.</span>
+            </div>
+            <div id="config-formula" class="configuration-formula hidden">
+                <div class="ingredients-heading">
+                    <div><p class="eyebrow">Salida configurada</p><h3>Componentes de la fórmula</h3></div>
+                    <span>Solo lectura · obtenidos de SSM</span>
+                </div>
+                <div class="registration-table-wrap">
+                    <table class="registration-table">
+                        <thead><tr><th>Producto o insumo</th><th>Cantidad</th><th>Unidad</th></tr></thead>
+                        <tbody id="config-componentes"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="mensaje-configuracion" class="message" role="status" aria-live="polite"></div>
+            <div class="form-actions">
+                <button id="cancelar-nueva-configuracion" type="button" class="button-outline">Cancelar</button>
+                <button id="guardar-configuracion" type="submit">Guardar configuración</button>
+            </div>
+        </form>
+        {% endif %}
+
+        <section class="configuration-layout">
+            <aside class="configuration-catalog">
+                <p class="eyebrow">Catálogos de SSM</p>
+                <h3>Líneas disponibles</h3>
+                <div class="configuration-lines">
+                    {% for linea in lineas %}
+                    <button type="button" class="configuration-line" data-linea="{{ linea.Category1 }}">
+                        <strong>{{ linea.Category1 }}</strong>
+                        <span>{{ linea.total_productos }} productos base · {{ linea.total_recetas }} recetas</span>
+                    </button>
+                    {% else %}
+                    <p>No se encontraron líneas configurables.</p>
+                    {% endfor %}
+                </div>
+            </aside>
+            <section class="configuration-board">
+                <div id="catalogo-productos" class="catalog-products hidden">
+                    <div class="catalog-products-heading">
+                        <div><p class="eyebrow">Productos base disponibles</p><h3 id="catalogo-productos-titulo">Selecciona una línea</h3></div>
+                        <button id="cerrar-catalogo-productos" type="button" class="button-outline">Cerrar catálogo</button>
+                    </div>
+                    <div class="catalog-search">
+                        <input id="buscar-producto-catalogo" type="search" placeholder="Buscar producto por nombre">
+                        <span id="catalogo-productos-total"></span>
+                    </div>
+                    <div id="lista-productos-catalogo" class="catalog-product-list"></div>
+                    <nav id="paginacion-productos-catalogo" class="catalog-pagination hidden" aria-label="Páginas del catálogo">
+                        <button id="catalogo-pagina-anterior" type="button" class="button-outline">Anterior</button>
+                        <span id="catalogo-pagina-actual">Página 1 de 1</span>
+                        <button id="catalogo-pagina-siguiente" type="button">Siguiente</button>
+                    </nav>
+                </div>
+                <div id="configuraciones-guardadas">
+                    <div class="card-heading">
+                        <span class="step">1</span>
+                        <div><p class="eyebrow">Transformaciones guardadas</p><h3>Producto de salida relacionado con producto de entrada</h3></div>
+                    </div>
+                    <div class="configuration-relations">
+                        {% for transformacion in transformaciones %}
+                        <article class="configuration-relation">
+                            <div><small>Línea</small><strong>{{ transformacion.linea }}</strong></div>
+                            <span aria-hidden="true">→</span>
+                            <div><small>Producto base</small><strong>{{ transformacion.producto_base }}</strong></div>
+                            <span aria-hidden="true">→</span>
+                            <div>
+                                <small>Configuración</small>
+                                <strong>{{ transformacion.nombre_transformacion }}</strong>
+                                {% if transformacion.proveedor %}<small class="configuration-supplier">Proveedor: {{ transformacion.proveedor }}</small>{% endif %}
+                            </div>
+                        </article>
+                        {% else %}
+                        <div class="document-summary empty">Todavía no existen transformaciones activas.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </section>
+        </section>
+    </main>
+    {% endif %}
+
+    <div id="selector-cambio-transformacion" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-selector-transformacion">
+        <section class="change-transformation transformation-picker-dialog">
+            <div class="transformation-picker-heading">
+                <div>
+                    <p class="eyebrow">Productos disponibles</p>
+                    <h2 id="titulo-selector-transformacion">Selecciona la transformación</h2>
+                    <p>Solo se muestran los productos de la línea elegida.</p>
+                </div>
+                <button id="cancelar-cambio-transformacion" type="button" class="button-outline">Cancelar</button>
+            </div>
+            <div id="lista-transformaciones-alternativas" class="transformation-option-grid"></div>
+            <nav id="paginacion-transformaciones" class="catalog-pagination hidden" aria-label="Páginas de transformaciones">
+                <button id="transformacion-pagina-anterior" type="button" class="button-outline">Anterior</button>
+                <span id="transformacion-pagina-actual">Página 1 de 1</span>
+                <button id="transformacion-pagina-siguiente" type="button">Siguiente</button>
+            </nav>
+        </section>
+    </div>
+
+    <div id="modal-iniciar-captura" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-iniciar-captura">
         <section class="movement-dialog">
             <div class="dialog-icon" aria-hidden="true">1</div>
-            <p class="eyebrow">Empezar</p>
-            <h2 id="titulo-tipo-movimiento">¿Qué tipo de movimiento realizaremos?</h2>
-            <p>Selecciona el movimiento para preparar los datos necesarios.</p>
-            <label for="tipo-movimiento-inicial">Tipo de movimiento</label>
-            <select id="tipo-movimiento-inicial">
-                <option value="">Selecciona el movimiento</option>
-            </select>
+            <p class="eyebrow">Iniciar captura</p>
+            <h2 id="titulo-iniciar-captura">¿Qué movimiento deseas realizar?</h2>
+            <p>Selecciona el movimiento y el tipo de transformación.</p>
+            <div class="initial-transformation-fields">
+                <div class="field">
+                    <label for="movimiento-inicial">Tipo de movimiento</label>
+                    <select id="movimiento-inicial"><option value="">Selecciona el movimiento</option></select>
+                </div>
+                <div id="campo-linea-inicial" class="field hidden">
+                    <span class="field-label">Tipo de transformación</span>
+                    <div id="opciones-linea-inicial" class="transformation-type-options" role="group" aria-label="Tipo de transformación"></div>
+                    <input id="linea-inicial" type="hidden" value="">
+                </div>
+            </div>
             <div class="dialog-actions">
-                <button id="cancelar-tipo-movimiento" type="button" class="button-outline">Cancelar</button>
-                <button id="continuar-tipo-movimiento" type="button">Continuar</button>
+                <button id="cancelar-inicio-captura" type="button" class="button-outline">Cancelar</button>
+                <button id="continuar-inicio-captura" type="button" disabled>Continuar</button>
+            </div>
+        </section>
+    </div>
+
+    <div id="modal-confirmar-registro" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-confirmar-registro">
+        <section class="movement-dialog confirmation-dialog">
+            <div class="dialog-icon confirmation-icon" aria-hidden="true">✓</div>
+            <p class="eyebrow">Confirmar registro</p>
+            <h2 id="titulo-confirmar-registro">¿Registrar esta transformación?</h2>
+            <div class="confirmation-route" aria-label="Documentos que se generarán">
+                <article class="confirmation-document confirmation-document-out">
+                    <div class="confirmation-document-heading">
+                        <span>1</span>
+                        <div>
+                            <small>Documento de salida</small>
+                            <strong>Módulo 203</strong>
+                        </div>
+                    </div>
+                    <strong id="confirmacion-producto-salida" class="confirmation-product">Producto consumido</strong>
+                    <span id="confirmacion-cantidad-salida" class="confirmation-quantity">0.000 kg</span>
+                </article>
+                <div class="confirmation-connector" aria-hidden="true">
+                    <span>→</span>
+                    <small>Relacionado</small>
+                </div>
+                <article class="confirmation-document confirmation-document-in">
+                    <div class="confirmation-document-heading">
+                        <span>2</span>
+                        <div>
+                            <small>Documento de entrada</small>
+                            <strong>Módulo 202</strong>
+                        </div>
+                    </div>
+                    <strong id="confirmacion-producto-entrada" class="confirmation-product">Producto obtenido</strong>
+                    <span id="confirmacion-cantidad-entrada" class="confirmation-quantity">0.000 kg</span>
+                </article>
+            </div>
+            <div class="dialog-actions">
+                <button id="cancelar-registro-transformacion" type="button" class="button-outline">Cancelar</button>
+                <button id="confirmar-registro-transformacion" type="button">Registrar transformación</button>
             </div>
         </section>
     </div>

@@ -135,6 +135,33 @@ def consultar_transformaciones_precargadas(
     )
 
 
+@router.get('/transformacion/disponibles')
+def consultar_transformaciones_disponibles(
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    exigir_sesion(request)
+    return jsonable_encoder(
+        base_datos.listar_transformaciones_disponibles()
+    )
+
+
+@router.get('/transformacion/catalogo/{producto_id}')
+def consultar_transformacion_catalogo(
+    producto_id: int,
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    exigir_sesion(request)
+    detalle = base_datos.obtener_transformacion_catalogo(producto_id)
+    if not detalle:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='El producto no tiene una transformación válida en orgProduct.',
+        )
+    return jsonable_encoder(detalle)
+
+
 @router.get('/transformacion/precargadas/{transformacion_id}')
 def consultar_detalle_transformacion_precargada(
     transformacion_id: int,
@@ -226,7 +253,9 @@ def registrar_transformacion(
     request: Request,
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
-    sesion = exigir_sesion(request)
+    sesion = seguridad_sesion.requerir_permiso(
+        request, 'registrar_transformaciones'
+    )
     usuario_erp = int(sesion.get('user_id') or 0)
     if usuario_erp <= 0:
         raise HTTPException(
@@ -234,8 +263,14 @@ def registrar_transformacion(
             detail='La sesión no contiene un usuario ERP válido.',
         )
 
-    configuracion = base_datos.obtener_transformacion_precargada(
-        datos.transformacion_config_id
+    configuracion = (
+        base_datos.obtener_transformacion_precargada(
+            datos.transformacion_config_id
+        )
+        if datos.transformacion_config_id > 0
+        else base_datos.obtener_transformacion_catalogo(
+            datos.producto_resultante_id
+        )
     )
     if not configuracion:
         raise HTTPException(
@@ -276,14 +311,31 @@ def registrar_transformacion(
         if not componente['es_producto_base']
     ]
 
-    usuarios_fisicos = base_datos.obtener_usuarios_fisicos()
-    if not any(
-        int(usuario.get('UserID') or 0) == datos.usuario_fisico_id
-        for usuario in usuarios_fisicos
-    ):
+    movimientos_entrada = base_datos.buscar_tipo_movimiento_modulo(202)
+    movimientos_salida = base_datos.buscar_tipo_movimiento_modulo(203)
+    movimiento_entrada = next(
+        (
+            int(movimiento.get('ItemData') or 0)
+            for movimiento in movimientos_entrada
+            if int(movimiento.get('ItemData') or 0) == 5
+        ),
+        0,
+    )
+    movimiento_salida = next(
+        (
+            int(movimiento.get('ItemData') or 0)
+            for movimiento in movimientos_salida
+            if int(movimiento.get('ItemData') or 0) == 2
+        ),
+        0,
+    )
+    if movimiento_entrada <= 0 or movimiento_salida <= 0:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail='El tablajero seleccionado no es válido o no está activo.',
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                'SSM no tiene una equivalencia válida entre la entrada '
+                'y la salida del movimiento Transformación.'
+            ),
         )
 
     resultado = base_datos.crear_documentos_transformacion(
@@ -293,6 +345,8 @@ def registrar_transformacion(
         cantidad_resultante=datos.cantidad_resultante,
         usuario_erp=usuario_erp,
         usuario_fisico_id=datos.usuario_fisico_id,
+        tipo_movimiento_salida_id=movimiento_salida,
+        tipo_movimiento_entrada_id=movimiento_entrada,
         insumos=insumos,
     )
     if not resultado:

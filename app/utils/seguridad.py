@@ -7,6 +7,7 @@ from functools import cache, cached_property
 
 from fastapi import HTTPException, Request, Response, status
 
+from app.settings import PERMISOS_MODULO
 from app.utils.base_de_datos import obtener_base_datos
 
 
@@ -81,11 +82,44 @@ class SeguridadSesion:
         return payload
 
     def obtener_sesion(self, request):
-        return self.leer_token(
+        sesion = self.leer_token(
             request.cookies.get(
                 self._configuracion["nombre_cookie"]
             )
         )
+        if not sesion:
+            return None
+        try:
+            grupo = int(sesion.get("user_group_id") or 0)
+        except (TypeError, ValueError):
+            return None
+        if not PERMISOS_MODULO.permite(grupo, "acceso_modulo"):
+            return None
+        return sesion
+
+    @staticmethod
+    def tiene_permiso(sesion: dict, permiso: str) -> bool:
+        try:
+            grupo = int((sesion or {}).get("user_group_id") or 0)
+        except (TypeError, ValueError):
+            return False
+        return PERMISOS_MODULO.permite(grupo, permiso)
+
+    def permisos_publicos(self, sesion: dict) -> dict:
+        return {
+            "configuracion": self.tiene_permiso(
+                sesion, "ver_configuracion"
+            ),
+            "historial": self.tiene_permiso(
+                sesion, "ver_historial"
+            ),
+            "crear_configuracion": self.tiene_permiso(
+                sesion, "crear_configuracion"
+            ),
+            "registrar_transformaciones": self.tiene_permiso(
+                sesion, "registrar_transformaciones"
+            ),
+        }
 
     def requerir_sesion(self, request: Request):
         sesion = self.obtener_sesion(request)
@@ -96,6 +130,15 @@ class SeguridadSesion:
                 detail="Sesion no valida",
             )
 
+        return sesion
+
+    def requerir_permiso(self, request: Request, permiso: str):
+        sesion = self.requerir_sesion(request)
+        if not self.tiene_permiso(sesion, permiso):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permiso para realizar esta acción.",
+            )
         return sesion
 
     def guardar_cookie(

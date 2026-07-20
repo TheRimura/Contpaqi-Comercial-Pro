@@ -3,6 +3,7 @@ import bcrypt
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
+from app.settings import PERMISOS_MODULO
 from app.utils.base_de_datos import obtener_base_datos
 from app.utils.seguridad import seguridad_sesion
 
@@ -145,6 +146,17 @@ def iniciar_sesion(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuario o contraseña incorrectos",
+        )
+
+    if not PERMISOS_MODULO.permite(
+        int(sesion.get("user_group_id") or 0),
+        "acceso_modulo",
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Acceso no autorizado para tu grupo de usuario."
+            ),
         )
 
     seguridad_sesion.guardar_cookie(
