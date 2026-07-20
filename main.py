@@ -57,6 +57,71 @@ def obtener_version_assets() -> int:
     return max(versiones) if versiones else 0
 
 
+def preparar_historial(registros: list[dict]) -> tuple[list[dict], dict]:
+    """Calcula los valores del historial antes de enviarlos a la plantilla."""
+    hoy = datetime.now()
+    historial = []
+    registros_mes = []
+
+    for registro_original in registros:
+        registro = dict(registro_original)
+        cantidad_base = float(registro.get('cantidad_base') or 0)
+        cantidad_resultante = float(
+            registro.get('cantidad_resultante') or 0
+        )
+        merma = max(cantidad_base - cantidad_resultante, 0.0)
+        porcentaje_merma = (
+            merma / cantidad_base * 100
+            if cantidad_base > 0 else 0.0
+        )
+        fecha_hora = registro.get('fecha_hora') or registro.get('fecha')
+
+        registro.update({
+            'fecha_texto': (
+                fecha_hora.strftime('%d/%m/%Y')
+                if fecha_hora else 'Sin fecha'
+            ),
+            'hora_texto': (
+                fecha_hora.strftime('%H:%M')
+                if fecha_hora else ''
+            ),
+            'cantidad_base_numero': cantidad_base,
+            'cantidad_resultante_numero': cantidad_resultante,
+            'merma_numero': merma,
+            'porcentaje_merma': porcentaje_merma,
+        })
+        historial.append(registro)
+
+        if (
+            getattr(fecha_hora, 'year', None) == hoy.year
+            and getattr(fecha_hora, 'month', None) == hoy.month
+        ):
+            registros_mes.append(registro)
+
+    kilos_procesados = sum(
+        registro['cantidad_base_numero']
+        for registro in registros_mes
+    )
+    kilos_resultantes = sum(
+        registro['cantidad_resultante_numero']
+        for registro in registros_mes
+    )
+    merma_acumulada = sum(
+        registro['merma_numero']
+        for registro in registros_mes
+    )
+    resumen = {
+        'transformaciones': len(registros_mes),
+        'kilos_procesados': kilos_procesados,
+        'merma_acumulada': merma_acumulada,
+        'rendimiento': (
+            kilos_resultantes / kilos_procesados * 100
+            if kilos_procesados > 0 else 0.0
+        ),
+    }
+    return historial, resumen
+
+
 @app.exception_handler(RuntimeError)
 async def manejar_runtime_error(_: Request, error: RuntimeError):
     return JSONResponse(
@@ -103,41 +168,10 @@ def mostrar_dashboard(request: Request):
                     )
                 )
         if permisos['historial']:
-            historial = base_datos.listar_historial_transformaciones(limite=500)
-            hoy = datetime.now()
-            registros_mes = [
-                registro for registro in historial
-                if getattr(
-                    registro.get('fecha_hora') or registro.get('fecha'),
-                    'year',
-                    None,
-                ) == hoy.year
-                and getattr(
-                    registro.get('fecha_hora') or registro.get('fecha'),
-                    'month',
-                    None,
-                ) == hoy.month
-            ]
-            kilos_procesados = sum(
-                float(registro.get('cantidad_base') or 0)
-                for registro in registros_mes
+            registros = base_datos.listar_historial_transformaciones(
+                limite=500
             )
-            kilos_resultantes = sum(
-                float(registro.get('cantidad_resultante') or 0)
-                for registro in registros_mes
-            )
-            resumen_historial = {
-                'transformaciones': len(registros_mes),
-                'kilos_procesados': kilos_procesados,
-                'merma_acumulada': max(
-                    kilos_procesados - kilos_resultantes,
-                    0.0,
-                ),
-                'rendimiento': (
-                    kilos_resultantes / kilos_procesados * 100
-                    if kilos_procesados > 0 else 0.0
-                ),
-            }
+            historial, resumen_historial = preparar_historial(registros)
 
     return templates.TemplateResponse(
         request=request,

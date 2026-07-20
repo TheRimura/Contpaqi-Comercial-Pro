@@ -34,6 +34,7 @@
         </div>
     </header>
 
+    <!-- ==================== VISTA: INICIO ==================== -->
     <main id="vista-inicio" class="workspace">
         <section id="panel-inicio" class="page-heading landing-card">
             <div>
@@ -219,6 +220,7 @@
         </form>
     </main>
 
+    <!-- =================== VISTA: HISTORIAL ================== -->
     {% if permisos.historial %}
     <main id="vista-historial" class="workspace history-workspace hidden">
         <section class="history-panel">
@@ -261,31 +263,73 @@
                             <th>Entrada</th>
                             <th>Merma</th>
                             <th>Producto resultante</th>
-                            <th>Documentos SSM</th>
+                            <th>Documentos </th>
                             <th>Estado</th>
                         </tr>
                     </thead>
                     <tbody id="filas-historial">
-            {% for registro in historial %}
-                        {% set cantidad_base = registro.cantidad_base|float %}
-                        {% set cantidad_resultante = registro.cantidad_resultante|float %}
-                        {% set merma = [cantidad_base - cantidad_resultante, 0]|max %}
-                        {% set porcentaje_merma = (merma / cantidad_base * 100) if cantidad_base > 0 else 0 %}
+                        {% for registro in historial %}
                         <tr class="history-row">
-                            <td><strong>#{{ registro.relacion_id }}</strong></td>
-                            <td><span class="history-date">{{ registro.fecha_hora.strftime('%d/%m/%Y') }}</span><small>{{ registro.fecha_hora.strftime('%H:%M') }}</small></td>
-                            <td><strong>{{ registro.tablajero or 'No registrado' }}</strong><small>{{ registro.usuario or 'Sin usuario' }}</small></td>
-                            <td><strong>{{ registro.producto_base or 'No disponible' }}</strong>{% if registro.total_insumos %}<small>{{ registro.total_insumos }} insumos</small>{% endif %}</td>
-                            <td class="history-number">{{ '%.3f'|format(cantidad_base) }} kg</td>
-                            <td class="history-number">{{ '%.3f'|format(cantidad_resultante) }} kg</td>
-                            <td class="history-number"><strong>{{ '%.3f'|format(merma) }} kg</strong><small>{{ '%.1f'|format(porcentaje_merma) }}%</small></td>
-                            <td><strong>{{ registro.producto_resultante or 'No disponible' }}</strong></td>
-                            <td><span class="history-folios">{{ registro.folio_salida }} <b>→</b> {{ registro.folio_entrada }}</span></td>
-                            <td><span class="history-status">Relacionado</span></td>
+                            <td>
+                                <strong>#{{ registro.relacion_id }}</strong>
+                            </td>
+                            <td>
+                                <span class="history-date">
+                                    {{ registro.fecha_texto }}
+                                </span>
+                                <small>{{ registro.hora_texto }}</small>
+                            </td>
+                            <td>
+                                <strong>
+                                    {{ registro.tablajero or 'No registrado' }}
+                                </strong>
+                                <small>{{ registro.usuario or 'Sin usuario' }}</small>
+                            </td>
+                            <td>
+                                <strong>
+                                    {{ registro.producto_base or 'No disponible' }}
+                                </strong>
+                                {% if registro.total_insumos %}
+                                <small>{{ registro.total_insumos }} insumos</small>
+                                {% endif %}
+                            </td>
+                            <td class="history-number">
+                                {{ '%.3f'|format(registro.cantidad_base_numero) }} kg
+                            </td>
+                            <td class="history-number">
+                                {{ '%.3f'|format(registro.cantidad_resultante_numero) }} kg
+                            </td>
+                            <td class="history-number">
+                                <strong>
+                                    {{ '%.3f'|format(registro.merma_numero) }} kg
+                                </strong>
+                                <small>
+                                    {{ '%.1f'|format(registro.porcentaje_merma) }}%
+                                </small>
+                            </td>
+                            <td>
+                                <strong>
+                                    {{ registro.producto_resultante or 'No disponible' }}
+                                </strong>
+                            </td>
+                            <td>
+                                <span class="history-folios">
+                                    {{ registro.folio_salida }}
+                                    <b>→</b>
+                                    {{ registro.folio_entrada }}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="history-status">Relacionado</span>
+                            </td>
                         </tr>
-            {% else %}
-                        <tr><td colspan="10" class="history-empty">Aún no hay transformaciones registradas.</td></tr>
-            {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="10" class="history-empty">
+                                Aún no hay transformaciones registradas.
+                            </td>
+                        </tr>
+                        {% endfor %}
                     </tbody>
                 </table>
             </div>
@@ -299,6 +343,7 @@
     </main>
     {% endif %}
 
+    <!-- ================ VISTA: CONFIGURACIÓN ================ -->
     {% if permisos.configuracion %}
     <main id="vista-configuracion" class="workspace configuration-workspace hidden">
         <section class="capture-toolbar">
@@ -447,6 +492,7 @@
     </main>
     {% endif %}
 
+    <!-- ================== VENTANAS EMERGENTES ================= -->
     <div id="selector-cambio-transformacion" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-selector-transformacion">
         <section class="change-transformation transformation-picker-dialog">
             <div class="transformation-picker-heading">
