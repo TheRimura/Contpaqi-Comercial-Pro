@@ -656,7 +656,7 @@ class BaseDatos(ComandosBaseDatos):
                 T.producto_origen AS producto_base_id,
                 P.ProductName AS producto_base,
                 P.Category1 AS linea,
-                CAST(? AS DECIMAL(5,2)) AS porcentaje_merma
+                T.porcentaje_merma
             FROM dbo.TransformacionesUsuario AS T
             INNER JOIN dbo.orgProduct AS P
                 ON P.ProductID = T.producto_origen
@@ -664,10 +664,7 @@ class BaseDatos(ComandosBaseDatos):
               AND T.activa = 1
               AND P.DiscontinuedOn IS NULL
             """,
-            (
-                AJUSTES_MODULO.merma_tecnica_porcentaje,
-                int(transformacion_id),
-            ),
+            (int(transformacion_id),),
         )
         if not encabezados:
             return None
@@ -2332,7 +2329,8 @@ class BaseDatos(ComandosBaseDatos):
             for orden, componente in enumerate(datos.componentes, start=1)
         ]
         cantidad_resultante = round(
-            float(datos.cantidad_base) * AJUSTES_MODULO.factor_rendimiento,
+            float(datos.cantidad_base) *
+            (1 - float(datos.porcentaje_merma) / 100),
             3,
         )
         return int(self.fetchone(
@@ -2370,7 +2368,7 @@ class BaseDatos(ComandosBaseDatos):
             (
                 datos.nombre, producto_base_id,
                 producto_resultante_id, float(datos.cantidad_base),
-                AJUSTES_MODULO.merma_tecnica_porcentaje,
+                float(datos.porcentaje_merma),
                 int(datos.proveedor_id), int(usuario_id), datos.observaciones,
                 producto_resultante_id,
                 cantidad_resultante,

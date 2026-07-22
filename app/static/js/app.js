@@ -78,7 +78,7 @@ async function abrirDetalleProductoCatalogo(producto) {
         const componentes = await solicitarJson(`${API_CONFIGURACION}/formula/${producto.product_id}`);
         document.getElementById("mensaje-detalle-producto").textContent = componentes.length
             ? "Ingredientes registrados para este producto."
-            : "Este producto no tiene ingredientes registrados en SSM.";
+            : "Este producto no tiene ingredientes registrados.";
         componentes.forEach((componente) => {
             const fila = document.createElement("tr");
             [
@@ -458,6 +458,7 @@ async function guardarNuevaConfiguracion(evento) {
                 linea: document.getElementById("config-linea").value,
                 proveedor_id: Number(document.getElementById("config-proveedor").value),
                 cantidad_base: Number(document.getElementById("config-cantidad-base").value),
+                porcentaje_merma: Number(document.getElementById("config-merma").value),
                 componentes: componentesConfiguracion.map((componente) => ({
                     producto_id: componente.producto_id,
                     cantidad: componente.cantidad,
@@ -541,6 +542,58 @@ function renderizarPaginaHistorial() {
 function cambiarPaginaHistorial(desplazamiento) {
     paginaHistorialActual += desplazamiento;
     renderizarPaginaHistorial();
+}
+
+function conectarControlesHistorial() {
+    document.getElementById("exportar-historial")?.addEventListener(
+        "click",
+        exportarHistorialExcel
+    );
+    document.getElementById("historial-pagina-anterior")?.addEventListener(
+        "click",
+        () => cambiarPaginaHistorial(-1)
+    );
+    document.getElementById("historial-pagina-siguiente")?.addEventListener(
+        "click",
+        () => cambiarPaginaHistorial(1)
+    );
+    document.querySelectorAll("#filas-historial .history-row").forEach((fila) => {
+        const abrir = () => abrirDetalleHistorial(Number(fila.dataset.relacionId));
+        fila.addEventListener("click", abrir);
+        fila.addEventListener("keydown", (evento) => {
+            if (evento.key === "Enter" || evento.key === " ") {
+                evento.preventDefault();
+                abrir();
+            }
+        });
+    });
+}
+
+async function actualizarHistorialDesdeServidor() {
+    const historialActual = document.getElementById("vista-historial");
+    if (!historialActual) return;
+
+    try {
+        const respuesta = await fetch("/dashboard", {
+            credentials: "same-origin",
+            cache: "no-store",
+        });
+        if (!respuesta.ok) return;
+
+        const documento = new DOMParser().parseFromString(
+            await respuesta.text(),
+            "text/html"
+        );
+        const historialNuevo = documento.getElementById("vista-historial");
+        if (!historialNuevo) return;
+
+        historialActual.innerHTML = historialNuevo.innerHTML;
+        paginaHistorialActual = 1;
+        conectarControlesHistorial();
+        renderizarPaginaHistorial();
+    } catch (error) {
+        console.error("No fue posible actualizar el historial.", error);
+    }
 }
 
 function crearDocumentoDetalleHistorial(titulo, folio, partidas, tipo) {
@@ -978,13 +1031,20 @@ function renderizarInsumosTransformacion() {
 
 function actualizarMermaTransformacion() {
     const base = Number(document.getElementById("cantidad-base-transformacion").value || 0);
-    const resultante = base * FACTOR_RENDIMIENTO;
+    const porcentajeMerma = Number(
+        detalleTransformacionSeleccionada?.porcentaje_merma ??
+        MERMA_TECNICA_PORCENTAJE
+    );
+    const factorRendimiento = 1 - (porcentajeMerma / 100);
+    const resultante = base * factorRendimiento;
     document.getElementById("cantidad-resultante-transformacion").value = resultante.toFixed(3);
     const pesoAproximado = document.getElementById("peso-aproximado-transformacion");
     if (pesoAproximado) pesoAproximado.textContent = resultante.toFixed(3);
-    const merma = base * (MERMA_TECNICA_PORCENTAJE / 100);
-    const porcentaje = base > 0 ? MERMA_TECNICA_PORCENTAJE : 0;
+    const merma = base * (porcentajeMerma / 100);
+    const porcentaje = base > 0 ? porcentajeMerma : 0;
     const nivelNormal = porcentaje <= MERMA_TECNICA_PORCENTAJE;
+    const etiquetaMerma = document.getElementById("merma-transformacion-activa");
+    if (etiquetaMerma) etiquetaMerma.textContent = `Merma: ${porcentajeMerma.toFixed(1)}%`;
     const resumen = document.getElementById("resumen-merma-transformacion");
     if (resumen) {
         resumen.textContent = base > 0
@@ -1447,6 +1507,9 @@ async function guardarRelacion(evento) {
         });
         limpiarFormulario();
         await cargarDatos();
+        if (registrandoTransformacion) {
+            await actualizarHistorialDesdeServidor();
+        }
         mostrarMensaje(`${respuesta.mensaje} ${respuesta.folio_salida} → ${respuesta.folio_entrada}`, "success");
     } catch (error) {
         mostrarMensaje(error.message);
@@ -1527,24 +1590,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (document.getElementById("vista-configuracion")) iniciarPaginaConfiguracion();
     renderizarPaginaHistorial();
     document.getElementById("nav-inicio")?.addEventListener("click", () => mostrarVistaModulo("inicio"));
-    document.getElementById("nav-historial")?.addEventListener("click", () => mostrarVistaModulo("historial"));
-    document.getElementById("actualizar-historial")?.addEventListener("click", () => {
-        window.location.hash = "historial";
-        window.location.reload();
+    document.getElementById("nav-historial")?.addEventListener("click", () => {
+        mostrarVistaModulo("historial");
+        actualizarHistorialDesdeServidor();
     });
-    document.getElementById("exportar-historial")?.addEventListener("click", exportarHistorialExcel);
-    document.getElementById("historial-pagina-anterior")?.addEventListener("click", () => cambiarPaginaHistorial(-1));
-    document.getElementById("historial-pagina-siguiente")?.addEventListener("click", () => cambiarPaginaHistorial(1));
-    document.querySelectorAll("#filas-historial .history-row").forEach((fila) => {
-        const abrir = () => abrirDetalleHistorial(Number(fila.dataset.relacionId));
-        fila.addEventListener("click", abrir);
-        fila.addEventListener("keydown", (evento) => {
-            if (evento.key === "Enter" || evento.key === " ") {
-                evento.preventDefault();
-                abrir();
-            }
-        });
-    });
+    conectarControlesHistorial();
     document.getElementById("cerrar-detalle-historial")?.addEventListener("click", () => {
         document.getElementById("modal-detalle-historial").classList.add("hidden");
     });

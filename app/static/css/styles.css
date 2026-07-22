@@ -363,7 +363,10 @@ tbody tr:hover { background: #fff8f8; }
 .configuration-manual-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .configuration-step-field { position: relative; min-width: 0; padding: 13px; border: 1px solid var(--line-soft); border-radius: 11px; background: #f8fafc; }
 .configuration-step-field label { padding-left: 27px; }
-.configuration-weight-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: stretch; }
+.configuration-group-title { display: block; margin-bottom: 9px; padding-left: 27px; }
+.configuration-weight-actions { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, .45fr) auto; gap: 12px; align-items: end; }
+.configuration-measure-field { display: grid; gap: 6px; }
+.configuration-measure-field label { padding-left: 0; }
 .configuration-weight-actions > button { min-width: 260px; }
 .configuration-field-number { position: absolute; top: 11px; left: 13px; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--red-soft); color: var(--red); font-size: .7rem; font-weight: 900; }
 .configuration-rule-note { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; border: 1px solid #a9ddc1; border-radius: 9px; background: #eaf8f0; color: var(--success); font-size: .8rem; }

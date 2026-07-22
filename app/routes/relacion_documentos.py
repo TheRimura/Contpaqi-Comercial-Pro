@@ -295,6 +295,23 @@ def registrar_transformacion(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail='La transformación precargada no es válida o está inactiva.',
         )
+    porcentaje_merma = float(
+        configuracion.get('porcentaje_merma')
+        if configuracion.get('porcentaje_merma') is not None
+        else 0
+    )
+    cantidad_resultante_esperada = round(
+        datos.cantidad_base * (1 - porcentaje_merma / 100),
+        3,
+    )
+    if abs(datos.cantidad_resultante - cantidad_resultante_esperada) > 0.001:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                'El peso resultante no corresponde a la merma configurada '
+                f'del {porcentaje_merma:g}%.'
+            ),
+        )
     resultado_configurado = configuracion['resultantes'][0]
     if (
         configuracion['linea'].upper() != datos.linea.upper()

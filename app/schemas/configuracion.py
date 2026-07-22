@@ -22,6 +22,7 @@ class CrearConfiguracionTransformacion(BaseModel):
     cantidad_base: float = Field(
         gt=0, le=AJUSTES_MODULO.maximo_kilos_por_transformacion
     )
+    porcentaje_merma: float = Field(ge=0, lt=100)
     componentes: list[ComponenteConfiguracionTransformacion] = Field(
         min_length=1,
         max_length=100,

@@ -48,19 +48,6 @@ class CrearTransformacion(BaseModel):
     def limpiar_linea(cls, valor: str) -> str:
         return ' '.join(valor.split()).upper()
 
-    @model_validator(mode='after')
-    def validar_rendimiento(self):
-        esperado = round(
-            self.cantidad_base * AJUSTES_MODULO.factor_rendimiento,
-            3,
-        )
-        if abs(self.cantidad_resultante - esperado) > 0.001:
-            raise ValueError(
-                'El peso resultante no corresponde a la merma técnica '
-                f'del {AJUSTES_MODULO.merma_tecnica_porcentaje:g}%.'
-            )
-        return self
-
 class RespuestaRelacionDocumentos(BaseModel):
     mensaje: str
     source_document_id: int
