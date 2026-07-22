@@ -17,10 +17,13 @@ let transformacionesLineaActual = [];
 let paginaTransformacionesActual = 1;
 const TRANSFORMACIONES_POR_PAGINA = Number(AJUSTES_INTERFAZ.transformacionesPorPagina || 12);
 const API_CONFIGURACION = "/api/configuracion";
-let formulaActual = [];
+let componentesConfiguracion = [];
+let productosConfiguracionDisponibles = [];
 let lineaCatalogoActual = "";
 let temporizadorCatalogo = null;
 let productosCatalogoActual = [];
+let productoCatalogoSeleccionadoId = 0;
+let modoEliminacionCatalogo = false;
 let paginaCatalogoActual = 1;
 const PRODUCTOS_POR_PAGINA = Number(AJUSTES_INTERFAZ.productosPorPagina || 12);
 const HISTORIAL_POR_PAGINA = 10;
@@ -46,6 +49,52 @@ function mensajeConfiguracion(texto, tipo = "error") {
     const mensaje = document.getElementById("mensaje-configuracion");
     mensaje.textContent = texto;
     mensaje.className = `message visible ${tipo}`;
+}
+
+function obtenerProductosOcultos() {
+    try {
+        return new Set(JSON.parse(localStorage.getItem("cayal-productos-ocultos") || "[]").map(Number));
+    } catch (_) {
+        return new Set();
+    }
+}
+
+function guardarProductosOcultos(productos) {
+    try {
+        localStorage.setItem("cayal-productos-ocultos", JSON.stringify([...productos]));
+    } catch (_) {
+        // El ocultamiento sigue funcionando durante la sesión actual.
+    }
+}
+
+async function abrirDetalleProductoCatalogo(producto) {
+    const modal = document.getElementById("modal-detalle-producto");
+    const cuerpo = document.getElementById("detalle-producto-componentes");
+    document.getElementById("titulo-detalle-producto").textContent = limpiarNombreProducto(producto.producto);
+    document.getElementById("mensaje-detalle-producto").textContent = "Consultando ingredientes en SSM...";
+    cuerpo.replaceChildren();
+    modal.classList.remove("hidden");
+    try {
+        const componentes = await solicitarJson(`${API_CONFIGURACION}/formula/${producto.product_id}`);
+        document.getElementById("mensaje-detalle-producto").textContent = componentes.length
+            ? "Ingredientes registrados para este producto."
+            : "Este producto no tiene ingredientes registrados en SSM.";
+        componentes.forEach((componente) => {
+            const fila = document.createElement("tr");
+            [
+                limpiarNombreProducto(componente.producto),
+                Number(componente.cantidad || 0).toFixed(3),
+                componente.unidad || "SIN UNIDAD",
+            ].forEach((valor) => {
+                const celda = document.createElement("td");
+                celda.textContent = valor;
+                fila.appendChild(celda);
+            });
+            cuerpo.appendChild(fila);
+        });
+    } catch (error) {
+        document.getElementById("mensaje-detalle-producto").textContent = error.message;
+    }
 }
 
 function limpiarMensajeConfiguracion() {
@@ -90,13 +139,33 @@ function renderizarPaginaCatalogo() {
     productosCatalogoActual
         .slice(inicio, inicio + PRODUCTOS_POR_PAGINA)
         .forEach((producto) => {
-            const fila = document.createElement("div");
+            const fila = document.createElement("button");
+            fila.type = "button";
             fila.className = "catalog-product";
+            fila.dataset.productoId = String(producto.product_id);
             const nombre = document.createElement("strong");
             nombre.textContent = limpiarNombreProducto(producto.producto);
             const unidad = document.createElement("span");
             unidad.textContent = producto.unidad || "SIN UNIDAD";
             fila.append(nombre, unidad);
+            fila.addEventListener("click", async () => {
+                if (modoEliminacionCatalogo) {
+                    const confirmado = await solicitarConfirmacionEliminarProductoCatalogo(
+                        producto
+                    );
+                    if (confirmado) {
+                        ocultarProductoCatalogo(Number(producto.product_id));
+                    }
+                    return;
+                }
+                productoCatalogoSeleccionadoId = Number(producto.product_id);
+                document.querySelectorAll(".catalog-product").forEach((elemento) => {
+                    elemento.classList.toggle("selected", elemento === fila);
+                });
+            });
+            fila.addEventListener("dblclick", () => {
+                if (!modoEliminacionCatalogo) abrirDetalleProductoCatalogo(producto);
+            });
             lista.appendChild(fila);
         });
     document.getElementById("catalogo-pagina-actual").textContent =
@@ -126,9 +195,14 @@ async function cargarProductosCatalogo(linea, termino = "") {
         boton.classList.toggle("active", boton.dataset.linea === linea);
     });
     try {
-        productosCatalogoActual = await solicitarJson(
+        const productos = await solicitarJson(
             `${API_CONFIGURACION}/productos-base?linea=${encodeURIComponent(linea)}&termino=${encodeURIComponent(termino)}`
         );
+        const ocultos = obtenerProductosOcultos();
+        productosCatalogoActual = productos.filter(
+            (producto) => !ocultos.has(Number(producto.product_id))
+        );
+        productoCatalogoSeleccionadoId = 0;
         paginaCatalogoActual = 1;
         renderizarPaginaCatalogo();
         document.getElementById("catalogo-productos-total").textContent =
@@ -140,66 +214,203 @@ async function cargarProductosCatalogo(linea, termino = "") {
     }
 }
 
+function ocultarProductoCatalogo(productoId) {
+    if (!modoEliminacionCatalogo || !productoId) return;
+    const ocultos = obtenerProductosOcultos();
+    ocultos.add(productoId);
+    guardarProductosOcultos(ocultos);
+    productosCatalogoActual = productosCatalogoActual.filter(
+        (producto) => Number(producto.product_id) !== productoId
+    );
+    productoCatalogoSeleccionadoId = 0;
+    renderizarPaginaCatalogo();
+    document.getElementById("catalogo-productos-total").textContent =
+        `${productosCatalogoActual.length} productos visibles`;
+}
+
+function solicitarConfirmacionEliminarProductoCatalogo(producto) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById("modal-confirmar-eliminacion-producto");
+        const botonConfirmar = document.getElementById("confirmar-eliminacion-producto");
+        const botonCancelar = document.getElementById("cancelar-eliminacion-producto");
+        const nombre = limpiarNombreProducto(producto?.producto) || "Producto seleccionado";
+
+        document.getElementById("nombre-producto-a-eliminar").textContent = nombre;
+
+        const cerrar = (confirmado) => {
+            modal.classList.add("hidden");
+            document.body.classList.remove("modal-open");
+            botonConfirmar.removeEventListener("click", confirmar);
+            botonCancelar.removeEventListener("click", cancelar);
+            resolve(confirmado);
+        };
+        const confirmar = () => cerrar(true);
+        const cancelar = () => cerrar(false);
+
+        botonConfirmar.addEventListener("click", confirmar);
+        botonCancelar.addEventListener("click", cancelar);
+        modal.classList.remove("hidden");
+        document.body.classList.add("modal-open");
+        botonCancelar.focus();
+    });
+}
+
+function activarEliminacionCatalogo() {
+    modoEliminacionCatalogo = true;
+    productoCatalogoSeleccionadoId = 0;
+    document.querySelectorAll(".catalog-product").forEach((producto) => {
+        producto.classList.remove("selected");
+    });
+    document.getElementById("catalogo-productos").classList.add("delete-mode");
+    document.getElementById("eliminar-producto-catalogo").classList.add("active");
+    document.getElementById("eliminar-producto-catalogo").textContent = "Eliminando";
+    document.getElementById("cancelar-eliminacion-catalogo").classList.remove("hidden");
+    document.getElementById("ayuda-interaccion-catalogo").textContent =
+        "Selecciona los productos que deseas ocultar. Presiona Cancelar para terminar.";
+}
+
+function cancelarEliminacionCatalogo() {
+    modoEliminacionCatalogo = false;
+    document.getElementById("catalogo-productos")?.classList.remove("delete-mode");
+    const eliminar = document.getElementById("eliminar-producto-catalogo");
+    if (eliminar) {
+        eliminar.classList.remove("active");
+        eliminar.textContent = "Eliminar";
+    }
+    document.getElementById("cancelar-eliminacion-catalogo")?.classList.add("hidden");
+    const ayuda = document.getElementById("ayuda-interaccion-catalogo");
+    if (ayuda) ayuda.textContent = "Un clic selecciona el producto; doble clic muestra sus insumos.";
+}
+
 function cerrarCatalogoProductos() {
+    cancelarEliminacionCatalogo();
     document.getElementById("catalogo-productos").classList.add("hidden");
     document.getElementById("configuraciones-guardadas").classList.remove("hidden");
     document.getElementById("buscar-producto-catalogo").value = "";
     document.querySelectorAll(".configuration-line").forEach((boton) => boton.classList.remove("active"));
     lineaCatalogoActual = "";
     productosCatalogoActual = [];
+    productoCatalogoSeleccionadoId = 0;
     paginaCatalogoActual = 1;
 }
 
-async function cargarResultantesConfiguracion() {
+async function cargarProductosConfiguracion() {
     const linea = document.getElementById("config-linea").value;
-    const resultante = document.getElementById("config-resultante");
-    const base = document.getElementById("config-base");
-    formulaActual = [];
-    llenarConfigSelect(base, [], "Selecciona el producto resultante");
-    document.getElementById("config-formula").classList.add("hidden");
+    const selector = document.getElementById("config-insumo-producto");
+    const botonAsignar = document.getElementById("ir-asignar-insumos");
+    componentesConfiguracion = [];
+    productosConfiguracionDisponibles = [];
+    renderizarComponentesConfiguracion();
     if (!linea) {
-        llenarConfigSelect(resultante, [], "Selecciona la línea primero");
+        llenarConfigSelect(selector, [], "Selecciona primero una línea");
+        botonAsignar.disabled = true;
+        document.getElementById("config-nombres-disponibles").replaceChildren();
         return;
     }
     try {
-        const productos = await solicitarJson(`${API_CONFIGURACION}/productos-resultantes?linea=${encodeURIComponent(linea)}`);
-        llenarConfigSelect(resultante, productos, "Selecciona un producto resultante");
-        if (!productos.length) mensajeConfiguracion("Esta línea no tiene productos resultantes con fórmula en SSM.");
+        const [componentes, resultantes] = await Promise.all([
+            solicitarJson(`${API_CONFIGURACION}/componentes?linea=${encodeURIComponent(linea)}`),
+            solicitarJson(`${API_CONFIGURACION}/productos-resultantes?linea=${encodeURIComponent(linea)}`),
+        ]);
+        productosConfiguracionDisponibles = componentes;
+        const nombres = document.getElementById("config-nombres-disponibles");
+        nombres.replaceChildren();
+        resultantes.forEach((producto) => {
+            const opcion = document.createElement("option");
+            opcion.value = producto.producto;
+            nombres.appendChild(opcion);
+        });
+        llenarConfigSelect(selector, productosConfiguracionDisponibles, "Selecciona un producto o insumo");
+        botonAsignar.disabled = productosConfiguracionDisponibles.length === 0;
+        if (!productosConfiguracionDisponibles.length) mensajeConfiguracion("Esta línea no tiene productos disponibles en SSM.");
         else limpiarMensajeConfiguracion();
-    } catch (error) { mensajeConfiguracion(error.message); }
+    } catch (error) {
+        botonAsignar.disabled = true;
+        mensajeConfiguracion(error.message);
+    }
 }
 
-async function cargarFormulaConfiguracion() {
-    const productoId = Number(document.getElementById("config-resultante").value || 0);
-    const linea = document.getElementById("config-linea").value.toUpperCase();
-    const base = document.getElementById("config-base");
-    formulaActual = [];
-    if (!productoId) {
-        llenarConfigSelect(base, [], "Selecciona el producto resultante");
-        document.getElementById("config-formula").classList.add("hidden");
+function irAAsignarInsumosConfiguracion() {
+    const seccion = document.getElementById("config-formula");
+    const selector = document.getElementById("config-insumo-producto");
+    seccion.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.setTimeout(() => selector.focus(), 350);
+}
+
+function renderizarComponentesConfiguracion() {
+    const cuerpo = document.getElementById("config-componentes");
+    cuerpo.replaceChildren();
+    if (!componentesConfiguracion.length) {
+        const fila = document.createElement("tr");
+        const celda = document.createElement("td");
+        celda.colSpan = 5;
+        celda.className = "empty-table-cell";
+        celda.textContent = "Aún no agregas ingredientes.";
+        fila.appendChild(celda);
+        cuerpo.appendChild(fila);
         return;
     }
-    try {
-        formulaActual = await solicitarJson(`${API_CONFIGURACION}/formula/${productoId}`);
-        const candidatosBase = formulaActual.filter((componente) =>
-            String(componente.linea || "").trim().toUpperCase() === linea
-        );
-        llenarConfigSelect(base, candidatosBase, "Selecciona el producto base");
-        const cuerpo = document.getElementById("config-componentes");
-        cuerpo.replaceChildren();
-        formulaActual.forEach((componente) => {
-            const fila = document.createElement("tr");
-            [limpiarNombreProducto(componente.producto), Number(componente.cantidad).toFixed(3), componente.unidad].forEach((valor) => {
-                const celda = document.createElement("td");
-                celda.textContent = valor;
-                fila.appendChild(celda);
-            });
-            cuerpo.appendChild(fila);
+    componentesConfiguracion.forEach((componente) => {
+        const fila = document.createElement("tr");
+        [
+            componente.producto,
+            componente.es_base ? "Producto base" : "Insumo",
+            Number(componente.cantidad).toFixed(3),
+            componente.unidad,
+        ].forEach((valor) => {
+            const celda = document.createElement("td");
+            celda.textContent = valor;
+            fila.appendChild(celda);
         });
-        document.getElementById("config-formula").classList.toggle("hidden", !formulaActual.length);
-        if (!candidatosBase.length) mensajeConfiguracion("La fórmula no contiene un producto base de la línea seleccionada.");
-        else limpiarMensajeConfiguracion();
-    } catch (error) { mensajeConfiguracion(error.message); }
+        const acciones = document.createElement("td");
+        const quitar = document.createElement("button");
+        quitar.type = "button";
+        quitar.className = "button-outline button-compact";
+        quitar.textContent = "Quitar";
+        quitar.addEventListener("click", () => {
+            componentesConfiguracion = componentesConfiguracion.filter(
+                (elemento) => elemento.producto_id !== componente.producto_id
+            );
+            renderizarComponentesConfiguracion();
+        });
+        acciones.appendChild(quitar);
+        fila.appendChild(acciones);
+        cuerpo.appendChild(fila);
+    });
+}
+
+function agregarComponenteConfiguracion() {
+    const selector = document.getElementById("config-insumo-producto");
+    const productoId = Number(selector.value || 0);
+    const cantidad = Number(document.getElementById("config-insumo-cantidad").value || 0);
+    const esBase = document.getElementById("config-insumo-tipo").value === "BASE";
+    const producto = productosConfiguracionDisponibles.find(
+        (registro) => Number(registro.product_id) === productoId
+    );
+    if (!producto || cantidad <= 0) {
+        mensajeConfiguracion("Selecciona un producto y captura una cantidad válida.");
+        return;
+    }
+    if (componentesConfiguracion.some((componente) => componente.producto_id === productoId)) {
+        mensajeConfiguracion("Ese producto ya forma parte de la transformación.");
+        return;
+    }
+    if (esBase) {
+        componentesConfiguracion.forEach((componente) => { componente.es_base = false; });
+    }
+    componentesConfiguracion.push({
+        producto_id: productoId,
+        producto: limpiarNombreProducto(producto.producto),
+        cantidad,
+        unidad: producto.unidad || "KILO",
+        es_base: esBase,
+    });
+    selector.value = "";
+    document.getElementById("config-insumo-cantidad").value = "";
+    document.getElementById("config-insumo-tipo").value = "INSUMO";
+    document.getElementById("config-insumo-unidad").textContent = "kg";
+    limpiarMensajeConfiguracion();
+    renderizarComponentesConfiguracion();
 }
 
 function abrirNuevaConfiguracion() {
@@ -213,18 +424,11 @@ function abrirNuevaConfiguracion() {
 function cerrarNuevaConfiguracion() {
     const formulario = document.getElementById("form-nueva-configuracion");
     formulario.reset();
-    formulaActual = [];
-    llenarConfigSelect(
-        document.getElementById("config-resultante"),
-        [],
-        "Selecciona la línea primero"
-    );
-    llenarConfigSelect(
-        document.getElementById("config-base"),
-        [],
-        "Selecciona el producto resultante"
-    );
-    document.getElementById("config-formula").classList.add("hidden");
+    componentesConfiguracion = [];
+    productosConfiguracionDisponibles = [];
+    llenarConfigSelect(document.getElementById("config-insumo-producto"), [], "Selecciona primero una línea");
+    document.getElementById("ir-asignar-insumos").disabled = true;
+    renderizarComponentesConfiguracion();
     limpiarMensajeConfiguracion();
     formulario.classList.add("hidden");
     document.getElementById("boton-nueva-configuracion").disabled = false;
@@ -236,6 +440,14 @@ async function guardarNuevaConfiguracion(evento) {
     const formulario = evento.currentTarget;
     if (!formulario.reportValidity()) return;
     const boton = document.getElementById("guardar-configuracion");
+    if (!componentesConfiguracion.length) {
+        mensajeConfiguracion("Agrega por lo menos un producto o insumo.");
+        return;
+    }
+    if (componentesConfiguracion.filter((componente) => componente.es_base).length !== 1) {
+        mensajeConfiguracion("Marca exactamente un ingrediente como producto base.");
+        return;
+    }
     boton.disabled = true;
     boton.textContent = "Guardando...";
     try {
@@ -244,11 +456,14 @@ async function guardarNuevaConfiguracion(evento) {
             body: JSON.stringify({
                 nombre: document.getElementById("config-nombre").value.trim(),
                 linea: document.getElementById("config-linea").value,
-                producto_base_id: Number(document.getElementById("config-base").value),
-                producto_resultante_id: Number(document.getElementById("config-resultante").value),
                 proveedor_id: Number(document.getElementById("config-proveedor").value),
                 cantidad_base: Number(document.getElementById("config-cantidad-base").value),
-                cantidad_resultante: Number(document.getElementById("config-cantidad-resultante").value),
+                componentes: componentesConfiguracion.map((componente) => ({
+                    producto_id: componente.producto_id,
+                    cantidad: componente.cantidad,
+                    unidad: componente.unidad,
+                    es_base: componente.es_base,
+                })),
                 observaciones: document.getElementById("config-observaciones").value.trim() || null,
             }),
         });
@@ -267,17 +482,34 @@ function iniciarPaginaConfiguracion() {
         cargarProveedoresConfiguracion();
         document.getElementById("boton-nueva-configuracion").addEventListener("click", abrirNuevaConfiguracion);
         document.getElementById("cancelar-nueva-configuracion").addEventListener("click", cerrarNuevaConfiguracion);
-        document.getElementById("config-linea").addEventListener("change", cargarResultantesConfiguracion);
-        document.getElementById("config-resultante").addEventListener("change", cargarFormulaConfiguracion);
+        document.getElementById("config-linea").addEventListener("change", cargarProductosConfiguracion);
+        document.getElementById("ir-asignar-insumos").addEventListener(
+            "click",
+            irAAsignarInsumosConfiguracion
+        );
+        document.getElementById("config-insumo-producto").addEventListener("change", (evento) => {
+            const producto = productosConfiguracionDisponibles.find(
+                (registro) => Number(registro.product_id) === Number(evento.target.value)
+            );
+            document.getElementById("config-insumo-unidad").textContent =
+                producto?.unidad || "kg";
+        });
+        document.getElementById("agregar-config-insumo").addEventListener("click", agregarComponenteConfiguracion);
         formulario.addEventListener("submit", guardarNuevaConfiguracion);
     }
     document.querySelectorAll(".configuration-line").forEach((boton) => {
         boton.addEventListener("click", () => {
+            cancelarEliminacionCatalogo();
             document.getElementById("buscar-producto-catalogo").value = "";
             cargarProductosCatalogo(boton.dataset.linea);
         });
     });
     document.getElementById("cerrar-catalogo-productos").addEventListener("click", cerrarCatalogoProductos);
+    document.getElementById("eliminar-producto-catalogo").addEventListener("click", activarEliminacionCatalogo);
+    document.getElementById("cancelar-eliminacion-catalogo").addEventListener("click", cancelarEliminacionCatalogo);
+    document.getElementById("cerrar-detalle-producto").addEventListener("click", () => {
+        document.getElementById("modal-detalle-producto").classList.add("hidden");
+    });
     document.getElementById("catalogo-pagina-anterior").addEventListener("click", () => cambiarPaginaCatalogo(-1));
     document.getElementById("catalogo-pagina-siguiente").addEventListener("click", () => cambiarPaginaCatalogo(1));
     document.getElementById("buscar-producto-catalogo").addEventListener("input", (evento) => {
@@ -309,6 +541,121 @@ function renderizarPaginaHistorial() {
 function cambiarPaginaHistorial(desplazamiento) {
     paginaHistorialActual += desplazamiento;
     renderizarPaginaHistorial();
+}
+
+function crearDocumentoDetalleHistorial(titulo, folio, partidas, tipo) {
+    const tarjeta = document.createElement("article");
+    tarjeta.className = `history-detail-document history-detail-${tipo}`;
+    const encabezado = document.createElement("header");
+    const etiqueta = document.createElement("small");
+    etiqueta.textContent = titulo;
+    const folioElemento = document.createElement("strong");
+    folioElemento.textContent = folio || "Sin folio";
+    encabezado.append(etiqueta, folioElemento);
+    tarjeta.appendChild(encabezado);
+
+    const tabla = document.createElement("table");
+    tabla.className = "registration-table";
+    tabla.innerHTML = "<thead><tr><th>Producto</th><th>Cantidad</th></tr></thead>";
+    const cuerpo = document.createElement("tbody");
+    (partidas || []).forEach((partida) => {
+        const fila = document.createElement("tr");
+        const producto = document.createElement("td");
+        producto.textContent = limpiarNombreProducto(partida.ProductName) || "Producto";
+        const cantidad = document.createElement("td");
+        cantidad.textContent = `${Number(partida.Quantity || 0).toFixed(3)} kg`;
+        fila.append(producto, cantidad);
+        cuerpo.appendChild(fila);
+    });
+    if (!cuerpo.children.length) {
+        const fila = document.createElement("tr");
+        const vacio = document.createElement("td");
+        vacio.colSpan = 2;
+        vacio.className = "empty-table-cell";
+        vacio.textContent = "El documento no tiene partidas disponibles.";
+        fila.appendChild(vacio);
+        cuerpo.appendChild(fila);
+    }
+    tabla.appendChild(cuerpo);
+    const envoltura = document.createElement("div");
+    envoltura.className = "registration-table-wrap";
+    envoltura.appendChild(tabla);
+    tarjeta.appendChild(envoltura);
+    return tarjeta;
+}
+
+async function abrirDetalleHistorial(relacionId) {
+    const modal = document.getElementById("modal-detalle-historial");
+    const contenido = document.getElementById("detalle-historial-contenido");
+    contenido.innerHTML = '<p class="catalog-loading">Consultando documentos en SSM...</p>';
+    modal.classList.remove("hidden");
+    try {
+        const detalle = await solicitarJson(`${API_RELACIONES}/historial/${relacionId}`);
+        document.getElementById("titulo-detalle-historial").textContent =
+            `${detalle.folio_salida} → ${detalle.folio_entrada}`;
+        contenido.replaceChildren(
+            crearDocumentoDetalleHistorial("Documento de salida", detalle.folio_salida, detalle.salida, "out"),
+            crearDocumentoDetalleHistorial("Documento de entrada", detalle.folio_entrada, detalle.entrada, "in")
+        );
+    } catch (error) {
+        contenido.replaceChildren();
+        const mensaje = document.createElement("p");
+        mensaje.className = "catalog-loading catalog-error";
+        mensaje.textContent = error.message;
+        contenido.appendChild(mensaje);
+    }
+}
+
+function escaparXml(valor) {
+    return String(valor || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&apos;");
+}
+
+function exportarHistorialExcel() {
+    const encabezados = [
+        "FECHA", "RESPONSABLE", "PRODUCTO ORIGEN", "SALIDA", "ENTRADA",
+        "MERMA", "PRODUCTO RESULTANTE", "DOCUMENTOS", "ESTADO",
+    ];
+    const filas = [...document.querySelectorAll("#filas-historial .history-row")]
+        .map((fila) => [...fila.cells].map((celda) => celda.textContent.trim().replace(/\s+/g, " ")));
+    const celda = (valor, estilo = "Dato") =>
+        `<Cell ss:StyleID="${estilo}"><Data ss:Type="String">${escaparXml(valor)}</Data></Cell>`;
+    const filasXml = filas.map((valores) =>
+        `<Row>${valores.map((valor) => celda(valor)).join("")}</Row>`
+    ).join("");
+    const xml = `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Styles>
+  <Style ss:ID="Titulo"><Font ss:Bold="1" ss:Size="16" ss:Color="#FFFFFF"/><Interior ss:Color="#B51223" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Encabezado"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#172033" ss:Pattern="Solid"/><Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
+  <Style ss:ID="Dato"><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D8E0EA"/></Borders><Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
+ </Styles>
+ <Worksheet ss:Name="Transformaciones">
+  <Table>
+   <Column ss:Width="85"/><Column ss:Width="150"/><Column ss:Width="180"/><Column ss:Width="75"/><Column ss:Width="75"/><Column ss:Width="85"/><Column ss:Width="190"/><Column ss:Width="135"/><Column ss:Width="85"/>
+   <Row ss:Height="28"><Cell ss:MergeAcross="8" ss:StyleID="Titulo"><Data ss:Type="String">CARNES CAYAL · HISTORIAL DE TRANSFORMACIONES</Data></Cell></Row>
+   <Row><Cell ss:MergeAcross="8" ss:StyleID="Dato"><Data ss:Type="String">Generado: ${escaparXml(new Date().toLocaleString("es-MX"))}</Data></Cell></Row>
+   <Row>${encabezados.map((valor) => celda(valor, "Encabezado")).join("")}</Row>
+   ${filasXml}
+  </Table>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>3</SplitHorizontal><TopRowBottomPane>3</TopRowBottomPane><Selected/></WorksheetOptions>
+ </Worksheet>
+</Workbook>`;
+    const archivo = new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const enlace = document.createElement("a");
+    const fecha = new Date().toISOString().slice(0, 10);
+    enlace.href = URL.createObjectURL(archivo);
+    enlace.download = `historial_transformaciones_${fecha}.xls`;
+    enlace.click();
+    window.setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
 }
 
 async function solicitarJson(url, opciones = {}) {
@@ -702,7 +1049,7 @@ async function localizarDocumentosTransformacion() {
         document.getElementById("boton-guardar").textContent = "Registrar transformación";
         transformacionPreparada = Boolean(tablajero.value);
         if (transformacionPreparada) {
-            mostrarMensaje("La relación está preparada. SSM generará y relacionará ambos documentos al registrar.", "success");
+            mostrarMensaje("La relación esta Preparada.", "success");
         } else {
             mostrarMensaje("Selecciona el tablajero responsable para completar la relación.");
         }
@@ -1185,8 +1532,22 @@ document.addEventListener("DOMContentLoaded", () => {
         window.location.hash = "historial";
         window.location.reload();
     });
+    document.getElementById("exportar-historial")?.addEventListener("click", exportarHistorialExcel);
     document.getElementById("historial-pagina-anterior")?.addEventListener("click", () => cambiarPaginaHistorial(-1));
     document.getElementById("historial-pagina-siguiente")?.addEventListener("click", () => cambiarPaginaHistorial(1));
+    document.querySelectorAll("#filas-historial .history-row").forEach((fila) => {
+        const abrir = () => abrirDetalleHistorial(Number(fila.dataset.relacionId));
+        fila.addEventListener("click", abrir);
+        fila.addEventListener("keydown", (evento) => {
+            if (evento.key === "Enter" || evento.key === " ") {
+                evento.preventDefault();
+                abrir();
+            }
+        });
+    });
+    document.getElementById("cerrar-detalle-historial")?.addEventListener("click", () => {
+        document.getElementById("modal-detalle-historial").classList.add("hidden");
+    });
     document.getElementById("fecha-movimiento").valueAsDate = new Date();
     document.getElementById("documento-salida").addEventListener("change", () => cargarPartidas("salida"));
     document.getElementById("documento-entrada").addEventListener("change", () => cargarPartidas("entrada"));

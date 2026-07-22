@@ -2,6 +2,7 @@ import json
 import os
 import re
 import secrets
+import unicodedata
 
 from functools import cache
 from platform import node
@@ -418,6 +419,85 @@ class BaseDatos(ComandosBaseDatos):
             (),
         )
 
+    @staticmethod
+    def _palabras_clave_producto(nombre: str) -> set[str]:
+        texto = unicodedata.normalize('NFKD', str(nombre or '').upper())
+        texto = ''.join(
+            caracter for caracter in texto
+            if not unicodedata.combining(caracter)
+        )
+        palabras_ignoradas = {
+            'A', 'AL', 'CON', 'DE', 'DEL', 'EL', 'EN', 'LA', 'LAS',
+            'LOS', 'PARA', 'POR', 'Y', 'PZA', 'PIEZA', 'PIEZAS',
+            'PAQUETE', 'CAJA', 'KG', 'KILO', 'KILOS',
+        }
+        palabras = re.findall(r'[A-Z0-9]+', texto)
+        return {
+            palabra[:-1] if palabra.endswith('S') and len(palabra) > 4
+            else palabra
+            for palabra in palabras
+            if palabra not in palabras_ignoradas
+        }
+
+    def buscar_producto_formula_relacionado(
+        self,
+        producto_resultante_id: int,
+        nombre_resultante: str,
+        linea: str,
+    ) -> int:
+        formula_directa = self.fetchone(
+            """
+            SELECT TOP 1 ProductID
+            FROM dbo.zvwFormulasListasPCocinar
+            WHERE ProductID = ?
+            """,
+            (int(producto_resultante_id),),
+        )
+        if formula_directa:
+            return int(formula_directa)
+
+        candidatos = self.fetchall(
+            """
+            SELECT DISTINCT F.ProductID, F.Producto
+            FROM dbo.zvwFormulasListasPCocinar AS F
+            WHERE EXISTS
+            (
+                SELECT 1
+                FROM dbo.zvwFormulasListasPCocinar AS ComponenteFormula
+                INNER JOIN dbo.orgProduct AS Componente
+                    ON Componente.ProductID = ComponenteFormula.ComponenteID
+                   AND Componente.DiscontinuedOn IS NULL
+                WHERE ComponenteFormula.ProductID = F.ProductID
+                  AND UPPER(LTRIM(RTRIM(ISNULL(Componente.Category1, '')))) =
+                      UPPER(LTRIM(RTRIM(?)))
+            )
+            """,
+            (str(linea).strip(),),
+        )
+        palabras_resultante = self._palabras_clave_producto(
+            nombre_resultante
+        )
+        coincidencias = []
+        for candidato in candidatos:
+            palabras_formula = self._palabras_clave_producto(
+                candidato.get('Producto') or ''
+            )
+            comunes = palabras_resultante & palabras_formula
+            cobertura = (
+                len(comunes) / len(palabras_resultante)
+                if palabras_resultante else 0
+            )
+            if len(comunes) >= 2 and cobertura >= 0.75:
+                coincidencias.append((
+                    cobertura,
+                    -len(palabras_formula - palabras_resultante),
+                    int(candidato['ProductID']),
+                ))
+        if not coincidencias:
+            return 0
+        coincidencias.sort(reverse=True)
+        return coincidencias[0][2]
+
     def obtener_transformacion_catalogo(
         self, producto_resultante_id: int
     ) -> Optional[dict]:
@@ -502,9 +582,27 @@ class BaseDatos(ComandosBaseDatos):
         if not disponibles or not disponibles[0].get('producto_base_id'):
             return None
         registro = disponibles[0]
-        componentes_formula = self.buscar_formula_producto_configuracion(
-            producto_resultante_id
+        producto_formula_id = self.buscar_producto_formula_relacionado(
+            producto_resultante_id=int(producto_resultante_id),
+            nombre_resultante=registro['nombre_transformacion'],
+            linea=registro['linea'],
         )
+        componentes_formula = (
+            self.buscar_formula_producto_configuracion(producto_formula_id)
+            if producto_formula_id else []
+        )
+        componentes_de_linea = [
+            componente for componente in componentes_formula
+            if str(componente.get('linea') or '').strip().upper() ==
+               str(registro['linea'] or '').strip().upper()
+        ]
+        if componentes_de_linea:
+            componente_base = max(
+                componentes_de_linea,
+                key=lambda componente: float(componente.get('cantidad') or 0),
+            )
+            registro['producto_base_id'] = int(componente_base['product_id'])
+            registro['producto_base'] = componente_base['producto']
         componentes = []
         base_en_formula = False
         for orden, componente in enumerate(componentes_formula, start=1):
@@ -1003,6 +1101,8 @@ class BaseDatos(ComandosBaseDatos):
             """
             SELECT TOP (?)
                 R.DocumentWarehouseRelationID AS relacion_id,
+                S.DocumentID AS documento_salida_id,
+                E.DocumentID AS documento_entrada_id,
                 COALESCE(
                     R.MovementDate,
                     CAST(R.CreatedOn AS DATE)
@@ -1091,6 +1191,53 @@ class BaseDatos(ComandosBaseDatos):
                 0,
             )
         return filas
+
+    def obtener_detalle_historial_transformacion(
+        self,
+        relacion_id: int,
+    ) -> Optional[dict]:
+        relaciones = self.fetchall(
+            """
+            SELECT TOP 1
+                R.DocumentWarehouseRelationID AS relacion_id,
+                R.SourceDocumentID AS documento_salida_id,
+                R.DestinationDocumentID AS documento_entrada_id,
+                ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '') AS folio_salida,
+                ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '') AS folio_entrada,
+                R.CreatedOn AS fecha_hora,
+                ISNULL(U.UserName, '') AS usuario,
+                ISNULL(Empleado.OfficialName, '') AS tablajero
+            FROM dbo.docDocumentWarehouseRelation AS R
+            INNER JOIN dbo.docDocument AS S
+                ON S.DocumentID = R.SourceDocumentID
+            INNER JOIN dbo.docDocument AS E
+                ON E.DocumentID = R.DestinationDocumentID
+            LEFT JOIN dbo.engUser AS U
+                ON U.UserID = R.ERPUserID
+            OUTER APPLY
+            (
+                SELECT TOP 1 EMP.OfficialName
+                FROM dbo.zvwEmpleadosCayalMenu AS EMP
+                WHERE EMP.UserID = R.PhysicalUserID
+                ORDER BY EMP.OfficialName
+            ) AS Empleado
+            WHERE R.DocumentWarehouseRelationID = ?
+              AND S.DeletedOn IS NULL
+              AND E.DeletedOn IS NULL
+            """,
+            (int(relacion_id),),
+        )
+        if not relaciones:
+            return None
+        relacion = relaciones[0]
+
+        relacion['salida'] = self.obtener_partidas_documento_erp(
+            int(relacion['documento_salida_id'])
+        )
+        relacion['entrada'] = self.obtener_partidas_documento_erp(
+            int(relacion['documento_entrada_id'])
+        )
+        return relacion
 
     def obtener_relacion_documento(
         self,
@@ -2058,6 +2205,30 @@ class BaseDatos(ComandosBaseDatos):
             (str(linea).strip(), texto, texto),
         )
 
+    def buscar_componentes_configuracion(self, linea: str) -> list[dict]:
+        return self.fetchall(
+            """
+            SELECT TOP (500)
+                P.ProductID AS product_id,
+                P.ProductName AS producto,
+                ISNULL(P.Unit, 'KILO') AS unidad
+            FROM dbo.orgProduct AS P
+            WHERE P.DiscontinuedOn IS NULL
+              AND (
+                    UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
+                        UPPER(LTRIM(RTRIM(?)))
+                    OR EXISTS
+                    (
+                        SELECT 1
+                        FROM dbo.zvwFormulasListasPCocinar AS F
+                        WHERE F.ComponenteID = P.ProductID
+                    )
+                  )
+            ORDER BY P.ProductName
+            """,
+            (str(linea).strip(),),
+        )
+
     def buscar_formula_producto_configuracion(
         self, producto_id: int
     ) -> list[dict]:
@@ -2079,24 +2250,60 @@ class BaseDatos(ComandosBaseDatos):
 
     def crear_configuracion_transformacion(self, datos, usuario_id: int) -> int:
         self.asegurar_proveedor_transformaciones_usuario()
-        base = self.fetchall(
-            """SELECT TOP 1 ProductID, Category1
-               FROM dbo.orgProduct
-               WHERE ProductID = ? AND DiscontinuedOn IS NULL""",
-            (int(datos.producto_base_id),),
+        producto_resultante_id = self.fetchone(
+            """
+            SELECT TOP 1 ProductID
+            FROM dbo.orgProduct
+            WHERE DiscontinuedOn IS NULL
+              AND UPPER(LTRIM(RTRIM(ISNULL(Category1, '')))) =
+                  UPPER(LTRIM(RTRIM(?)))
+              AND UPPER(LTRIM(RTRIM(ProductName))) =
+                  UPPER(LTRIM(RTRIM(?)))
+            ORDER BY ProductID
+            """,
+            (datos.linea, datos.nombre),
         )
-        if not base:
-            raise ValueError('El producto base no existe o está inactivo.')
-        if str(base[0].get('Category1') or '').strip().upper() != datos.linea.strip().upper():
-            raise ValueError('El producto base no pertenece a la línea seleccionada.')
+        if not producto_resultante_id:
+            raise ValueError(
+                'El nombre de la transformación debe coincidir con un '
+                'producto existente de la línea en SSM.'
+            )
+        producto_resultante_id = int(producto_resultante_id)
 
-        formula = self.buscar_formula_producto_configuracion(
-            datos.producto_resultante_id
+        componentes_ids = [
+            int(componente.producto_id)
+            for componente in datos.componentes
+        ]
+        marcados_base = [
+            componente
+            for componente in datos.componentes
+            if componente.es_base
+        ]
+        producto_base_id = int(marcados_base[0].producto_id)
+        productos_validos = self.fetchall(
+            """
+            SELECT ProductID, ISNULL(Category1, '') AS Category1
+            FROM dbo.orgProduct
+            WHERE DiscontinuedOn IS NULL
+              AND ProductID IN (
+                  SELECT TRY_CONVERT(INT, [value]) FROM OPENJSON(?)
+              )
+            """,
+            (json.dumps(componentes_ids),),
         )
-        if not formula:
-            raise ValueError('El producto resultante no tiene fórmula en SSM.')
-        if not any(int(c['product_id']) == datos.producto_base_id for c in formula):
-            raise ValueError('El producto base no forma parte de la fórmula seleccionada.')
+        if len(productos_validos) != len(componentes_ids):
+            raise ValueError('Uno de los insumos no existe o está inactivo en SSM.')
+        producto_base = next(
+            producto for producto in productos_validos
+            if int(producto['ProductID']) == producto_base_id
+        )
+        if (
+            str(producto_base.get('Category1') or '').strip().upper()
+            != datos.linea.strip().upper()
+        ):
+            raise ValueError(
+                'El componente marcado como base no pertenece a la línea.'
+            )
         if not any(
             int(proveedor['proveedor_id']) == int(datos.proveedor_id)
             for proveedor in self.obtener_proveedores_carnicos()
@@ -2110,20 +2317,24 @@ class BaseDatos(ComandosBaseDatos):
                 AND D.activa=1
                WHERE T.activa=1 AND T.producto_origen=?
                  AND D.producto_resultante=?""",
-            (int(datos.producto_base_id), int(datos.producto_resultante_id)),
+            (producto_base_id, producto_resultante_id),
         ):
             raise ValueError('Ya existe una configuración activa para estos productos.')
 
         componentes = [
             {
-                'product_id': int(c['product_id']),
-                'cantidad': float(c['cantidad']),
-                'unidad': c.get('unidad') or 'KILO',
-                'es_base': int(c['product_id']) == datos.producto_base_id,
+                'product_id': int(componente.producto_id),
+                'cantidad': float(componente.cantidad),
+                'unidad': componente.unidad,
+                'es_base': bool(componente.es_base),
                 'orden': orden,
             }
-            for orden, c in enumerate(formula, start=1)
+            for orden, componente in enumerate(datos.componentes, start=1)
         ]
+        cantidad_resultante = round(
+            float(datos.cantidad_base) * AJUSTES_MODULO.factor_rendimiento,
+            3,
+        )
         return int(self.fetchone(
             """
             SET XACT_ABORT ON;
@@ -2157,12 +2368,12 @@ class BaseDatos(ComandosBaseDatos):
             END CATCH
             """,
             (
-                datos.nombre, int(datos.producto_base_id),
-                int(datos.producto_resultante_id), float(datos.cantidad_base),
+                datos.nombre, producto_base_id,
+                producto_resultante_id, float(datos.cantidad_base),
                 AJUSTES_MODULO.merma_tecnica_porcentaje,
                 int(datos.proveedor_id), int(usuario_id), datos.observaciones,
-                int(datos.producto_resultante_id),
-                float(datos.cantidad_resultante),
+                producto_resultante_id,
+                cantidad_resultante,
                 json.dumps(componentes, ensure_ascii=False),
             ),
         ) or 0)

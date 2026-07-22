@@ -2,6 +2,7 @@ from datetime import date
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic_extra_types import routing_number
 
 from app.settings import AJUSTES_MODULO
 
@@ -59,7 +60,6 @@ class CrearTransformacion(BaseModel):
                 f'del {AJUSTES_MODULO.merma_tecnica_porcentaje:g}%.'
             )
         return self
-
 
 class RespuestaRelacionDocumentos(BaseModel):
     mensaje: str

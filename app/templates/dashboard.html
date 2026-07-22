@@ -166,7 +166,7 @@
                         <thead><tr><th>Dato</th><th>Valor</th></tr></thead>
                         <tbody>
                             <tr><td>Tipo de movimiento</td><td>TRANSFORMACIÓN</td></tr>
-                            <tr><td>Folios relacionados</td><td id="resumen-folios-transformacion">—</td></tr>
+                            <tr><td>Documentos relacionados</td><td id="resumen-folios-transformacion">—</td></tr>
                             <tr><td>Fecha de registro</td><td id="resumen-fecha-transformacion">—</td></tr>
                             <tr><td>Usuario responsable</td><td id="resumen-usuario-transformacion">—</td></tr>
                             <tr><td>Tablajero responsable</td><td id="resumen-tablajero-transformacion">—</td></tr>
@@ -248,14 +248,15 @@
                     <p class="eyebrow">Historial</p>
                     <h2>Transformaciones realizadas</h2>
                 </div>
-                <button id="actualizar-historial" type="button" class="button-outline">Actualizar historial</button>
+                <div class="history-actions">
+                    <button id="exportar-historial" type="button" class="button-outline">Exportar a Excel</button>
+                </div>
             </header>
 
             <div class="history-table-wrap">
                 <table class="history-table">
                     <thead>
                         <tr>
-                            <th>Relación</th>
                             <th>Fecha</th>
                             <th>Responsable</th>
                             <th>Producto origen</th>
@@ -269,10 +270,7 @@
                     </thead>
                     <tbody id="filas-historial">
                         {% for registro in historial %}
-                        <tr class="history-row">
-                            <td>
-                                <strong>#{{ registro.relacion_id }}</strong>
-                            </td>
+                        <tr class="history-row" data-relacion-id="{{ registro.relacion_id }}" tabindex="0" title="Ver documentos relacionados">
                             <td>
                                 <span class="history-date">
                                     {{ registro.fecha_texto }}
@@ -325,7 +323,7 @@
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="10" class="history-empty">
+                            <td colspan="9" class="history-empty">
                                 Aún no hay transformaciones registradas.
                             </td>
                         </tr>
@@ -364,7 +362,7 @@
                 <div>
                     <p class="eyebrow">Nueva configuración</p>
                     <h3>Registrar una transformación</h3>
-                    <p>Selecciona los productos. Los insumos y la merma se completarán automáticamente.</p>
+                    <p>Captura los datos y agrega los productos que forman la transformación.</p>
                 </div>
             </div>
             <div class="configuration-essential-fields configuration-manual-fields">
@@ -379,51 +377,72 @@
                 <div class="field configuration-step-field">
                     <span class="configuration-field-number">2</span>
                     <label for="config-nombre">Nombre de la configuración</label>
-                    <input id="config-nombre" required maxlength="150" placeholder="Ej. Chuleta preparada">
-                </div>
-                <div class="field configuration-step-field">
-                    <span class="configuration-field-number">3</span>
-                    <label for="config-resultante">Producto resultante</label>
-                    <select id="config-resultante" required disabled><option value="">Selecciona la línea primero</option></select>
-                </div>
-                <div class="field configuration-step-field">
-                    <span class="configuration-field-number">4</span>
-                    <label for="config-base">Producto base</label>
-                    <select id="config-base" required disabled><option value="">Selecciona el producto resultante</option></select>
+                    <input id="config-nombre" required maxlength="150" list="config-nombres-disponibles" placeholder="Escribe el nombre del producto en SSM">
+                    <datalist id="config-nombres-disponibles"></datalist>
                 </div>
                 <div class="field configuration-step-field configuration-wide">
-                    <span class="configuration-field-number">5</span>
+                    <span class="configuration-field-number">3</span>
                     <label for="config-proveedor">Proveedor cárnico</label>
                     <select id="config-proveedor" required disabled><option value="">Consultando proveedores de SSM</option></select>
                 </div>
-                <div class="field configuration-step-field quantity-field">
-                    <span class="configuration-field-number">6</span>
-                    <label for="config-cantidad-base">Kilos de entrada</label>
-                    <div class="quantity-control"><input id="config-cantidad-base" type="number" min="0.001" max="{{ ajustes.maximo_kilos_por_transformacion }}" step="0.001" placeholder="0.000" required><span>kg</span></div>
-                </div>
-                <div class="field configuration-step-field quantity-field">
-                    <span class="configuration-field-number">7</span>
-                    <label for="config-cantidad-resultante">Kilos esperados de salida</label>
-                    <div class="quantity-control"><input id="config-cantidad-resultante" type="number" min="0.001" max="{{ ajustes.maximo_kilos_por_transformacion }}" step="0.001" placeholder="0.000" required><span>kg</span></div>
+                <div class="field configuration-step-field configuration-wide quantity-field">
+                    <span class="configuration-field-number">4</span>
+                    <label for="config-cantidad-base">Kilos a registrar</label>
+                    <div class="configuration-weight-actions">
+                        <div class="quantity-control"><input id="config-cantidad-base" type="number" min="0.001" max="{{ ajustes.maximo_kilos_por_transformacion }}" step="0.001" placeholder="0.000" required><span>kg</span></div>
+                        <button id="ir-asignar-insumos" type="button" disabled>Asignar producto base e insumos</button>
+                    </div>
                 </div>
             </div>
             <input id="config-observaciones" type="hidden" value="">
-            <div class="configuration-rule-note">
-                <strong>Referencia técnica</strong>
-                <span>La merma normal esperada es de {{ ajustes.merma_tecnica_porcentaje }}%. Captura manualmente los kilos acordados para esta configuración.</span>
-            </div>
-            <div id="config-formula" class="configuration-formula hidden">
+
+            <section id="config-formula" class="configuration-formula ingredient-builder">
                 <div class="ingredients-heading">
-                    <div><p class="eyebrow">Salida configurada</p><h3>Componentes de la fórmula</h3></div>
-                    <span>Solo lectura · obtenidos de SSM</span>
+                    <div><p class="eyebrow">Paso 5 · Ingredientes</p><h3>Asigna el producto base y sus insumos</h3></div>
+                    <span>Marca solamente uno como producto base.</span>
+                </div>
+                <div class="ingredient-entry">
+                    <div class="field">
+                        <label for="config-insumo-producto">Producto o insumo</label>
+                        <select id="config-insumo-producto" disabled>
+                            <option value="">Selecciona primero una línea</option>
+                        </select>
+                    </div>
+                    <div class="field quantity-field">
+                        <label for="config-insumo-cantidad">Cantidad</label>
+                        <div class="quantity-control">
+                            <input id="config-insumo-cantidad" type="number" min="0.001" step="0.001" placeholder="0.000">
+                            <span id="config-insumo-unidad">kg</span>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label for="config-insumo-tipo">Tipo</label>
+                        <select id="config-insumo-tipo">
+                            <option value="INSUMO">Insumo</option>
+                            <option value="BASE">Producto base</option>
+                        </select>
+                    </div>
+                    <button id="agregar-config-insumo" type="button">Agregar</button>
                 </div>
                 <div class="registration-table-wrap">
                     <table class="registration-table">
-                        <thead><tr><th>Producto o insumo</th><th>Cantidad</th><th>Unidad</th></tr></thead>
-                        <tbody id="config-componentes"></tbody>
+                        <thead>
+                            <tr>
+                                <th>Producto o insumo</th>
+                                <th>Tipo</th>
+                                <th>Cantidad</th>
+                                <th>Unidad</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="config-componentes">
+                            <tr id="config-componentes-vacio">
+                                <td colspan="5" class="empty-table-cell">Aún no agregas ingredientes.</td>
+                            </tr>
+                        </tbody>
                     </table>
                 </div>
-            </div>
+            </section>
             <div id="mensaje-configuracion" class="message" role="status" aria-live="polite"></div>
             <div class="form-actions">
                 <button id="cancelar-nueva-configuracion" type="button" class="button-outline">Cancelar</button>
@@ -440,7 +459,6 @@
                     {% for linea in lineas %}
                     <button type="button" class="configuration-line" data-linea="{{ linea.Category1 }}">
                         <strong>{{ linea.Category1 }}</strong>
-                        <span>{{ linea.total_productos }} productos base · {{ linea.total_recetas }} recetas</span>
                     </button>
                     {% else %}
                     <p>No se encontraron líneas configurables.</p>
@@ -451,12 +469,17 @@
                 <div id="catalogo-productos" class="catalog-products hidden">
                     <div class="catalog-products-heading">
                         <div><p class="eyebrow">Productos base disponibles</p><h3 id="catalogo-productos-titulo">Selecciona una línea</h3></div>
-                        <button id="cerrar-catalogo-productos" type="button" class="button-outline">Cerrar catálogo</button>
+                        <div class="catalog-products-actions">
+                            <button id="eliminar-producto-catalogo" type="button" class="button-outline button-danger">Eliminar</button>
+                            <button id="cancelar-eliminacion-catalogo" type="button" class="button-outline hidden">Cancelar</button>
+                            <button id="cerrar-catalogo-productos" type="button" class="button-outline">Cerrar catálogo</button>
+                        </div>
                     </div>
                     <div class="catalog-search">
                         <input id="buscar-producto-catalogo" type="search" placeholder="Buscar producto por nombre">
                         <span id="catalogo-productos-total"></span>
                     </div>
+                    <p id="ayuda-interaccion-catalogo" class="catalog-interaction-help">Un clic selecciona el producto; doble clic muestra sus insumos.</p>
                     <div id="lista-productos-catalogo" class="catalog-product-list"></div>
                     <nav id="paginacion-productos-catalogo" class="catalog-pagination hidden" aria-label="Páginas del catálogo">
                         <button id="catalogo-pagina-anterior" type="button" class="button-outline">Anterior</button>
@@ -573,7 +596,57 @@
             </div>
         </section>
     </div>
-    
+
+    <div id="modal-confirmar-eliminacion-producto" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-confirmar-eliminacion-producto">
+        <section class="movement-dialog confirmation-dialog catalog-delete-dialog">
+            <div class="dialog-icon delete-confirmation-icon" aria-hidden="true">!</div>
+            <p class="eyebrow">Confirmar acción</p>
+            <h2 id="titulo-confirmar-eliminacion-producto">¿Desea eliminar este producto?</h2>
+            <p>El producto dejará de mostrarse en el catálogo del módulo.</p>
+            <div class="catalog-delete-product">
+                <small>Producto seleccionado</small>
+                <strong id="nombre-producto-a-eliminar">Producto</strong>
+            </div>
+            <div class="dialog-actions">
+                <button id="cancelar-eliminacion-producto" type="button" class="button-outline">Cancelr</button>
+                <button id="confirmar-eliminacion-producto" type="button">Sí, Eliminar producto</button>
+            </div>
+        </section>
+    </div>
+
+    <div id="modal-detalle-producto" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-detalle-producto">
+        <section class="detail-dialog">
+            <header class="detail-dialog-heading">
+                <div>
+                    <p class="eyebrow">Detalle del producto</p>
+                    <h2 id="titulo-detalle-producto">Producto</h2>
+                </div>
+                <button id="cerrar-detalle-producto" type="button" class="button-outline">Cerrar</button>
+            </header>
+            <p id="mensaje-detalle-producto" class="detail-help">Ingredientes registrados en SSM.</p>
+            <div class="registration-table-wrap">
+                <table class="registration-table">
+                    <thead><tr><th>Ingrediente</th><th>Cantidad</th><th>Unidad</th></tr></thead>
+                    <tbody id="detalle-producto-componentes"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <div id="modal-detalle-historial" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-detalle-historial">
+        <section class="detail-dialog history-detail-dialog">
+            <header class="detail-dialog-heading">
+                <div>
+                    <p class="eyebrow">Documentos relacionados</p>
+                    <h2 id="titulo-detalle-historial">Detalle de la transformación</h2>
+                </div>
+                <button id="cerrar-detalle-historial" type="button" class="button-outline">Cerrar</button>
+            </header>
+            <div id="detalle-historial-contenido" class="history-detail-content">
+                <p class="catalog-loading">Consultando documentos en SSM...</p>
+            </div>
+        </section>
+    </div>
 
     <script src="/static/js/app.js?v={{ asset_version }}"></script>
 </body>

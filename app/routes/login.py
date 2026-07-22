@@ -148,7 +148,7 @@ def iniciar_sesion(
             detail="Usuario o contraseña incorrectos",
         )
 
-    if not PERMISOS_MODULO.permite(
+    if not PERMISOS_MODULO.grupo_tiene_permiso(
         int(sesion.get("user_group_id") or 0),
         "acceso_modulo",
     ):

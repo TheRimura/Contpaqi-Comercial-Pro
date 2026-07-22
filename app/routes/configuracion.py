@@ -44,6 +44,18 @@ def productos_resultantes(
     )
 
 
+@router.get('/componentes')
+def componentes_configuracion(
+    request: Request,
+    linea: str = Query(min_length=1, max_length=100),
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    seguridad_sesion.requerir_permiso(request, 'ver_configuracion')
+    return jsonable_encoder(
+        base_datos.buscar_componentes_configuracion(linea)
+    )
+
+
 @router.get('/formula/{producto_id}')
 def formula_producto(
     producto_id: int,

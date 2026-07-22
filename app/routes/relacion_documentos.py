@@ -225,6 +225,24 @@ def consultar_folios_transformacion(
     )
 
 
+@router.get('/historial/{relacion_id}')
+def consultar_detalle_historial(
+    relacion_id: int,
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    seguridad_sesion.requerir_permiso(request, 'ver_historial')
+    detalle = base_datos.obtener_detalle_historial_transformacion(
+        relacion_id
+    )
+    if not detalle:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='La relación seleccionada ya no está disponible en SSM.',
+        )
+    return jsonable_encoder(detalle)
+
+
 @router.get('/transformacion/proveedores-productos')
 def consultar_proveedores_productos(
     request: Request,

@@ -93,7 +93,10 @@ class SeguridadSesion:
             grupo = int(sesion.get("user_group_id") or 0)
         except (TypeError, ValueError):
             return None
-        if not PERMISOS_MODULO.permite(grupo, "acceso_modulo"):
+        if not PERMISOS_MODULO.grupo_tiene_permiso(
+            grupo,
+            "acceso_modulo",
+        ):
             return None
         return sesion
 
@@ -103,7 +106,7 @@ class SeguridadSesion:
             grupo = int((sesion or {}).get("user_group_id") or 0)
         except (TypeError, ValueError):
             return False
-        return PERMISOS_MODULO.permite(grupo, permiso)
+        return PERMISOS_MODULO.grupo_tiene_permiso(grupo, permiso)
 
     def permisos_publicos(self, sesion: dict) -> dict:
         return {
