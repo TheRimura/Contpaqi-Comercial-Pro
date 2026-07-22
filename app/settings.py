@@ -7,7 +7,7 @@ class AjustesModulo:
     merma_tecnica_porcentaje: float = 8.0
     transformaciones_por_pagina: int = 12
     productos_por_pagina: int = 12
-    maximo_kilos_por_transformacion: float = 10_000.0
+    maximo_kilos_por_transformacion: float = 3_000.0
 
     def validar_ajustes_operativos(self) -> None:
         if not 0 <= self.merma_tecnica_porcentaje < 100:
