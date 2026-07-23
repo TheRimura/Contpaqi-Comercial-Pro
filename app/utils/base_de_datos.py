@@ -4,6 +4,8 @@ import re
 import secrets
 import unicodedata
 
+import pyodbc
+
 from functools import cache
 from platform import node
 from typing import Optional
@@ -30,6 +32,24 @@ class BaseDatos(ComandosBaseDatos):
     def __init__(self):
         super().__init__(servidor=node())
         self.base_de_datos = None
+
+    def fetchone(self, sql, params=()):
+        """Devuelve el primer valor aunque el lote tenga resultados intermedios."""
+        cadena_conexion = next(
+            valor
+            for atributo, valor in vars(self).items()
+            if atributo.endswith('__conexion_base_de_datos')
+        )
+        with pyodbc.connect(cadena_conexion) as conexion:
+            cursor = conexion.cursor()
+            cursor.execute(sql, params)
+            while True:
+                if cursor.description is not None:
+                    resultado = cursor.fetchone()
+                    if resultado is not None:
+                        return resultado[0]
+                if not cursor.nextset():
+                    return None
 
     # ----------------------------- SISTEMA -----------------------------
     def probar_conexion(self) -> bool:
@@ -2392,16 +2412,36 @@ class BaseDatos(ComandosBaseDatos):
         self.asegurar_proveedor_transformaciones_usuario()
         producto_resultante_id = self.fetchone(
             """
-            SELECT TOP 1 ProductID
-            FROM dbo.orgProduct
-            WHERE DiscontinuedOn IS NULL
-              AND UPPER(LTRIM(RTRIM(ISNULL(Category1, '')))) =
-                  UPPER(LTRIM(RTRIM(?)))
-              AND UPPER(LTRIM(RTRIM(ProductName))) =
-                  UPPER(LTRIM(RTRIM(?)))
-            ORDER BY ProductID
+            SELECT TOP 1 Candidato.ProductID
+            FROM
+            (
+                SELECT F.ProductID, 0 AS prioridad
+                FROM dbo.zvwFormulasListasPCocinar AS F
+                INNER JOIN dbo.orgProduct AS Componente
+                    ON Componente.ProductID = F.ComponenteID
+                   AND Componente.DiscontinuedOn IS NULL
+                INNER JOIN dbo.orgProduct AS Resultado
+                    ON Resultado.ProductID = F.ProductID
+                   AND Resultado.DiscontinuedOn IS NULL
+                WHERE UPPER(LTRIM(RTRIM(ISNULL(Componente.Category1, '')))) =
+                      UPPER(LTRIM(RTRIM(?)))
+                  AND UPPER(LTRIM(RTRIM(F.Producto))) =
+                      UPPER(LTRIM(RTRIM(?)))
+                GROUP BY F.ProductID
+
+                UNION ALL
+
+                SELECT ProductID, 1 AS prioridad
+                FROM dbo.orgProduct
+                WHERE DiscontinuedOn IS NULL
+                  AND UPPER(LTRIM(RTRIM(ISNULL(Category1, '')))) =
+                      UPPER(LTRIM(RTRIM(?)))
+                  AND UPPER(LTRIM(RTRIM(ProductName))) =
+                      UPPER(LTRIM(RTRIM(?)))
+            ) AS Candidato
+            ORDER BY Candidato.prioridad, Candidato.ProductID
             """,
-            (datos.linea, datos.nombre),
+            (datos.linea, datos.nombre, datos.linea, datos.nombre),
         )
         if not producto_resultante_id:
             raise ValueError(

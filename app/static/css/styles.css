@@ -375,6 +375,7 @@ tbody tr:hover { background: #fff8f8; }
 .configuration-formula { margin-top: 18px; padding-top: 17px; border-top: 1px solid var(--line-soft); }
 .ingredient-builder { display: grid; gap: 13px; }
 .ingredient-entry { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(150px, .35fr) minmax(150px, .35fr) auto; gap: 10px; align-items: end; padding: 13px; border: 1px solid var(--line-soft); border-radius: 11px; background: #f8fafc; }
+.ingredient-entry:has(#campo-config-insumo-producto.hidden) { grid-template-columns: minmax(260px, 1fr) minmax(150px, .35fr) auto; }
 .ingredient-entry button { min-width: 100px; }
 .empty-table-cell { color: var(--muted); text-align: center !important; }
 .configuration-catalog, .configuration-board { padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: #fff; box-shadow: 0 10px 26px rgba(18,27,45,.06); }

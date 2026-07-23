@@ -34,7 +34,6 @@ def productos_resultantes(
         base_datos.buscar_productos_resultantes_configuracion(linea, termino)
     )
 
-
 @router.get('/base-sugerida')
 def base_sugerida(
     request: Request,

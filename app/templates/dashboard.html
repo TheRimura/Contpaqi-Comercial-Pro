@@ -392,7 +392,7 @@
                             <label for="config-merma">Merma esperada</label>
                             <div class="quantity-control"><input id="config-merma" type="number" min="0" max="99.999" step="0.001" value="{{ ajustes.merma_tecnica_porcentaje }}" required><span>%</span></div>
                         </div>
-                        <button id="ir-asignar-insumos" type="button" aria-controls="config-formula" aria-expanded="false">Asignar producto base e insumos</button>
+                        <button id="ir-asignar-insumos" type="button" aria-controls="config-formula" aria-expanded="false">Agregar insumos</button>
                     </div>
                 </div>
             </div>
@@ -400,11 +400,11 @@
 
             <section id="config-formula" class="configuration-formula ingredient-builder hidden">
                 <div class="ingredients-heading">
-                    <div><p class="eyebrow">Paso 4 · Productos e ingredientes</p><h3>Agrega todos los productos e insumos necesarios</h3></div>
-                    <span>Puedes agregar varios; marca solamente uno como producto base.</span>
+                    <div><p class="eyebrow">Paso 4 · Insumos</p><h3>Agrega los insumos adicionales</h3></div>
+                    <span>El producto base se relaciona automáticamente.</span>
                 </div>
                 <div class="ingredient-entry">
-                    <div class="field">
+                    <div id="campo-config-insumo-producto" class="field hidden">
                         <label for="config-insumo-producto">Producto o insumo</label>
                         <select id="config-insumo-producto" disabled>
                             <option value="">Selecciona primero una línea</option>
@@ -424,7 +424,7 @@
                             <option value="BASE">Producto base</option>
                         </select>
                     </div>
-                    <button id="agregar-config-insumo" type="button">Agregar a la lista</button>
+                    <button id="agregar-config-insumo" type="button">Agregar insumo</button>
                 </div>
                 <div class="registration-table-wrap">
                     <table class="registration-table">

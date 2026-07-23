@@ -1,7 +1,6 @@
 const API_RELACIONES = "/api/relaciones-documentos";
 const AJUSTES_INTERFAZ = document.body?.dataset || {};
 const MERMA_TECNICA_PORCENTAJE = Number(AJUSTES_INTERFAZ.mermaTecnica || 8);
-const FACTOR_RENDIMIENTO = 1 - (MERMA_TECNICA_PORCENTAJE / 100);
 let catalogos = { movimientos: [], proveedores: [], usuarios_fisicos: [] };
 let documentos = { salida: [], entrada: [] };
 let partidasEntrada = [];
@@ -280,17 +279,18 @@ async function cargarProductosConfiguracion() {
     const botonAsignar = document.getElementById("ir-asignar-insumos");
     cancelarCargaComponentesConfiguracion();
     cerrarAsignacionInsumosConfiguracion();
+    document.getElementById("campo-config-insumo-producto").classList.add("hidden");
     componentesConfiguracion = [];
     productosConfiguracionDisponibles = [];
     renderizarComponentesConfiguracion();
     if (!linea) {
         llenarConfigSelect(selector, [], "Selecciona primero una línea");
-        botonAsignar.textContent = "Asignar producto base e insumos";
+        botonAsignar.textContent = "Agregar insumos";
         document.getElementById("config-nombres-disponibles").replaceChildren();
         return;
     }
     try {
-        botonAsignar.textContent = "Asignar producto base e insumos";
+        botonAsignar.textContent = "Agregar insumos";
         llenarConfigSelect(selector, [], "Abre la asignación para consultar productos");
         const resultantes = await solicitarJson(
             `${API_CONFIGURACION}/productos-resultantes?linea=${encodeURIComponent(linea)}`
@@ -355,7 +355,7 @@ async function cargarComponentesParaAsignacion() {
             controladorCargaComponentesConfiguracion = null;
         }
         boton.classList.remove("active");
-        boton.textContent = "Asignar producto base e insumos";
+        boton.textContent = "Agregar insumos";
     }
 }
 
@@ -363,19 +363,19 @@ async function agregarBaseSugeridaConfiguracion() {
     const linea = document.getElementById("config-linea").value;
     const nombre = document.getElementById("config-nombre").value.trim();
     if (!linea || nombre.length < 3 || !productosConfiguracionDisponibles.length) {
-        return;
+        return false;
     }
     try {
         const sugerencia = await solicitarJson(
             `${API_CONFIGURACION}/base-sugerida?linea=${encodeURIComponent(linea)}&nombre=${encodeURIComponent(nombre)}`
         );
-        if (!sugerencia?.producto_base_id) return;
+        if (!sugerencia?.producto_base_id) return false;
 
         const baseExistente = componentesConfiguracion.find(
             (componente) => componente.es_base
         );
         if (baseExistente) {
-            if (!baseExistente.es_sugerido) return;
+            if (!baseExistente.es_sugerido) return true;
             if (
                 Number(baseExistente.producto_id) ===
                 Number(sugerencia.producto_base_id)
@@ -384,7 +384,7 @@ async function agregarBaseSugeridaConfiguracion() {
                     Number(document.getElementById("config-cantidad-base").value) ||
                     baseExistente.cantidad;
                 renderizarComponentesConfiguracion();
-                return;
+                return true;
             }
             componentesConfiguracion = componentesConfiguracion.filter(
                 (componente) => componente !== baseExistente
@@ -395,7 +395,7 @@ async function agregarBaseSugeridaConfiguracion() {
             (registro) =>
                 Number(registro.product_id) === Number(sugerencia.producto_base_id)
         );
-        if (!producto) return;
+        if (!producto) return false;
 
         componentesConfiguracion.push({
             producto_id: Number(producto.product_id),
@@ -406,12 +406,11 @@ async function agregarBaseSugeridaConfiguracion() {
             es_sugerido: true,
         });
         renderizarComponentesConfiguracion();
-        mensajeConfiguracion(
-            `Producto base relacionado automáticamente: ${limpiarNombreProducto(producto.producto)}.`,
-            "success"
-        );
+        limpiarMensajeConfiguracion();
+        return true;
     } catch (error) {
         console.error("No fue posible sugerir el producto base.", error);
+        return false;
     }
 }
 
@@ -421,7 +420,7 @@ function cancelarCargaComponentesConfiguracion() {
     const boton = document.getElementById("ir-asignar-insumos");
     if (boton) {
         boton.classList.remove("active");
-        boton.textContent = "Asignar producto base e insumos";
+        boton.textContent = "Agregar insumos";
     }
 }
 
@@ -431,7 +430,7 @@ function cerrarAsignacionInsumosConfiguracion() {
     if (!seccion || !boton) return;
     seccion.classList.add("hidden");
     boton.classList.remove("active");
-    boton.textContent = "Asignar producto base e insumos";
+    boton.textContent = "Agregar insumos";
     boton.setAttribute("aria-expanded", "false");
 }
 
@@ -452,10 +451,19 @@ async function alternarAsignacionInsumosConfiguracion() {
         return;
     }
     if (!(await cargarComponentesParaAsignacion())) return;
-    await agregarBaseSugeridaConfiguracion();
+    const baseRelacionada = await agregarBaseSugeridaConfiguracion();
+    document.getElementById("campo-config-insumo-producto").classList.remove("hidden");
+    if (baseRelacionada) {
+        document.getElementById("config-insumo-tipo").value = "INSUMO";
+    }
+    if (!baseRelacionada) {
+        mensajeConfiguracion(
+            "No se encontró el producto base. Selecciónalo y cambia el tipo a Producto base."
+        );
+    }
     seccion.classList.remove("hidden");
     boton.classList.add("active");
-    boton.textContent = "Cerrar asignación";
+    boton.textContent = "Ocultar insumos";
     boton.setAttribute("aria-expanded", "true");
     seccion.scrollIntoView({ behavior: "smooth", block: "start" });
     window.setTimeout(() => selector.focus(), 350);
@@ -553,6 +561,7 @@ function cerrarNuevaConfiguracion() {
     productosConfiguracionDisponibles = [];
     llenarConfigSelect(document.getElementById("config-insumo-producto"), [], "Selecciona primero una línea");
     cerrarAsignacionInsumosConfiguracion();
+    document.getElementById("campo-config-insumo-producto").classList.add("hidden");
     renderizarComponentesConfiguracion();
     limpiarMensajeConfiguracion();
     formulario.classList.add("hidden");
@@ -607,9 +616,13 @@ function iniciarPaginaConfiguracion() {
         document.getElementById("boton-nueva-configuracion").addEventListener("click", abrirNuevaConfiguracion);
         document.getElementById("cancelar-nueva-configuracion").addEventListener("click", cerrarNuevaConfiguracion);
         document.getElementById("config-linea").addEventListener("change", cargarProductosConfiguracion);
-        document.getElementById("config-nombre").addEventListener("change", () => {
+        document.getElementById("config-nombre").addEventListener("change", async () => {
             if (!document.getElementById("config-formula").classList.contains("hidden")) {
-                agregarBaseSugeridaConfiguracion();
+                const baseRelacionada = await agregarBaseSugeridaConfiguracion();
+                document.getElementById("campo-config-insumo-producto").classList.remove("hidden");
+                if (baseRelacionada) {
+                    document.getElementById("config-insumo-tipo").value = "INSUMO";
+                }
             }
         });
         document.getElementById("config-cantidad-base").addEventListener("input", (evento) => {
