@@ -18,7 +18,6 @@ class ComponenteConfiguracionTransformacion(BaseModel):
 class CrearConfiguracionTransformacion(BaseModel):
     nombre: str = Field(min_length=3, max_length=150)
     linea: str = Field(min_length=1, max_length=100)
-    proveedor_id: int = Field(gt=0)
     cantidad_base: float = Field(
         gt=0, le=AJUSTES_MODULO.maximo_kilos_por_transformacion
     )

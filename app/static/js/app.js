@@ -24,6 +24,7 @@ let temporizadorCatalogo = null;
 let productosCatalogoActual = [];
 let productoCatalogoSeleccionadoId = 0;
 let modoEliminacionCatalogo = false;
+let controladorCargaComponentesConfiguracion = null;
 let paginaCatalogoActual = 1;
 const PRODUCTOS_POR_PAGINA = Number(AJUSTES_INTERFAZ.productosPorPagina || 12);
 const HISTORIAL_POR_PAGINA = 10;
@@ -101,27 +102,6 @@ function limpiarMensajeConfiguracion() {
     const mensaje = document.getElementById("mensaje-configuracion");
     mensaje.textContent = "";
     mensaje.className = "message";
-}
-
-async function cargarProveedoresConfiguracion() {
-    const selector = document.getElementById("config-proveedor");
-    selector.disabled = true;
-    try {
-        const proveedores = await solicitarJson(`${API_CONFIGURACION}/proveedores-carnicos`);
-        llenarSelect(
-            "config-proveedor",
-            proveedores,
-            "proveedor_id",
-            "proveedor",
-            "Selecciona un proveedor cárnico"
-        );
-        selector.disabled = proveedores.length === 0;
-        if (!proveedores.length) {
-            mensajeConfiguracion("SSM no tiene proveedores relacionados con productos cárnicos.");
-        }
-    } catch (error) {
-        mensajeConfiguracion(error.message);
-    }
 }
 
 function renderizarPaginaCatalogo() {
@@ -298,21 +278,23 @@ async function cargarProductosConfiguracion() {
     const linea = document.getElementById("config-linea").value;
     const selector = document.getElementById("config-insumo-producto");
     const botonAsignar = document.getElementById("ir-asignar-insumos");
+    cancelarCargaComponentesConfiguracion();
+    cerrarAsignacionInsumosConfiguracion();
     componentesConfiguracion = [];
     productosConfiguracionDisponibles = [];
     renderizarComponentesConfiguracion();
     if (!linea) {
         llenarConfigSelect(selector, [], "Selecciona primero una línea");
-        botonAsignar.disabled = true;
+        botonAsignar.textContent = "Asignar producto base e insumos";
         document.getElementById("config-nombres-disponibles").replaceChildren();
         return;
     }
     try {
-        const [componentes, resultantes] = await Promise.all([
-            solicitarJson(`${API_CONFIGURACION}/componentes?linea=${encodeURIComponent(linea)}`),
-            solicitarJson(`${API_CONFIGURACION}/productos-resultantes?linea=${encodeURIComponent(linea)}`),
-        ]);
-        productosConfiguracionDisponibles = componentes;
+        botonAsignar.textContent = "Asignar producto base e insumos";
+        llenarConfigSelect(selector, [], "Abre la asignación para consultar productos");
+        const resultantes = await solicitarJson(
+            `${API_CONFIGURACION}/productos-resultantes?linea=${encodeURIComponent(linea)}`
+        );
         const nombres = document.getElementById("config-nombres-disponibles");
         nombres.replaceChildren();
         resultantes.forEach((producto) => {
@@ -320,19 +302,161 @@ async function cargarProductosConfiguracion() {
             opcion.value = producto.producto;
             nombres.appendChild(opcion);
         });
-        llenarConfigSelect(selector, productosConfiguracionDisponibles, "Selecciona un producto o insumo");
-        botonAsignar.disabled = productosConfiguracionDisponibles.length === 0;
-        if (!productosConfiguracionDisponibles.length) mensajeConfiguracion("Esta línea no tiene productos disponibles en SSM.");
-        else limpiarMensajeConfiguracion();
+        limpiarMensajeConfiguracion();
     } catch (error) {
-        botonAsignar.disabled = true;
         mensajeConfiguracion(error.message);
     }
 }
 
-function irAAsignarInsumosConfiguracion() {
-    const seccion = document.getElementById("config-formula");
+async function cargarComponentesParaAsignacion() {
+    const linea = document.getElementById("config-linea").value;
     const selector = document.getElementById("config-insumo-producto");
+    const boton = document.getElementById("ir-asignar-insumos");
+    if (!linea) {
+        mensajeConfiguracion("Selecciona primero una línea cárnica.");
+        return false;
+    }
+    if (productosConfiguracionDisponibles.length) return true;
+
+    controladorCargaComponentesConfiguracion?.abort();
+    const controlador = new AbortController();
+    controladorCargaComponentesConfiguracion = controlador;
+    const temporizador = window.setTimeout(() => controlador.abort(), 12000);
+    boton.classList.add("active");
+    boton.textContent = "Cancelar carga de insumos";
+    try {
+        productosConfiguracionDisponibles = await solicitarJson(
+            `${API_CONFIGURACION}/componentes?linea=${encodeURIComponent(linea)}`,
+            { signal: controlador.signal }
+        );
+        llenarConfigSelect(
+            selector,
+            productosConfiguracionDisponibles,
+            "Selecciona un producto o insumo"
+        );
+        if (!productosConfiguracionDisponibles.length) {
+            mensajeConfiguracion("Esta línea no tiene productos disponibles en SSM.");
+            return false;
+        }
+        limpiarMensajeConfiguracion();
+        return true;
+    } catch (error) {
+        productosConfiguracionDisponibles = [];
+        llenarConfigSelect(selector, [], "No se pudieron cargar los productos");
+        mensajeConfiguracion(
+            error.name === "AbortError"
+                ? "La consulta de productos tardó demasiado. Presiona nuevamente para reintentar."
+                : error.message
+        );
+        return false;
+    } finally {
+        window.clearTimeout(temporizador);
+        if (controladorCargaComponentesConfiguracion === controlador) {
+            controladorCargaComponentesConfiguracion = null;
+        }
+        boton.classList.remove("active");
+        boton.textContent = "Asignar producto base e insumos";
+    }
+}
+
+async function agregarBaseSugeridaConfiguracion() {
+    const linea = document.getElementById("config-linea").value;
+    const nombre = document.getElementById("config-nombre").value.trim();
+    if (!linea || nombre.length < 3 || !productosConfiguracionDisponibles.length) {
+        return;
+    }
+    try {
+        const sugerencia = await solicitarJson(
+            `${API_CONFIGURACION}/base-sugerida?linea=${encodeURIComponent(linea)}&nombre=${encodeURIComponent(nombre)}`
+        );
+        if (!sugerencia?.producto_base_id) return;
+
+        const baseExistente = componentesConfiguracion.find(
+            (componente) => componente.es_base
+        );
+        if (baseExistente) {
+            if (!baseExistente.es_sugerido) return;
+            if (
+                Number(baseExistente.producto_id) ===
+                Number(sugerencia.producto_base_id)
+            ) {
+                baseExistente.cantidad =
+                    Number(document.getElementById("config-cantidad-base").value) ||
+                    baseExistente.cantidad;
+                renderizarComponentesConfiguracion();
+                return;
+            }
+            componentesConfiguracion = componentesConfiguracion.filter(
+                (componente) => componente !== baseExistente
+            );
+        }
+
+        const producto = productosConfiguracionDisponibles.find(
+            (registro) =>
+                Number(registro.product_id) === Number(sugerencia.producto_base_id)
+        );
+        if (!producto) return;
+
+        componentesConfiguracion.push({
+            producto_id: Number(producto.product_id),
+            producto: limpiarNombreProducto(producto.producto),
+            cantidad: Number(document.getElementById("config-cantidad-base").value) || 1,
+            unidad: producto.unidad || sugerencia.unidad || "KILO",
+            es_base: true,
+            es_sugerido: true,
+        });
+        renderizarComponentesConfiguracion();
+        mensajeConfiguracion(
+            `Producto base relacionado automáticamente: ${limpiarNombreProducto(producto.producto)}.`,
+            "success"
+        );
+    } catch (error) {
+        console.error("No fue posible sugerir el producto base.", error);
+    }
+}
+
+function cancelarCargaComponentesConfiguracion() {
+    controladorCargaComponentesConfiguracion?.abort();
+    controladorCargaComponentesConfiguracion = null;
+    const boton = document.getElementById("ir-asignar-insumos");
+    if (boton) {
+        boton.classList.remove("active");
+        boton.textContent = "Asignar producto base e insumos";
+    }
+}
+
+function cerrarAsignacionInsumosConfiguracion() {
+    const seccion = document.getElementById("config-formula");
+    const boton = document.getElementById("ir-asignar-insumos");
+    if (!seccion || !boton) return;
+    seccion.classList.add("hidden");
+    boton.classList.remove("active");
+    boton.textContent = "Asignar producto base e insumos";
+    boton.setAttribute("aria-expanded", "false");
+}
+
+async function alternarAsignacionInsumosConfiguracion() {
+    const seccion = document.getElementById("config-formula");
+    const boton = document.getElementById("ir-asignar-insumos");
+    const selector = document.getElementById("config-insumo-producto");
+    if (controladorCargaComponentesConfiguracion) {
+        cancelarCargaComponentesConfiguracion();
+        productosConfiguracionDisponibles = [];
+        llenarConfigSelect(selector, [], "Carga de productos cancelada");
+        limpiarMensajeConfiguracion();
+        return;
+    }
+    if (!seccion.classList.contains("hidden")) {
+        cerrarAsignacionInsumosConfiguracion();
+        boton.focus();
+        return;
+    }
+    if (!(await cargarComponentesParaAsignacion())) return;
+    await agregarBaseSugeridaConfiguracion();
+    seccion.classList.remove("hidden");
+    boton.classList.add("active");
+    boton.textContent = "Cerrar asignación";
+    boton.setAttribute("aria-expanded", "true");
     seccion.scrollIntoView({ behavior: "smooth", block: "start" });
     window.setTimeout(() => selector.focus(), 350);
 }
@@ -422,12 +546,13 @@ function abrirNuevaConfiguracion() {
 }
 
 function cerrarNuevaConfiguracion() {
+    cancelarCargaComponentesConfiguracion();
     const formulario = document.getElementById("form-nueva-configuracion");
     formulario.reset();
     componentesConfiguracion = [];
     productosConfiguracionDisponibles = [];
     llenarConfigSelect(document.getElementById("config-insumo-producto"), [], "Selecciona primero una línea");
-    document.getElementById("ir-asignar-insumos").disabled = true;
+    cerrarAsignacionInsumosConfiguracion();
     renderizarComponentesConfiguracion();
     limpiarMensajeConfiguracion();
     formulario.classList.add("hidden");
@@ -456,7 +581,6 @@ async function guardarNuevaConfiguracion(evento) {
             body: JSON.stringify({
                 nombre: document.getElementById("config-nombre").value.trim(),
                 linea: document.getElementById("config-linea").value,
-                proveedor_id: Number(document.getElementById("config-proveedor").value),
                 cantidad_base: Number(document.getElementById("config-cantidad-base").value),
                 porcentaje_merma: Number(document.getElementById("config-merma").value),
                 componentes: componentesConfiguracion.map((componente) => ({
@@ -480,13 +604,26 @@ async function guardarNuevaConfiguracion(evento) {
 function iniciarPaginaConfiguracion() {
     const formulario = document.getElementById("form-nueva-configuracion");
     if (formulario) {
-        cargarProveedoresConfiguracion();
         document.getElementById("boton-nueva-configuracion").addEventListener("click", abrirNuevaConfiguracion);
         document.getElementById("cancelar-nueva-configuracion").addEventListener("click", cerrarNuevaConfiguracion);
         document.getElementById("config-linea").addEventListener("change", cargarProductosConfiguracion);
+        document.getElementById("config-nombre").addEventListener("change", () => {
+            if (!document.getElementById("config-formula").classList.contains("hidden")) {
+                agregarBaseSugeridaConfiguracion();
+            }
+        });
+        document.getElementById("config-cantidad-base").addEventListener("input", (evento) => {
+            const baseSugerida = componentesConfiguracion.find(
+                (componente) => componente.es_base && componente.es_sugerido
+            );
+            if (baseSugerida && Number(evento.target.value) > 0) {
+                baseSugerida.cantidad = Number(evento.target.value);
+                renderizarComponentesConfiguracion();
+            }
+        });
         document.getElementById("ir-asignar-insumos").addEventListener(
             "click",
-            irAAsignarInsumosConfiguracion
+            alternarAsignacionInsumosConfiguracion
         );
         document.getElementById("config-insumo-producto").addEventListener("change", (evento) => {
             const producto = productosConfiguracionDisponibles.find(
@@ -1521,10 +1658,14 @@ async function guardarRelacion(evento) {
     }
 }
 
-async function iniciarSesion() {
+async function iniciarSesion(evento) {
+    evento?.preventDefault();
+    const formulario = document.getElementById("loginForm");
+    if (!formulario?.reportValidity()) return;
     const boton = document.getElementById("loginButton");
     const error = document.getElementById("loginError");
     boton.disabled = true;
+    boton.textContent = "Entrando...";
     error.textContent = "";
     try {
         await solicitarJson("/login/", {
@@ -1539,7 +1680,15 @@ async function iniciarSesion() {
         error.textContent = e.message;
     } finally {
         boton.disabled = false;
+        boton.textContent = "Entrar";
     }
+}
+
+function iniciarPaginaLogin() {
+    document.getElementById("loginForm")?.addEventListener(
+        "submit",
+        iniciarSesion
+    );
 }
 
 function mostrarVistaModulo(vista) {
@@ -1586,7 +1735,10 @@ async function cerrarSesion() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    if (document.getElementById("loginPage")) return;
+    if (document.getElementById("loginPage")) {
+        iniciarPaginaLogin();
+        return;
+    }
     if (document.getElementById("vista-configuracion")) iniciarPaginaConfiguracion();
     renderizarPaginaHistorial();
     document.getElementById("nav-inicio")?.addEventListener("click", () => mostrarVistaModulo("inicio"));

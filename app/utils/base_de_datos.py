@@ -2135,29 +2135,6 @@ class BaseDatos(ComandosBaseDatos):
             (),
         )
 
-    def obtener_proveedores_carnicos(self) -> list[dict]:
-        return self.fetchall(
-            """
-            SELECT DISTINCT
-                S.SupplierID AS proveedor_id,
-                LTRIM(RTRIM(E.OfficialName)) AS proveedor
-            FROM dbo.orgProductSupplier AS PS
-            INNER JOIN dbo.orgProduct AS P
-                ON P.ProductID = PS.ProductID
-               AND P.DiscontinuedOn IS NULL
-            INNER JOIN dbo.orgSupplier AS S
-                ON S.SupplierID = PS.SupplierID
-               AND S.DeletedOn IS NULL
-            INNER JOIN dbo.orgBusinessEntity AS E
-                ON E.BusinessEntityID = S.BusinessEntityID
-            WHERE UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
-                  IN ('CERDO', 'POLLO', 'RES LOCAL')
-              AND NULLIF(LTRIM(RTRIM(E.OfficialName)), '') IS NOT NULL
-            ORDER BY proveedor
-            """,
-            (),
-        )
-
     def buscar_productos_base_configuracion(
         self, linea: str, termino: str = ''
     ) -> list[dict]:
@@ -2201,6 +2178,172 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (str(linea).strip(), texto, texto),
         )
+
+    def buscar_base_sugerida_configuracion(
+        self, linea: str, nombre_transformacion: str
+    ) -> Optional[dict]:
+        nombre = str(nombre_transformacion or '').strip()
+        if len(nombre) < 3:
+            return None
+        filas = self.fetchall(
+            """
+            SELECT TOP 1
+                Resultado.ProductID AS producto_resultante_id,
+                Resultado.ProductName AS producto_resultante,
+                Base.ProductID AS producto_base_id,
+                Base.ProductName AS producto_base,
+                ISNULL(Base.Unit, 'KILO') AS unidad
+            FROM dbo.orgProduct AS Resultado
+            CROSS APPLY
+            (
+                SELECT TOP 1
+                    ProductoBase.ProductID,
+                    ProductoBase.ProductName,
+                    ProductoBase.Unit
+                FROM dbo.orgProduct AS ProductoBase
+                WHERE ProductoBase.DiscontinuedOn IS NULL
+                  AND ProductoBase.ProductID <> Resultado.ProductID
+                  AND UPPER(LTRIM(RTRIM(ISNULL(ProductoBase.Category1, '')))) =
+                      UPPER(LTRIM(RTRIM(ISNULL(Resultado.Category1, ''))))
+                  AND (
+                        UPPER(LTRIM(RTRIM(ProductoBase.ProductName))) =
+                            UPPER(LTRIM(RTRIM(Resultado.Category2)))
+                        OR UPPER(LTRIM(RTRIM(ISNULL(ProductoBase.Category2, '')))) =
+                            UPPER(LTRIM(RTRIM(Resultado.Category2)))
+                      )
+                ORDER BY
+                    CASE WHEN UPPER(LTRIM(RTRIM(ProductoBase.ProductName))) =
+                                   UPPER(LTRIM(RTRIM(Resultado.Category2)))
+                         THEN 0 ELSE 1 END,
+                    ProductoBase.ProductID
+            ) AS Base
+            WHERE Resultado.DiscontinuedOn IS NULL
+              AND UPPER(LTRIM(RTRIM(ISNULL(Resultado.Category1, '')))) =
+                  UPPER(LTRIM(RTRIM(?)))
+              AND NULLIF(LTRIM(RTRIM(Resultado.Category2)), '') IS NOT NULL
+              AND Resultado.ProductName LIKE '%' + ? + '%'
+            ORDER BY
+                CASE WHEN UPPER(LTRIM(RTRIM(Resultado.ProductName))) =
+                           UPPER(LTRIM(RTRIM(?)))
+                     THEN 0
+                     WHEN UPPER(Resultado.ProductName) LIKE UPPER(?) + '%'
+                     THEN 1 ELSE 2 END,
+                Resultado.ProductName
+            """,
+            (str(linea).strip(), nombre, nombre, nombre),
+        )
+        if filas:
+            return filas[0]
+
+        palabras_buscadas = self._palabras_clave_producto(nombre)
+        candidatos = self.fetchall(
+            """
+            SELECT
+                ProductID,
+                ProductName,
+                Category2,
+                ISNULL(Unit, 'KILO') AS unidad
+            FROM dbo.orgProduct
+            WHERE DiscontinuedOn IS NULL
+              AND UPPER(LTRIM(RTRIM(ISNULL(Category1, '')))) =
+                  UPPER(LTRIM(RTRIM(?)))
+              AND NULLIF(LTRIM(RTRIM(Category2)), '') IS NOT NULL
+            """,
+            (str(linea).strip(),),
+        )
+        resultados_probables = []
+        for candidato in candidatos:
+            palabras_producto = self._palabras_clave_producto(
+                candidato.get('ProductName')
+            )
+            comunes = palabras_buscadas & palabras_producto
+            cobertura = (
+                len(comunes) / len(palabras_buscadas)
+                if palabras_buscadas else 0
+            )
+            if comunes and cobertura >= 0.60:
+                resultados_probables.append((
+                    cobertura,
+                    len(comunes),
+                    -len(palabras_producto - palabras_buscadas),
+                    -int(candidato['ProductID']),
+                    candidato,
+                ))
+        if resultados_probables:
+            resultados_probables.sort(
+                key=lambda coincidencia: coincidencia[:4],
+                reverse=True,
+            )
+            resultado = resultados_probables[0][4]
+            producto_formula_id = self.buscar_producto_formula_relacionado(
+                int(resultado['ProductID']),
+                resultado['ProductName'],
+                linea,
+            )
+            if producto_formula_id:
+                componentes_formula = (
+                    self.buscar_formula_producto_configuracion(
+                        producto_formula_id
+                    )
+                )
+                componentes_linea = [
+                    componente for componente in componentes_formula
+                    if str(componente.get('linea') or '').strip().upper() ==
+                       str(linea).strip().upper()
+                ]
+                if componentes_linea:
+                    base_formula = max(
+                        componentes_linea,
+                        key=lambda componente: float(
+                            componente.get('cantidad') or 0
+                        ),
+                    )
+                    return {
+                        'producto_resultante_id': int(resultado['ProductID']),
+                        'producto_resultante': resultado['ProductName'],
+                        'producto_base_id': int(base_formula['product_id']),
+                        'producto_base': base_formula['producto'],
+                        'unidad': base_formula.get('unidad') or 'KILO',
+                    }
+        bases_probables = []
+        for candidato in candidatos:
+            palabras_producto = self._palabras_clave_producto(
+                candidato.get('ProductName')
+            )
+            palabras_categoria = self._palabras_clave_producto(
+                candidato.get('Category2')
+            )
+            comunes_nombre = palabras_buscadas & palabras_producto
+            if not comunes_nombre or not palabras_producto:
+                continue
+            semejanza_base = (
+                len(palabras_producto & palabras_categoria) /
+                len(palabras_producto | palabras_categoria)
+                if palabras_categoria else 0
+            )
+            if semejanza_base < 0.60:
+                continue
+            bases_probables.append((
+                semejanza_base,
+                len(comunes_nombre),
+                -len(palabras_producto - palabras_buscadas),
+                -int(candidato['ProductID']),
+                candidato,
+            ))
+        if not bases_probables:
+            return None
+        bases_probables.sort(
+            key=lambda coincidencia: coincidencia[:4],
+            reverse=True,
+        )
+        base = bases_probables[0][4]
+        return {
+            'producto_resultante_id': None,
+            'producto_resultante': nombre,
+            'producto_base_id': int(base['ProductID']),
+            'producto_base': base['ProductName'],
+            'unidad': base.get('unidad') or 'KILO',
+        }
 
     def buscar_componentes_configuracion(self, linea: str) -> list[dict]:
         return self.fetchall(
@@ -2301,11 +2444,6 @@ class BaseDatos(ComandosBaseDatos):
             raise ValueError(
                 'El componente marcado como base no pertenece a la línea.'
             )
-        if not any(
-            int(proveedor['proveedor_id']) == int(datos.proveedor_id)
-            for proveedor in self.obtener_proveedores_carnicos()
-        ):
-            raise ValueError('El proveedor seleccionado no corresponde a productos cárnicos.')
         if self.fetchone(
             """SELECT TOP 1 T.id_transformacion_usuario
                FROM dbo.TransformacionesUsuario T
@@ -2369,7 +2507,7 @@ class BaseDatos(ComandosBaseDatos):
                 datos.nombre, producto_base_id,
                 producto_resultante_id, float(datos.cantidad_base),
                 float(datos.porcentaje_merma),
-                int(datos.proveedor_id), int(usuario_id), datos.observaciones,
+                None, int(usuario_id), datos.observaciones,
                 producto_resultante_id,
                 cantidad_resultante,
                 json.dumps(componentes, ensure_ascii=False),

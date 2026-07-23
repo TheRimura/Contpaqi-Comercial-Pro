@@ -377,35 +377,30 @@
                 <div class="field configuration-step-field">
                     <span class="configuration-field-number">2</span>
                     <label for="config-nombre">Nombre de la configuración</label>
-                    <input id="config-nombre" required maxlength="150" list="config-nombres-disponibles" placeholder="Escribe el nombre del producto en SSM">
+                    <input id="config-nombre" required maxlength="150" list="config-nombres-disponibles" placeholder="Escribe del producto">
                     <datalist id="config-nombres-disponibles"></datalist>
                 </div>
-                <div class="field configuration-step-field configuration-wide">
-                    <span class="configuration-field-number">3</span>
-                    <label for="config-proveedor">Proveedor cárnico</label>
-                    <select id="config-proveedor" required disabled><option value="">Consultando proveedores de SSM</option></select>
-                </div>
                 <div class="field configuration-step-field configuration-wide quantity-field">
-                    <span class="configuration-field-number">4</span>
+                    <span class="configuration-field-number">3</span>
                     <strong class="configuration-group-title">Configuración de peso y merma</strong>
                     <div class="configuration-weight-actions">
                         <div class="configuration-measure-field">
                             <label for="config-cantidad-base">Kilos a registrar</label>
-                            <div class="quantity-control"><input id="config-cantidad-base" type="number" min="0.001" max="{{ ajustes.maximo_kilos_por_transformacion }}" step="0.001" placeholder="0.000" required><span>kg</span></div>
+                            <div class="quantity-control"><input id="config-cantidad-base" type="number" min="0.01" max="{{ ajustes.maximo_kilos_por_transformacion }}" step="0.001" placeholder="0.000" required><span>kg</span></div>
                         </div>
                         <div class="configuration-measure-field">
                             <label for="config-merma">Merma esperada</label>
                             <div class="quantity-control"><input id="config-merma" type="number" min="0" max="99.999" step="0.001" value="{{ ajustes.merma_tecnica_porcentaje }}" required><span>%</span></div>
                         </div>
-                        <button id="ir-asignar-insumos" type="button" disabled>Asignar producto base e insumos</button>
+                        <button id="ir-asignar-insumos" type="button" aria-controls="config-formula" aria-expanded="false">Asignar producto base e insumos</button>
                     </div>
                 </div>
             </div>
             <input id="config-observaciones" type="hidden" value="">
 
-            <section id="config-formula" class="configuration-formula ingredient-builder">
+            <section id="config-formula" class="configuration-formula ingredient-builder hidden">
                 <div class="ingredients-heading">
-                    <div><p class="eyebrow">Paso 5 · Productos e ingredientes</p><h3>Agrega todos los productos e insumos necesarios</h3></div>
+                    <div><p class="eyebrow">Paso 4 · Productos e ingredientes</p><h3>Agrega todos los productos e insumos necesarios</h3></div>
                     <span>Puedes agregar varios; marca solamente uno como producto base.</span>
                 </div>
                 <div class="ingredient-entry">

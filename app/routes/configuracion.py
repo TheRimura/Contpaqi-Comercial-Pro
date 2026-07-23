@@ -9,15 +9,6 @@ from app.utils.seguridad import seguridad_sesion
 router = APIRouter(prefix='/api/configuracion', tags=['Configuración'])
 
 
-@router.get('/proveedores-carnicos')
-def proveedores_carnicos(
-    request: Request,
-    base_datos: BaseDatos = Depends(obtener_base_datos),
-):
-    seguridad_sesion.requerir_permiso(request, 'ver_configuracion')
-    return jsonable_encoder(base_datos.obtener_proveedores_carnicos())
-
-
 @router.get('/productos-base')
 def productos_base(
     request: Request,
@@ -41,6 +32,19 @@ def productos_resultantes(
     seguridad_sesion.requerir_permiso(request, 'ver_configuracion')
     return jsonable_encoder(
         base_datos.buscar_productos_resultantes_configuracion(linea, termino)
+    )
+
+
+@router.get('/base-sugerida')
+def base_sugerida(
+    request: Request,
+    linea: str = Query(min_length=1, max_length=100),
+    nombre: str = Query(min_length=3, max_length=150),
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    seguridad_sesion.requerir_permiso(request, 'ver_configuracion')
+    return jsonable_encoder(
+        base_datos.buscar_base_sugerida_configuracion(linea, nombre)
     )
 
 
