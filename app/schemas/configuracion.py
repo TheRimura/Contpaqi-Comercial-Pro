@@ -29,6 +29,7 @@ class CrearConfiguracionTransformacion(BaseModel):
     )
     observaciones: str | None = Field(default=None, max_length=500)
 
+
     @field_validator('nombre', 'linea')
     @classmethod
     def limpiar_texto(cls, valor: str) -> str:
