@@ -42,21 +42,6 @@ app.include_router(relacion_router)
 app.include_router(configuracion_router)
 
 
-def obtener_version_assets() -> int:
-    versiones = []
-
-    for ruta in (
-        STATIC_DIR / 'css' / 'styles.css',
-        STATIC_DIR / 'js' / 'app.js',
-    ):
-        try:
-            versiones.append(ruta.stat().st_mtime_ns)
-        except FileNotFoundError:
-            continue
-
-    return max(versiones) if versiones else 0
-
-
 def preparar_historial(registros: list[dict]) -> tuple[list[dict], dict]:
     """Calcula los valores del historial antes de enviarlos a la plantilla."""
     hoy = datetime.now()
@@ -137,7 +122,6 @@ def mostrar_login(request: Request):
     return templates.TemplateResponse(
         request=request,
         name='login.html',
-        context={'asset_version': obtener_version_assets()},
     )
 
 
@@ -184,7 +168,6 @@ def mostrar_dashboard(request: Request):
             'transformaciones': transformaciones,
             'historial': historial,
             'resumen_historial': resumen_historial,
-            'asset_version': obtener_version_assets(),
         },
     )
 

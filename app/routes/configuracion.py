@@ -21,7 +21,6 @@ def productos_base(
         base_datos.buscar_productos_base_configuracion(linea, termino)
     )
 
-
 @router.get('/productos-resultantes')
 def productos_resultantes(
     request: Request,
