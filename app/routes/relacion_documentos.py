@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 
 from app.schemas.relacion_documentos import (
-    CrearRelacionDocumentos,
     CrearTransformacion,
     RespuestaRelacionDocumentos,
 )
@@ -33,31 +32,6 @@ def normalizar_texto(valor) -> str:
             if not unicodedata.combining(caracter)
         ).split()
     )
-
-
-def resolver_movimientos(
-    texto_movimiento: str,
-    entradas: list[dict],
-    salidas: list[dict],
-) -> tuple[int, int]:
-    buscado = normalizar_texto(texto_movimiento)
-    entrada_id = next(
-        (
-            int(registro.get('ItemData') or 0)
-            for registro in entradas
-            if normalizar_texto(registro.get('ItemValue')) == buscado
-        ),
-        0,
-    )
-    salida_id = next(
-        (
-            int(registro.get('ItemData') or 0)
-            for registro in salidas
-            if normalizar_texto(registro.get('ItemValue')) == buscado
-        ),
-        0,
-    )
-    return entrada_id, salida_id
 
 
 def construir_catalogo_movimientos(base_datos: BaseDatos) -> list[dict]:
@@ -477,139 +451,17 @@ def consultar_marcas(
 
 @router.post(
     '',
-    response_model=RespuestaRelacionDocumentos,
-    status_code=status.HTTP_201_CREATED,
 )
 def crear_relacion(
-    datos: CrearRelacionDocumentos,
     request: Request,
-    base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
-    sesion = exigir_sesion(request)
+    exigir_sesion(request)
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=(
             'Este movimiento está deshabilitado temporalmente. '
             'Únicamente Transformación se encuentra disponible.'
         ),
-    )
-    usuario_erp = int(sesion.get('user_id') or 0)
-    if usuario_erp <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='La sesión no contiene un usuario ERP válido.',
-        )
-
-    salida = base_datos.obtener_relacion_documento(
-        datos.source_document_id
-    )
-    entrada = base_datos.obtener_relacion_documento(
-        datos.destination_document_id
-    )
-
-    if not salida or int(salida.get('ModuleID') or 0) != 203:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail='El documento origen debe ser una salida 203.',
-        )
-    if not entrada or int(entrada.get('ModuleID') or 0) != 202:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail='El documento destino debe ser una entrada 202.',
-        )
-
-    if base_datos.documento_previamente_relacionado(
-        datos.source_document_id
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='El documento de salida ya fue relacionado.',
-        )
-    if base_datos.documento_previamente_relacionado(
-        datos.destination_document_id
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail='El documento de entrada ya fue relacionado.',
-        )
-
-    movimientos_entrada = base_datos.buscar_tipo_movimiento_modulo(202)
-    movimientos_salida = base_datos.buscar_tipo_movimiento_modulo(203)
-    movimiento_entrada, movimiento_salida = resolver_movimientos(
-        datos.tipo_movimiento,
-        movimientos_entrada,
-        movimientos_salida,
-    )
-
-    if movimiento_entrada <= 0 or movimiento_salida <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                'El movimiento no tiene equivalencia válida entre '
-                'entrada y salida.'
-            ),
-        )
-
-    es_analisis = movimiento_entrada == 24 and movimiento_salida == 21
-    marca_destino_id = datos.destination_brand_id
-    if es_analisis and not marca_destino_id and datos.marca_nombre:
-        categorias_entrada = sorted({
-                    str(partida.get('Category') or '').strip()
-                    for partida in base_datos.obtener_partidas_documento_erp(
-                        datos.destination_document_id
-                    )
-                    if str(partida.get('Category') or '').strip()
-                })
-        marca_destino_id = base_datos.obtener_o_crear_marca_modulo(
-            categoria=categorias_entrada[0] if categorias_entrada else '',
-            nombre=datos.marca_nombre,
-        )
-    if es_analisis and (
-        datos.proveedor_id <= 0
-        or datos.usuario_fisico_id <= 0
-        or not marca_destino_id
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                'Los movimientos de Análisis requieren proveedor, '
-                'marca y tablajero.'
-            ),
-        )
-
-    folio_salida = base_datos.buscar_folio_documento(
-        datos.source_document_id
-    )
-    folio_entrada = base_datos.buscar_folio_documento(
-        datos.destination_document_id
-    )
-    if not folio_salida or not folio_entrada:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='No se pudo obtener el folio de los documentos.',
-        )
-
-    base_datos.relacionar_documentos_erp(
-        source_document_id=datos.source_document_id,
-        destination_document_id=datos.destination_document_id,
-        folio_source_document_id=folio_salida,
-        folio_destination_document_id=folio_entrada,
-        tipo_movimiento_origen_id=movimiento_salida,
-        tipo_movimiento_destino_id=movimiento_entrada,
-        proveedor_id=datos.proveedor_id,
-        usuario_fisico_id=datos.usuario_fisico_id,
-        fecha_movimiento=datos.fecha_movimiento,
-        user_id_erp=usuario_erp,
-        source_brand_id=datos.source_brand_id,
-        destination_brand_id=marca_destino_id,
-    )
-
-    return RespuestaRelacionDocumentos(
-        mensaje='Los documentos se relacionaron correctamente.',
-        source_document_id=datos.source_document_id,
-        destination_document_id=datos.destination_document_id,
-        folio_salida=folio_salida,
-        folio_entrada=folio_entrada,
     )
 
 

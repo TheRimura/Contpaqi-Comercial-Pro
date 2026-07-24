@@ -1,33 +1,6 @@
-from datetime import date
-from typing import Optional
-
-from pydantic import BaseModel, Field, field_validator, model_validator
-from pydantic_extra_types import routing_number
+from pydantic import BaseModel, Field, field_validator
 
 from app.settings import AJUSTES_MODULO
-
-
-class CrearRelacionDocumentos(BaseModel):
-    source_document_id: int = Field(gt=0)
-    destination_document_id: int = Field(gt=0)
-    tipo_movimiento: str = Field(min_length=1, max_length=150)
-    proveedor_id: int = Field(default=0, ge=0)
-    usuario_fisico_id: int = Field(default=0, ge=0)
-    fecha_movimiento: date
-    source_brand_id: Optional[int] = Field(default=None, gt=0)
-    destination_brand_id: Optional[int] = Field(default=None, gt=0)
-    marca_nombre: Optional[str] = Field(default=None, max_length=150)
-
-    @field_validator('tipo_movimiento')
-    @classmethod
-    def limpiar_movimiento(cls, valor: str) -> str:
-        return ' '.join(valor.split())
-
-    @model_validator(mode='after')
-    def validar_documentos_distintos(self):
-        if self.source_document_id == self.destination_document_id:
-            raise ValueError('La entrada y la salida tiene que relacionarse .')
-        return self
 
 
 class CrearTransformacion(BaseModel):
