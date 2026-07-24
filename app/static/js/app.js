@@ -843,47 +843,108 @@ function escaparXml(valor) {
         .replaceAll("'", "&apos;");
 }
 
-function exportarHistorialExcel() {
-    const encabezados = [
-        "FECHA", "RESPONSABLE", "PRODUCTO ORIGEN", "SALIDA", "ENTRADA",
-        "MERMA", "PRODUCTO RESULTANTE", "DOCUMENTOS", "ESTADO",
-    ];
-    const filas = [...document.querySelectorAll("#filas-historial .history-row")]
-        .map((fila) => [...fila.cells].map((celda) => celda.textContent.trim().replace(/\s+/g, " ")));
-    const celda = (valor, estilo = "Dato") =>
-        `<Cell ss:StyleID="${estilo}"><Data ss:Type="String">${escaparXml(valor)}</Data></Cell>`;
-    const filasXml = filas.map((valores) =>
-        `<Row>${valores.map((valor) => celda(valor)).join("")}</Row>`
-    ).join("");
-    const xml = `<?xml version="1.0"?>
+async function exportarHistorialExcel() {
+    const boton = document.getElementById("exportar-historial");
+    if (boton) {
+        boton.disabled = true;
+        boton.textContent = "Preparando archivo...";
+    }
+
+    try {
+        const partidas = await solicitarJson(
+            `${API_RELACIONES}/historial/exportacion`
+        );
+        if (!Array.isArray(partidas) || !partidas.length) {
+            throw new Error("No hay documentos relacionados para exportar.");
+        }
+
+        const relaciones = new Map();
+        partidas.forEach((partida) => {
+            const id = Number(partida.relacion_id || 0);
+            if (!relaciones.has(id)) {
+                relaciones.set(id, {
+                    fecha_hora: partida.fecha_hora,
+                    folio_salida: partida.folio_salida || "",
+                    folio_entrada: partida.folio_entrada || "",
+                    usuario: partida.usuario || "",
+                    tablajero: partida.tablajero || "",
+                    partidas: [],
+                });
+            }
+            relaciones.get(id).partidas.push(partida);
+        });
+
+        const celdaTexto = (valor, estilo = "Dato", combinadas = 0) =>
+            `<Cell ss:StyleID="${estilo}"${combinadas ? ` ss:MergeAcross="${combinadas}"` : ""}><Data ss:Type="String">${escaparXml(valor)}</Data></Cell>`;
+        const celdaNumero = (valor) =>
+            `<Cell ss:StyleID="Cantidad"><Data ss:Type="Number">${Number(valor || 0).toFixed(3)}</Data></Cell>`;
+        const fechaTexto = (valor) => {
+            const fecha = valor ? new Date(valor) : null;
+            return fecha && !Number.isNaN(fecha.getTime())
+                ? fecha.toLocaleString("es-MX")
+                : "Sin fecha";
+        };
+
+        const bloques = [...relaciones.values()].map((relacion) => {
+            const filasPartidas = relacion.partidas.map((partida) =>
+                `<Row>${celdaTexto(partida.tipo_documento, partida.tipo_documento === "SALIDA" ? "Salida" : "Entrada")}${celdaTexto(partida.folio_documento)}${celdaTexto(limpiarNombreProducto(partida.producto) || "Producto")}${celdaNumero(partida.cantidad)}${celdaTexto("kg", "DatoCentrado")}</Row>`
+            ).join("");
+            return `
+   <Row ss:Height="23">${celdaTexto(`RELACIÓN DOCUMENTAL ${relacion.folio_salida} → ${relacion.folio_entrada}`, "Relacion", 4)}</Row>
+   <Row>${celdaTexto("Fecha", "Etiqueta")}${celdaTexto(fechaTexto(relacion.fecha_hora), "Dato", 1)}${celdaTexto("Responsable", "Etiqueta")}${celdaTexto(relacion.tablajero || "No registrado")}</Row>
+   <Row>${celdaTexto("Usuario", "Etiqueta")}${celdaTexto(relacion.usuario || "No registrado", "Dato", 1)}${celdaTexto("Documentos", "Etiqueta")}${celdaTexto(`${relacion.folio_salida} → ${relacion.folio_entrada}`)}</Row>
+   <Row>${["TIPO DE DOCUMENTO", "FOLIO", "PRODUCTO / PARTIDA", "CANTIDAD", "UNIDAD"].map((valor) => celdaTexto(valor, "Encabezado")).join("")}</Row>
+   ${filasPartidas}
+   <Row ss:Height="10"/>`;
+        }).join("");
+
+        const xml = `<?xml version="1.0"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
  xmlns:o="urn:schemas-microsoft-com:office:office"
  xmlns:x="urn:schemas-microsoft-com:office:excel"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
  <Styles>
-  <Style ss:ID="Titulo"><Font ss:Bold="1" ss:Size="16" ss:Color="#FFFFFF"/><Interior ss:Color="#B51223" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Titulo"><Font ss:Bold="1" ss:Size="16" ss:Color="#FFFFFF"/><Interior ss:Color="#E6002D" ss:Pattern="Solid"/><Alignment ss:Vertical="Center"/></Style>
+  <Style ss:ID="Subtitulo"><Font ss:Color="#263A78"/><Alignment ss:Vertical="Center"/></Style>
+  <Style ss:ID="Relacion"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#263A78" ss:Pattern="Solid"/><Alignment ss:Vertical="Center"/></Style>
   <Style ss:ID="Encabezado"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#172033" ss:Pattern="Solid"/><Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
+  <Style ss:ID="Etiqueta"><Font ss:Bold="1" ss:Color="#263A78"/><Interior ss:Color="#EEF2FA" ss:Pattern="Solid"/></Style>
   <Style ss:ID="Dato"><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D8E0EA"/></Borders><Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
+  <Style ss:ID="DatoCentrado"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style>
+  <Style ss:ID="Cantidad"><NumberFormat ss:Format="0.000"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
+  <Style ss:ID="Salida"><Font ss:Bold="1" ss:Color="#B51223"/><Interior ss:Color="#FFF0F1" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Entrada"><Font ss:Bold="1" ss:Color="#08776C"/><Interior ss:Color="#EAF8F0" ss:Pattern="Solid"/></Style>
  </Styles>
- <Worksheet ss:Name="Transformaciones">
+ <Worksheet ss:Name="Documentos relacionados">
   <Table>
-   <Column ss:Width="85"/><Column ss:Width="150"/><Column ss:Width="180"/><Column ss:Width="75"/><Column ss:Width="75"/><Column ss:Width="85"/><Column ss:Width="190"/><Column ss:Width="135"/><Column ss:Width="85"/>
-   <Row ss:Height="28"><Cell ss:MergeAcross="8" ss:StyleID="Titulo"><Data ss:Type="String">CARNES CAYAL · HISTORIAL DE TRANSFORMACIONES</Data></Cell></Row>
-   <Row><Cell ss:MergeAcross="8" ss:StyleID="Dato"><Data ss:Type="String">Generado: ${escaparXml(new Date().toLocaleString("es-MX"))}</Data></Cell></Row>
-   <Row>${encabezados.map((valor) => celda(valor, "Encabezado")).join("")}</Row>
-   ${filasXml}
+   <Column ss:Width="110"/><Column ss:Width="105"/><Column ss:Width="270"/><Column ss:Width="85"/><Column ss:Width="65"/>
+   <Row ss:Height="30">${celdaTexto("CARNES CAYAL · REGISTRO DE DOCUMENTOS RELACIONADOS", "Titulo", 4)}</Row>
+   <Row>${celdaTexto(`Generado: ${new Date().toLocaleString("es-MX")} · ${relaciones.size} relaciones`, "Subtitulo", 4)}</Row>
+   <Row ss:Height="10"/>
+   ${bloques}
   </Table>
-  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>3</SplitHorizontal><TopRowBottomPane>3</TopRowBottomPane><Selected/></WorksheetOptions>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><Selected/><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions>
  </Worksheet>
 </Workbook>`;
-    const archivo = new Blob([xml], { type: "application/vnd.ms-excel;charset=utf-8" });
-    const enlace = document.createElement("a");
-    const fecha = new Date().toISOString().slice(0, 10);
-    enlace.href = URL.createObjectURL(archivo);
-    enlace.download = `historial_transformaciones_${fecha}.xls`;
-    enlace.click();
-    window.setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
+        const archivo = new Blob(
+            [xml],
+            { type: "application/vnd.ms-excel;charset=utf-8" }
+        );
+        const enlace = document.createElement("a");
+        const fecha = new Date().toISOString().slice(0, 10);
+        enlace.href = URL.createObjectURL(archivo);
+        enlace.download = `documentos_relacionados_${fecha}.xls`;
+        enlace.click();
+        window.setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
+    } catch (error) {
+        mostrarMensaje(error.message);
+    } finally {
+        if (boton) {
+            boton.disabled = false;
+            boton.textContent = "Exportar documentos";
+        }
+    }
 }
 
 async function solicitarJson(url, opciones = {}) {

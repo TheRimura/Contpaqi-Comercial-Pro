@@ -1209,6 +1209,115 @@ class BaseDatos(ComandosBaseDatos):
             )
         return filas
 
+    def listar_documentos_relacionados_exportacion(
+        self,
+        limite: int = 500,
+    ) -> list[dict]:
+        limite = min(max(int(limite), 1), 500)
+        return self.fetchall(
+            """
+            WITH Relaciones AS
+            (
+                SELECT TOP (?)
+                    R.DocumentWarehouseRelationID AS relacion_id,
+                    R.SourceDocumentID AS documento_salida_id,
+                    R.DestinationDocumentID AS documento_entrada_id,
+                    R.CreatedOn AS fecha_hora,
+                    ISNULL(S.FolioPrefix, '') +
+                        ISNULL(S.Folio, '') AS folio_salida,
+                    ISNULL(E.FolioPrefix, '') +
+                        ISNULL(E.Folio, '') AS folio_entrada,
+                    ISNULL(U.UserName, '') AS usuario,
+                    ISNULL(Empleado.OfficialName, '') AS tablajero
+                FROM dbo.docDocumentWarehouseRelation AS R
+                INNER JOIN dbo.docDocument AS S
+                    ON S.DocumentID = R.SourceDocumentID
+                   AND S.ModuleID = 203
+                INNER JOIN dbo.docDocument AS E
+                    ON E.DocumentID = R.DestinationDocumentID
+                   AND E.ModuleID = 202
+                LEFT JOIN dbo.engUser AS U
+                    ON U.UserID = R.ERPUserID
+                OUTER APPLY
+                (
+                    SELECT TOP 1 EMP.OfficialName
+                    FROM dbo.zvwEmpleadosCayalMenu AS EMP
+                    WHERE EMP.UserID = R.PhysicalUserID
+                    ORDER BY EMP.OfficialName
+                ) AS Empleado
+                WHERE S.DeletedOn IS NULL
+                  AND E.DeletedOn IS NULL
+                  AND TRY_CONVERT(INT, S.CustomCbo) = 2
+                  AND TRY_CONVERT(INT, E.CustomCbo) = 5
+                ORDER BY
+                    R.CreatedOn DESC,
+                    R.DocumentWarehouseRelationID DESC
+            ),
+            Partidas AS
+            (
+                SELECT
+                    R.relacion_id,
+                    R.fecha_hora,
+                    R.folio_salida,
+                    R.folio_entrada,
+                    R.usuario,
+                    R.tablajero,
+                    1 AS orden_documento,
+                    'SALIDA' AS tipo_documento,
+                    R.folio_salida AS folio_documento,
+                    DI.DocumentItemID AS partida_id,
+                    ISNULL(P.ProductName, '') AS producto,
+                    ISNULL(DI.Quantity, 0) AS cantidad
+                FROM Relaciones AS R
+                INNER JOIN dbo.docDocumentItem AS DI
+                    ON DI.DocumentID = R.documento_salida_id
+                   AND DI.DeletedOn IS NULL
+                INNER JOIN dbo.orgProduct AS P
+                    ON P.ProductID = DI.ProductID
+
+                UNION ALL
+
+                SELECT
+                    R.relacion_id,
+                    R.fecha_hora,
+                    R.folio_salida,
+                    R.folio_entrada,
+                    R.usuario,
+                    R.tablajero,
+                    2 AS orden_documento,
+                    'ENTRADA' AS tipo_documento,
+                    R.folio_entrada AS folio_documento,
+                    DI.DocumentItemID AS partida_id,
+                    ISNULL(P.ProductName, '') AS producto,
+                    ISNULL(DI.Quantity, 0) AS cantidad
+                FROM Relaciones AS R
+                INNER JOIN dbo.docDocumentItem AS DI
+                    ON DI.DocumentID = R.documento_entrada_id
+                   AND DI.DeletedOn IS NULL
+                INNER JOIN dbo.orgProduct AS P
+                    ON P.ProductID = DI.ProductID
+            )
+            SELECT
+                relacion_id,
+                fecha_hora,
+                folio_salida,
+                folio_entrada,
+                usuario,
+                tablajero,
+                tipo_documento,
+                folio_documento,
+                producto,
+                cantidad
+            FROM Partidas
+            ORDER BY
+                fecha_hora DESC,
+                relacion_id DESC,
+                orden_documento,
+                partida_id
+            """,
+            (limite,),
+        )
+
     def obtener_detalle_historial_transformacion(
         self,
         relacion_id: int,

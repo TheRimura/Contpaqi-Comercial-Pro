@@ -199,6 +199,19 @@ def consultar_folios_transformacion(
     )
 
 
+@router.get('/historial/exportacion')
+def exportar_documentos_relacionados(
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    seguridad_sesion.requerir_permiso(request, 'ver_historial')
+    return jsonable_encoder(
+        base_datos.listar_documentos_relacionados_exportacion(
+            limite=500
+        )
+    )
+
+
 @router.get('/historial/{relacion_id}')
 def consultar_detalle_historial(
     relacion_id: int,
@@ -269,11 +282,18 @@ def registrar_transformacion(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail='La transformación precargada no es válida o está inactiva.',
         )
-    porcentaje_merma = float(
-        configuracion.get('porcentaje_merma')
-        if configuracion.get('porcentaje_merma') is not None
-        else 0
-    )
+    valor_porcentaje_merma = configuracion.get('porcentaje_merma')
+    try:
+        porcentaje_merma: float = (
+            float(str(valor_porcentaje_merma))
+            if valor_porcentaje_merma is not None
+            else 0.0
+        )
+    except (TypeError, ValueError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail='La merma configurada no contiene un valor válido.',
+        ) from error
     cantidad_resultante_esperada = round(
         datos.cantidad_base * (1 - porcentaje_merma / 100),
         3,
