@@ -65,9 +65,19 @@ def formula_producto(
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
     seguridad_sesion.requerir_permiso(request, 'ver_configuracion')
-    return jsonable_encoder(
-        base_datos.buscar_formula_producto_configuracion(producto_id)
+    formulas = base_datos.buscar_formulas_relacionadas_configuracion(
+        producto_id
     )
+    componentes = [
+        {
+            **componente,
+            'formula_id': formula['formula_id'],
+            'formula': formula['formula'],
+        }
+        for formula in formulas
+        for componente in formula['componentes']
+    ]
+    return jsonable_encoder(componentes)
 
 
 @router.post('/transformaciones', status_code=status.HTTP_201_CREATED)

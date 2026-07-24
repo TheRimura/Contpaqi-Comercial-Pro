@@ -458,6 +458,7 @@ tbody tr:hover { background: var(--red-soft); }
 .detail-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
 .detail-dialog-heading h2 { margin: 0; }
 .detail-help { color: var(--muted); }
+.formula-group-row td { padding: 9px 10px; background: var(--blue-soft); color: var(--blue-dark); font-weight: 850; text-transform: uppercase; }
 .history-detail-content { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .history-detail-document { min-width: 0; padding: 14px; border: 1px solid var(--line-soft); border-radius: 11px; background: #f8fafc; }
 .history-detail-out { border-top: 3px solid var(--red); }

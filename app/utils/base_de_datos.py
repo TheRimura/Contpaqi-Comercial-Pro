@@ -2418,6 +2418,34 @@ class BaseDatos(ComandosBaseDatos):
     def buscar_formula_producto_configuracion(
         self, producto_id: int
     ) -> list[dict]:
+        formula_id = int(producto_id)
+        tiene_formula_directa = self.fetchone(
+            """
+            SELECT TOP 1 ProductID
+            FROM dbo.zvwFormulasListasPCocinar
+            WHERE ProductID = ?
+            """,
+            (formula_id,),
+        )
+        if not tiene_formula_directa:
+            producto = self.fetchall(
+                """
+                SELECT TOP 1 ProductName, ISNULL(Category1, '') AS Category1
+                FROM dbo.orgProduct
+                WHERE ProductID = ? AND DiscontinuedOn IS NULL
+                """,
+                (formula_id,),
+            )
+            if not producto:
+                return []
+            formula_id = self.buscar_producto_formula_relacionado(
+                formula_id,
+                producto[0]['ProductName'],
+                producto[0]['Category1'],
+            )
+            if not formula_id:
+                return []
+
         return self.fetchall(
             """
             SELECT
@@ -2431,8 +2459,63 @@ class BaseDatos(ComandosBaseDatos):
             WHERE F.ProductID = ?
             ORDER BY F.IDComp, F.ComponenteID
             """,
+            (formula_id,),
+        )
+
+    def buscar_formulas_relacionadas_configuracion(
+        self, producto_id: int
+    ) -> list[dict]:
+        producto = self.fetchall(
+            """
+            SELECT TOP 1 ProductName, ISNULL(Category1, '') AS Category1
+            FROM dbo.orgProduct
+            WHERE ProductID = ? AND DiscontinuedOn IS NULL
+            """,
             (int(producto_id),),
         )
+        if not producto:
+            return []
+
+        formulas = self.fetchall(
+            """
+            SELECT DISTINCT TOP (20)
+                F.ProductID AS formula_id,
+                F.Producto AS formula
+            FROM dbo.zvwFormulasListasPCocinar AS F
+            WHERE F.ProductID = ? OR F.ComponenteID = ?
+            ORDER BY F.Producto, F.ProductID
+            """,
+            (int(producto_id), int(producto_id)),
+        )
+        if not formulas:
+            formula_id = self.buscar_producto_formula_relacionado(
+                int(producto_id),
+                producto[0]['ProductName'],
+                producto[0]['Category1'],
+            )
+            if formula_id:
+                formula = self.fetchone(
+                    """
+                    SELECT TOP 1 Producto
+                    FROM dbo.zvwFormulasListasPCocinar
+                    WHERE ProductID = ?
+                    """,
+                    (formula_id,),
+                )
+                formulas = [{
+                    'formula_id': formula_id,
+                    'formula': formula or producto[0]['ProductName'],
+                }]
+
+        return [
+            {
+                **formula,
+                'componentes': self.buscar_formula_producto_configuracion(
+                    int(formula['formula_id'])
+                ),
+            }
+            for formula in formulas
+        ]
 
     def crear_configuracion_transformacion(self, datos, usuario_id: int) -> int:
         self.asegurar_proveedor_transformaciones_usuario()

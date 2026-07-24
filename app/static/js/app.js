@@ -75,22 +75,47 @@ async function abrirDetalleProductoCatalogo(producto) {
     cuerpo.replaceChildren();
     modal.classList.remove("hidden");
     try {
-        const componentes = await solicitarJson(`${API_CONFIGURACION}/formula/${producto.product_id}`);
-        document.getElementById("mensaje-detalle-producto").textContent = componentes.length
-            ? "Ingredientes registrados para este producto."
+        const detalle = await solicitarJson(`${API_CONFIGURACION}/formula/${producto.product_id}`);
+        const formulasAgrupadas = new Map();
+        (Array.isArray(detalle) ? detalle : []).forEach((componente) => {
+            const formulaId = Number(componente.formula_id || producto.product_id);
+            if (!formulasAgrupadas.has(formulaId)) {
+                formulasAgrupadas.set(formulaId, {
+                    formula_id: formulaId,
+                    formula: componente.formula || producto.producto,
+                    componentes: [],
+                });
+            }
+            formulasAgrupadas.get(formulaId).componentes.push(componente);
+        });
+        const formulas = Array.isArray(detalle)
+            ? [...formulasAgrupadas.values()]
+            : (detalle.formulas || []);
+        document.getElementById("mensaje-detalle-producto").textContent = formulas.length
+            ? `${formulas.length} fórmula${formulas.length === 1 ? "" : "s"} relacionada${formulas.length === 1 ? "" : "s"} en SSM.`
             : "Este producto no tiene ingredientes registrados.";
-        componentes.forEach((componente) => {
-            const fila = document.createElement("tr");
-            [
-                limpiarNombreProducto(componente.producto),
-                Number(componente.cantidad || 0).toFixed(3),
-                componente.unidad || "SIN UNIDAD",
-            ].forEach((valor) => {
-                const celda = document.createElement("td");
-                celda.textContent = valor;
-                fila.appendChild(celda);
+        formulas.forEach((formula) => {
+            const encabezado = document.createElement("tr");
+            encabezado.className = "formula-group-row";
+            const titulo = document.createElement("td");
+            titulo.colSpan = 3;
+            titulo.textContent = limpiarNombreProducto(formula.formula);
+            encabezado.appendChild(titulo);
+            cuerpo.appendChild(encabezado);
+
+            (formula.componentes || []).forEach((componente) => {
+                const fila = document.createElement("tr");
+                [
+                    limpiarNombreProducto(componente.producto),
+                    Number(componente.cantidad || 0).toFixed(3),
+                    componente.unidad || "SIN UNIDAD",
+                ].forEach((valor) => {
+                    const celda = document.createElement("td");
+                    celda.textContent = valor;
+                    fila.appendChild(celda);
+                });
+                cuerpo.appendChild(fila);
             });
-            cuerpo.appendChild(fila);
         });
     } catch (error) {
         document.getElementById("mensaje-detalle-producto").textContent = error.message;

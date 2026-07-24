@@ -30,6 +30,14 @@ app = FastAPI(
     version='1.0.0',
 )
 
+@app.middleware('http')
+async def revalidar_archivos_estaticos(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith('/static/'):
+        response.headers['Cache-Control'] = 'no-cache, must-revalidate'
+    return response
+
+
 app.mount(
     '/static',
     StaticFiles(directory=STATIC_DIR),
