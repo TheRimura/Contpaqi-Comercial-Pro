@@ -2205,6 +2205,32 @@ class BaseDatos(ComandosBaseDatos):
         nombre = str(nombre_transformacion or '').strip()
         if len(nombre) < 3:
             return None
+        formula_exacta = self.fetchall(
+            """
+            SELECT TOP 1
+                F.ProductID AS producto_resultante_id,
+                F.Producto AS producto_resultante,
+                F.ComponenteID AS producto_base_id,
+                F.Componente AS producto_base,
+                ISNULL(P.Unit, 'KILO') AS unidad
+            FROM dbo.zvwFormulasListasPCocinar AS F
+            INNER JOIN dbo.orgProduct AS P
+                ON P.ProductID = F.ComponenteID
+               AND P.DiscontinuedOn IS NULL
+            WHERE UPPER(LTRIM(RTRIM(F.Producto))) =
+                  UPPER(LTRIM(RTRIM(?)))
+              AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
+                  UPPER(LTRIM(RTRIM(?)))
+            ORDER BY
+                CAST(F.CantidadComp AS DECIMAL(18,6)) DESC,
+                F.IDComp,
+                F.ComponenteID
+            """,
+            (nombre, str(linea).strip()),
+        )
+        if formula_exacta:
+            return formula_exacta[0]
+
         filas = self.fetchall(
             """
             SELECT TOP 1
@@ -2490,11 +2516,13 @@ class BaseDatos(ComandosBaseDatos):
                INNER JOIN dbo.TransformacionesUsuarioDetalle D
                  ON D.id_transformacion_usuario=T.id_transformacion_usuario
                 AND D.activa=1
-               WHERE T.activa=1 AND T.producto_origen=?
+               WHERE T.activa=1
                  AND D.producto_resultante=?""",
-            (producto_base_id, producto_resultante_id),
+            (producto_resultante_id,),
         ):
-            raise ValueError('Ya existe una configuración activa para estos productos.')
+            raise ValueError(
+                'Ya existe una configuración activa para este producto resultante.'
+            )
 
         componentes = [
             {
