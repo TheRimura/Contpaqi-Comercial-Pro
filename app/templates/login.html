@@ -49,6 +49,24 @@
         </section>
     </main>
 
+    <div
+        id="modal-acceso-denegado"
+        class="modal-overlay hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="titulo-acceso-denegado"
+    >
+        <section class="movement-dialog access-denied-dialog">
+            <span class="dialog-icon access-denied-icon" aria-hidden="true">!</span>
+            <p class="eyebrow">Acceso restringido</p>
+            <h2 id="titulo-acceso-denegado">No cuentas con permisos para ingresar</h2>
+            <p>Solicita autorización al administrador del sistema.</p>
+            <div class="dialog-actions">
+                <button id="cerrar-acceso-denegado" type="button">Entendido</button>
+            </div>
+        </section>
+    </div>
+
     <script src="../static/js/app.js"></script>
 </body>
 </html>

@@ -289,6 +289,8 @@ h1, h2, h3, p { margin-top: 0; }
 .confirmation-dialog { width: min(560px, 100%); }
 .confirmation-icon { background: #eaf8f0; color: var(--success); }
 .delete-confirmation-icon { background: #fff0f1; color: var(--red); }
+.access-denied-icon { background: #fff0f1; color: var(--red); }
+.access-denied-dialog .dialog-actions button { min-width: 120px; }
 .catalog-delete-dialog { width: min(500px, 100%); }
 .catalog-delete-product {
     display: grid;

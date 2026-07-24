@@ -902,7 +902,9 @@ async function solicitarJson(url, opciones = {}) {
         const detalle = Array.isArray(datos.detail)
             ? datos.detail.map((item) => item.msg).join(" ")
             : datos.detail || "No fue posible completar la operación.";
-        throw new Error(detalle);
+        const error = new Error(detalle);
+        error.status = respuesta.status;
+        throw error;
     }
     return datos;
 }
@@ -1715,17 +1717,45 @@ async function iniciarSesion(evento) {
         });
         window.location.assign("/dashboard");
     } catch (e) {
-        error.textContent = e.message;
+        if (e.status === 403) {
+            mostrarAccesoDenegado();
+        } else {
+            error.textContent = e.message;
+        }
     } finally {
         boton.disabled = false;
         boton.textContent = "Entrar";
     }
 }
 
+function mostrarAccesoDenegado() {
+    const modal = document.getElementById("modal-acceso-denegado");
+    if (!modal) return;
+
+    const password = document.getElementById("password");
+    if (password) password.value = "";
+
+    modal.classList.remove("hidden");
+    document.body.classList.add("modal-open");
+    window.setTimeout(() => {
+        document.getElementById("cerrar-acceso-denegado")?.focus();
+    }, 0);
+}
+
+function cerrarAccesoDenegado() {
+    document.getElementById("modal-acceso-denegado")?.classList.add("hidden");
+    document.body.classList.remove("modal-open");
+    document.getElementById("usuario")?.focus();
+}
+
 function iniciarPaginaLogin() {
     document.getElementById("loginForm")?.addEventListener(
         "submit",
         iniciarSesion
+    );
+    document.getElementById("cerrar-acceso-denegado")?.addEventListener(
+        "click",
+        cerrarAccesoDenegado
     );
 }
 
