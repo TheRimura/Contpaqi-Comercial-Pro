@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class AjustesModulo:
-
     merma_tecnica_porcentaje: float = 8.0
     transformaciones_por_pagina: int = 12
     productos_por_pagina: int = 12
@@ -26,7 +25,6 @@ class AjustesModulo:
     @property
     def factor_rendimiento(self) -> float:
         return 1 - (self.merma_tecnica_porcentaje / 100)
-
 
 
 # AJUSTES EDITABLES DEL MÓDULO
@@ -95,9 +93,9 @@ class PermisosModulo:
         ]
 
 
-
-
-# permisos editables para autorizar otro grupo, agréguelo dentro de las llaves.Ejemplo: frozenset({1, 3})
+# PERMISOS EDITABLES
+# Para autorizar otro grupo, agréguelo dentro de las llaves.
+# Ejemplo: frozenset({1, 3})
 
 PERMISOS_MODULO = PermisosModulo(
     grupos_acceso_modulo=frozenset({1}),

@@ -1421,13 +1421,6 @@ function formatoNumero(valor, decimales = 2) {
     });
 }
 
-function formatoDinero(valor) {
-    return Number(valor || 0).toLocaleString("es-MX", {
-        style: "currency",
-        currency: "MXN",
-    });
-}
-
 function renderizarPartidas(tipo, partidas) {
     const contenedor = document.getElementById(`partidas-${tipo}`);
     const resumen = document.getElementById(`resumen-${tipo}`);
@@ -1584,8 +1577,7 @@ async function prepararMovimientoSeleccionado() {
     document.getElementById("resultante-transformacion").disabled = true;
     document.getElementById("transformacion-precargada").disabled = true;
     detalleTransformacionSeleccionada = null;
-    document.getElementById("resumen-sencillo-transformacion")?.classList.add("hidden");
-    renderizarInsumosTransformacion();
+    calcularInsumosTransformacion();
     actualizarMermaTransformacion();
 }
 
@@ -1597,10 +1589,9 @@ async function cargarBasesTransformacion() {
     document.getElementById("documento-salida").value = "";
     document.getElementById("documento-entrada").value = "";
     detalleTransformacionSeleccionada = null;
-    document.getElementById("resumen-sencillo-transformacion")?.classList.add("hidden");
     llenarSelect("base-transformacion", [], "product_id_base", "producto_base", "Se completa automáticamente");
     llenarSelect("resultante-transformacion", [], "product_id", "producto_resultante", "Selecciona un producto resultante");
-    renderizarInsumosTransformacion();
+    calcularInsumosTransformacion();
     if (!linea) {
         llenarSelect("transformacion-precargada", [], "transformacion_id", "nombre_transformacion", "Selecciona una transformación");
         selector.disabled = true;
@@ -1623,7 +1614,7 @@ async function cargarTransformacionPrecargada() {
     if (!transformacionId) {
         llenarSelect("base-transformacion", [], "product_id_base", "producto_base", "Se completa automáticamente");
         llenarSelect("resultante-transformacion", [], "product_id", "producto_resultante", "Se completa automáticamente");
-        renderizarInsumosTransformacion();
+        calcularInsumosTransformacion();
         return;
     }
     try {
@@ -1633,24 +1624,15 @@ async function cargarTransformacionPrecargada() {
         document.getElementById("base-transformacion").value = String(detalle.producto_base_id);
         llenarSelect("resultante-transformacion", detalle.resultantes, "product_id", "producto_resultante", "Producto resultante");
         document.getElementById("resultante-transformacion").value = String(detalle.resultantes[0].product_id);
-        const nombreBaseSencillo = document.getElementById("nombre-base-sencillo");
-        const nombreResultanteSencillo = document.getElementById("nombre-resultante-sencillo");
-        if (nombreBaseSencillo) nombreBaseSencillo.textContent = limpiarNombreProducto(detalle.producto_base);
-        if (nombreResultanteSencillo) nombreResultanteSencillo.textContent = limpiarNombreProducto(detalle.resultantes[0].producto_resultante);
-        document.getElementById("resumen-sencillo-transformacion")?.classList.remove("hidden");
         actualizarMermaTransformacion();
-        renderizarInsumosTransformacion();
+        calcularInsumosTransformacion();
         limpiarMensaje();
     } catch (error) { mostrarMensaje(error.message); }
 }
 
-function renderizarInsumosTransformacion() {
-    const cuerpo = document.getElementById("tabla-insumos-transformacion");
-    const panel = document.getElementById("panel-insumos-transformacion");
-    if (cuerpo) cuerpo.replaceChildren();
+function calcularInsumosTransformacion() {
     insumosTransformacionCalculados = [];
     if (!detalleTransformacionSeleccionada) {
-        if (panel) panel.classList.add("hidden");
         return;
     }
     const componentes = detalleTransformacionSeleccionada.componentes || [];
@@ -1665,22 +1647,6 @@ function renderizarInsumosTransformacion() {
             ...componente,
             cantidad_calculada: Number(componente.cantidad || 0) * factor,
         }));
-    if (cuerpo) {
-        insumosTransformacionCalculados.forEach((insumo) => {
-            const fila = document.createElement("tr");
-            const cantidadVisual = convertirCantidadParaMostrar(
-                insumo.cantidad_calculada,
-                insumo.unidad
-            );
-            [insumo.producto, cantidadVisual.cantidad, cantidadVisual.unidad].forEach((texto) => {
-                const celda = document.createElement("td");
-                celda.textContent = texto;
-                fila.appendChild(celda);
-            });
-            cuerpo.appendChild(fila);
-        });
-    }
-    if (panel) panel.classList.toggle("hidden", !insumosTransformacionCalculados.length);
 }
 
 function actualizarMermaTransformacion() {
@@ -1699,16 +1665,6 @@ function actualizarMermaTransformacion() {
     const nivelNormal = porcentaje <= MERMA_TECNICA_PORCENTAJE;
     const etiquetaMerma = document.getElementById("merma-transformacion-activa");
     if (etiquetaMerma) etiquetaMerma.textContent = `Merma: ${porcentajeMerma.toFixed(1)}%`;
-    const resumen = document.getElementById("resumen-merma-transformacion");
-    if (resumen) {
-        resumen.textContent = base > 0
-            ? `De ${base.toFixed(2)} kg se obtendrán aproximadamente ${resultante.toFixed(2)} kg.`
-            : "Escribe los kilos que vas a utilizar.";
-        resumen.classList.toggle("merma-normal", nivelNormal);
-        resumen.classList.toggle("merma-alerta", !nivelNormal);
-    }
-    const pesoSencillo = document.getElementById("peso-resultante-sencillo");
-    if (pesoSencillo) pesoSencillo.textContent = `${resultante.toFixed(2)} kg`;
     return { merma, porcentaje, nivelNormal };
 }
 
@@ -1723,8 +1679,6 @@ async function localizarDocumentosTransformacion() {
         mostrarMensaje("No fue posible preparar la transformación. Revisa los kilos e inténtalo nuevamente.");
         return;
     }
-    const boton = document.getElementById("localizar-documentos");
-    if (boton) boton.disabled = true;
     try {
         const folios = await solicitarJson(`${API_RELACIONES}/transformacion/folios-siguientes`);
         const nombreBase = limpiarNombreProducto(document.getElementById("base-transformacion").selectedOptions[0]?.textContent) || "Producto base";
@@ -1770,8 +1724,6 @@ async function localizarDocumentosTransformacion() {
     } catch (error) {
         limpiarVistaPreviaTransformacion();
         mostrarMensaje(error.message);
-    } finally {
-        if (boton) boton.disabled = false;
     }
 }
 
@@ -2037,7 +1989,7 @@ async function seleccionarTransformacionAlternativa(transformacionId) {
         );
         document.getElementById("transformacion-precargada").value = "0";
         actualizarMermaTransformacion();
-        renderizarInsumosTransformacion();
+        calcularInsumosTransformacion();
         document.getElementById("linea-seleccionada-sencilla").textContent = seleccionada.linea;
         document.getElementById("transformacion-seleccionada-sencilla").textContent = limpiarNombreProducto(seleccionada.nombre_transformacion);
         transformacionCatalogoActualId = String(seleccionada.transformacion_id);
@@ -2317,7 +2269,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("cantidad-base-transformacion").addEventListener("input", () => {
         limpiarVistaPreviaTransformacion();
         actualizarMermaTransformacion();
-        renderizarInsumosTransformacion();
+        calcularInsumosTransformacion();
         window.clearTimeout(temporizadorVistaPreviaTransformacion);
         if (detalleTransformacionSeleccionada) {
             temporizadorVistaPreviaTransformacion = window.setTimeout(
