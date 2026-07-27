@@ -77,7 +77,7 @@
                         <label for="resultante-transformacion">Producto resultante</label>
                         <select id="resultante-transformacion" disabled><option value="">Se completará automáticamente</option></select>
                     </div>
-                    <input id="cantidad-resultante-transformacion" type="number" value="{{ '%.3f'|format(ajustes.factor_rendimiento) }}" readonly>
+                    <input id="cantidad-resultante-transformacion" type="number" value="{{ '%.2f'|format(ajustes.factor_rendimiento) }}" readonly>
                 </div>
                 <div class="transformation-operation-layout">
                     <div class="transformation-loaded-data">
@@ -109,7 +109,7 @@
                             </div>
                             <div class="field expected-weight-field" aria-live="polite">
                                 <label>Salida aproximada</label>
-                                <div class="calculated-weight"><strong id="peso-aproximado-transformacion">{{ '%.3f'|format(ajustes.factor_rendimiento) }}</strong><span>kg</span></div>
+                                <div class="calculated-weight"><strong id="peso-aproximado-transformacion">{{ '%.2f'|format(ajustes.factor_rendimiento) }}</strong><span>kg</span></div>
                             </div>
                         </div>
                         <p id="merma-transformacion-activa" class="technical-loss-note">Merma: {{ ajustes.merma_tecnica_porcentaje }}%</p>
@@ -293,14 +293,14 @@
                                 {% endif %}
                             </td>
                             <td class="history-number">
-                                {{ '%.3f'|format(registro.cantidad_base_numero) }} kg
+                                {{ '%.2f'|format(registro.cantidad_base_numero) }} kg
                             </td>
                             <td class="history-number">
-                                {{ '%.3f'|format(registro.cantidad_resultante_numero) }} kg
+                                {{ '%.2f'|format(registro.cantidad_resultante_numero) }} kg
                             </td>
                             <td class="history-number">
                                 <strong>
-                                    {{ '%.3f'|format(registro.merma_numero) }} kg
+                                    {{ '%.2f'|format(registro.merma_numero) }} kg
                                 </strong>
                                 <small>
                                     {{ '%.1f'|format(registro.porcentaje_merma) }}%
@@ -361,7 +361,7 @@
             <div class="card-heading">
                 <span class="step">+</span>
                 <div>
-                    <p class="eyebrow">Nueva configuración</p>
+                    <p id="config-captura-actual" class="eyebrow">Captura actual</p>
                     <h3>Registrar una transformación</h3>
                     <p>Captura los datos y agrega los productos que forman la transformación.</p>
                 </div>
@@ -387,7 +387,7 @@
                     <div class="configuration-weight-actions">
                         <div class="configuration-measure-field">
                             <label for="config-cantidad-base">Kilos a registrar</label>
-                            <div class="quantity-control"><input id="config-cantidad-base" type="number" min="0.01" max="{{ ajustes.maximo_kilos_por_transformacion }}" step="0.001" placeholder="0.000" required><span>kg</span></div>
+                            <div class="quantity-control"><input id="config-cantidad-base" type="number" min="0.01" max="{{ ajustes.maximo_kilos_por_transformacion }}" step="0.01" placeholder="0.00" required><span>kg</span></div>
                         </div>
                         <div class="configuration-measure-field">
                             <label for="config-merma">Merma esperada</label>
@@ -412,9 +412,9 @@
                         </select>
                     </div>
                     <div class="field quantity-field">
-                        <label for="config-insumo-cantidad">Cantidad</label>
+                        <label for="config-insumo-cantidad">Cantidad automática</label>
                         <div class="quantity-control">
-                            <input id="config-insumo-cantidad" type="number" min="0.001" step="0.001" placeholder="0.000">
+                            <input id="config-insumo-cantidad" type="number" step="0.01" placeholder="Según los kilos" readonly>
                             <span id="config-insumo-unidad">kg</span>
                         </div>
                     </div>
@@ -446,17 +446,28 @@
                     </table>
                 </div>
             </section>
+            <section id="configuraciones-pendientes" class="configuration-batch hidden">
+                <div class="ingredients-heading">
+                    <div>
+                        <p class="eyebrow">Capturas pendientes</p>
+                        <h3>Transformaciones</h3>
+                    </div>
+                    <span id="total-configuraciones-pendientes">0 transformaciones</span>
+                </div>
+                <div id="lista-configuraciones-pendientes" class="configuration-capture-list"></div>
+            </section>
             <div id="mensaje-configuracion" class="message" role="status" aria-live="polite"></div>
             <div class="form-actions">
                 <button id="cancelar-nueva-configuracion" type="button" class="button-outline">Cancelar</button>
-                <button id="guardar-configuracion" type="submit">Guardar configuración</button>
+                <button id="agregar-configuracion-lote" type="button" class="button-outline">Agregar otra</button>
+                <button id="guardar-configuracion" type="button">Guardar todas</button>
             </div>
         </form>
         {% endif %}
 
         <section class="configuration-layout">
             <aside class="configuration-catalog">
-                <p class="eyebrow">Catálogos de SSM</p>
+                <p class="eyebrow">CatálogoM</p>
                 <h3>Líneas disponibles</h3>
                 <div class="configuration-lines">
                     {% for linea in lineas %}
@@ -576,7 +587,7 @@
                         </div>
                     </div>
                     <strong id="confirmacion-producto-salida" class="confirmation-product">Producto consumido</strong>
-                    <span id="confirmacion-cantidad-salida" class="confirmation-quantity">0.000 kg</span>
+                    <span id="confirmacion-cantidad-salida" class="confirmation-quantity">0.00 kg</span>
                 </article>
                 <div class="confirmation-connector" aria-hidden="true">
                     <span>→</span>
@@ -590,7 +601,7 @@
                         </div>
                     </div>
                     <strong id="confirmacion-producto-entrada" class="confirmation-product">Producto obtenido</strong>
-                    <span id="confirmacion-cantidad-entrada" class="confirmation-quantity">0.000 kg</span>
+                    <span id="confirmacion-cantidad-entrada" class="confirmation-quantity">0.00 kg</span>
                 </article>
             </div>
             <div class="dialog-actions">

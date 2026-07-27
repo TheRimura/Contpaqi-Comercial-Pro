@@ -25,6 +25,9 @@ let productoCatalogoSeleccionadoId = 0;
 let modoEliminacionCatalogo = false;
 let controladorCargaComponentesConfiguracion = null;
 let paginaCatalogoActual = 1;
+let configuracionesPendientes = [];
+let proporcionesInsumosConfiguracion = new Map();
+let cantidadFormulaBaseConfiguracion = 0;
 const PRODUCTOS_POR_PAGINA = Number(AJUSTES_INTERFAZ.productosPorPagina || 12);
 const HISTORIAL_POR_PAGINA = 10;
 let paginaHistorialActual = 1;
@@ -33,6 +36,25 @@ function limpiarNombreProducto(nombre) {
     return String(nombre || "")
         .replace(/\s*\.?\s*1\s*\(\s*\d+\s*(?:-\s*\d+|\+)\s*\)\s*$/i, "")
         .trim();
+}
+
+function convertirCantidadParaMostrar(cantidad, unidad = "KILO", decimales = 2) {
+    const valor = Number(cantidad || 0);
+    const unidadNormalizada = String(unidad || "KILO").trim().toUpperCase();
+    const estaEnKilos = ["KILO", "KILOS", "KG"].includes(unidadNormalizada);
+    if (estaEnKilos && valor > 0 && valor < 1) {
+        return {
+            cantidad: Number(valor.toFixed(decimales)).toLocaleString("es-MX", {
+                minimumFractionDigits: decimales,
+                maximumFractionDigits: decimales,
+            }),
+            unidad: "GRAMOS",
+        };
+    }
+    return {
+        cantidad: valor.toFixed(decimales),
+        unidad: unidad || "KILO",
+    };
 }
 
 function llenarConfigSelect(elemento, registros, placeholder) {
@@ -105,10 +127,14 @@ async function abrirDetalleProductoCatalogo(producto) {
 
             (formula.componentes || []).forEach((componente) => {
                 const fila = document.createElement("tr");
+                const cantidadVisual = convertirCantidadParaMostrar(
+                    componente.cantidad,
+                    componente.unidad
+                );
                 [
                     limpiarNombreProducto(componente.producto),
-                    Number(componente.cantidad || 0).toFixed(3),
-                    componente.unidad || "SIN UNIDAD",
+                    cantidadVisual.cantidad,
+                    cantidadVisual.unidad,
                 ].forEach((valor) => {
                     const celda = document.createElement("td");
                     celda.textContent = valor;
@@ -306,6 +332,8 @@ async function cargarProductosConfiguracion() {
     cerrarAsignacionInsumosConfiguracion();
     document.getElementById("campo-config-insumo-producto").classList.add("hidden");
     componentesConfiguracion = [];
+    proporcionesInsumosConfiguracion = new Map();
+    cantidadFormulaBaseConfiguracion = 0;
     productosConfiguracionDisponibles = [];
     renderizarComponentesConfiguracion();
     if (!linea) {
@@ -331,6 +359,95 @@ async function cargarProductosConfiguracion() {
     } catch (error) {
         mensajeConfiguracion(error.message);
     }
+}
+
+function recalcularCantidadesInsumosConfiguracion() {
+    const kilos = Number(document.getElementById("config-cantidad-base").value || 0);
+    componentesConfiguracion.forEach((componente) => {
+        if (componente.es_base) {
+            componente.cantidad = kilos;
+            return;
+        }
+        const cantidadFormula = Number(
+            componente.cantidad_formula
+            || proporcionesInsumosConfiguracion.get(Number(componente.producto_id))
+            || 0
+        );
+        if (cantidadFormula > 0 && cantidadFormulaBaseConfiguracion > 0) {
+            componente.cantidad = Number(
+                (kilos * cantidadFormula / cantidadFormulaBaseConfiguracion).toFixed(6)
+            );
+        }
+    });
+
+    const selector = document.getElementById("config-insumo-producto");
+    const proporcion = Number(
+        proporcionesInsumosConfiguracion.get(Number(selector?.value || 0)) || 0
+    );
+    const campoCantidad = document.getElementById("config-insumo-cantidad");
+    const unidadCantidad = document.getElementById("config-insumo-unidad");
+    if (campoCantidad) {
+        const cantidadCalculada = (
+            kilos > 0 && proporcion > 0 && cantidadFormulaBaseConfiguracion > 0
+        )
+            ? kilos * proporcion / cantidadFormulaBaseConfiguracion
+            : 0;
+        const productoSeleccionado = productosConfiguracionDisponibles.find(
+            (producto) => Number(producto.product_id) === Number(selector?.value || 0)
+        );
+        const cantidadVisual = convertirCantidadParaMostrar(
+            cantidadCalculada,
+            productoSeleccionado?.unidad || "KILO"
+        );
+        campoCantidad.value = cantidadCalculada > 0
+            ? cantidadVisual.cantidad.replace(/,/g, "")
+            : "";
+        if (unidadCantidad) {
+            unidadCantidad.textContent = cantidadCalculada > 0
+                ? cantidadVisual.unidad
+                : (productoSeleccionado?.unidad || "kg");
+        }
+    }
+    renderizarComponentesConfiguracion();
+}
+
+async function cargarProporcionesFormulaConfiguracion() {
+    const linea = document.getElementById("config-linea").value;
+    const nombre = document.getElementById("config-nombre").value.trim();
+    proporcionesInsumosConfiguracion = new Map();
+    cantidadFormulaBaseConfiguracion = 0;
+    if (!linea || nombre.length < 3) return false;
+
+    const sugerencia = await solicitarJson(
+        `${API_CONFIGURACION}/base-sugerida?linea=${encodeURIComponent(linea)}&nombre=${encodeURIComponent(nombre)}`
+    );
+    if (!sugerencia?.producto_resultante_id || !sugerencia?.producto_base_id) {
+        return false;
+    }
+    const registros = await solicitarJson(
+        `${API_CONFIGURACION}/formula/${Number(sugerencia.producto_resultante_id)}`
+    );
+    const formulaId = Number(sugerencia.producto_resultante_id);
+    const formulaExacta = registros.filter(
+        (componente) => Number(componente.formula_id) === formulaId
+    );
+    const componentesFormula = formulaExacta.length ? formulaExacta : registros;
+    componentesFormula.forEach((componente) => {
+        const productoId = Number(componente.product_id);
+        const cantidad = Number(componente.cantidad || 0);
+        if (productoId > 0 && cantidad > 0) {
+            proporcionesInsumosConfiguracion.set(productoId, cantidad);
+        }
+    });
+    cantidadFormulaBaseConfiguracion = Number(
+        proporcionesInsumosConfiguracion.get(Number(sugerencia.producto_base_id)) || 0
+    );
+    if (cantidadFormulaBaseConfiguracion <= 0) return false;
+
+    const base = componentesConfiguracion.find((componente) => componente.es_base);
+    if (base) base.cantidad_formula = cantidadFormulaBaseConfiguracion;
+    recalcularCantidadesInsumosConfiguracion();
+    return true;
 }
 
 async function cargarComponentesParaAsignacion() {
@@ -477,6 +594,9 @@ async function alternarAsignacionInsumosConfiguracion() {
     }
     if (!(await cargarComponentesParaAsignacion())) return;
     const baseRelacionada = await agregarBaseSugeridaConfiguracion();
+    const formulaRelacionada = baseRelacionada
+        ? await cargarProporcionesFormulaConfiguracion()
+        : false;
     document.getElementById("campo-config-insumo-producto").classList.remove("hidden");
     if (baseRelacionada) {
         document.getElementById("config-insumo-tipo").value = "INSUMO";
@@ -484,6 +604,10 @@ async function alternarAsignacionInsumosConfiguracion() {
     if (!baseRelacionada) {
         mensajeConfiguracion(
             "No se encontró el producto base. Selecciónalo y cambia el tipo a Producto base."
+        );
+    } else if (!formulaRelacionada) {
+        mensajeConfiguracion(
+            "La fórmula no contiene proporciones válidas para calcular automáticamente los insumos."
         );
     }
     seccion.classList.remove("hidden");
@@ -509,11 +633,15 @@ function renderizarComponentesConfiguracion() {
     }
     componentesConfiguracion.forEach((componente) => {
         const fila = document.createElement("tr");
+        const cantidadVisual = convertirCantidadParaMostrar(
+            componente.cantidad,
+            componente.unidad
+        );
         [
             componente.producto,
             componente.es_base ? "Producto base" : "Insumo",
-            Number(componente.cantidad).toFixed(3),
-            componente.unidad,
+            cantidadVisual.cantidad,
+            cantidadVisual.unidad,
         ].forEach((valor) => {
             const celda = document.createElement("td");
             celda.textContent = valor;
@@ -539,13 +667,25 @@ function renderizarComponentesConfiguracion() {
 function agregarComponenteConfiguracion() {
     const selector = document.getElementById("config-insumo-producto");
     const productoId = Number(selector.value || 0);
-    const cantidad = Number(document.getElementById("config-insumo-cantidad").value || 0);
+    const cantidadFormula = Number(
+        proporcionesInsumosConfiguracion.get(productoId) || 0
+    );
+    const kilos = Number(document.getElementById("config-cantidad-base").value || 0);
+    const cantidad = (
+        kilos > 0
+        && cantidadFormula > 0
+        && cantidadFormulaBaseConfiguracion > 0
+    )
+        ? Number((kilos * cantidadFormula / cantidadFormulaBaseConfiguracion).toFixed(6))
+        : 0;
     const esBase = document.getElementById("config-insumo-tipo").value === "BASE";
     const producto = productosConfiguracionDisponibles.find(
         (registro) => Number(registro.product_id) === productoId
     );
     if (!producto || cantidad <= 0) {
-        mensajeConfiguracion("Selecciona un producto y captura una cantidad válida.");
+        mensajeConfiguracion(
+            "Selecciona un insumo incluido en la fórmula. La cantidad se calcula automáticamente."
+        );
         return;
     }
     if (componentesConfiguracion.some((componente) => componente.producto_id === productoId)) {
@@ -559,6 +699,7 @@ function agregarComponenteConfiguracion() {
         producto_id: productoId,
         producto: limpiarNombreProducto(producto.producto),
         cantidad,
+        cantidad_formula: cantidadFormula,
         unidad: producto.unidad || "KILO",
         es_base: esBase,
     });
@@ -583,55 +724,205 @@ function cerrarNuevaConfiguracion() {
     const formulario = document.getElementById("form-nueva-configuracion");
     formulario.reset();
     componentesConfiguracion = [];
+    configuracionesPendientes = [];
     productosConfiguracionDisponibles = [];
     llenarConfigSelect(document.getElementById("config-insumo-producto"), [], "Selecciona primero una línea");
     cerrarAsignacionInsumosConfiguracion();
     document.getElementById("campo-config-insumo-producto").classList.add("hidden");
     renderizarComponentesConfiguracion();
+    renderizarConfiguracionesPendientes();
     limpiarMensajeConfiguracion();
     formulario.classList.add("hidden");
     document.getElementById("boton-nueva-configuracion").disabled = false;
     document.getElementById("boton-nueva-configuracion").focus();
 }
 
-async function guardarNuevaConfiguracion(evento) {
-    evento.preventDefault();
-    const formulario = evento.currentTarget;
-    if (!formulario.reportValidity()) return;
-    const boton = document.getElementById("guardar-configuracion");
+function construirConfiguracionActual() {
+    const formulario = document.getElementById("form-nueva-configuracion");
+    if (!formulario.reportValidity()) return null;
     if (!componentesConfiguracion.length) {
         mensajeConfiguracion("Agrega por lo menos un producto o insumo.");
-        return;
+        return null;
     }
     if (componentesConfiguracion.filter((componente) => componente.es_base).length !== 1) {
         mensajeConfiguracion("Marca exactamente un ingrediente como producto base.");
+        return null;
+    }
+    return {
+        nombre: document.getElementById("config-nombre").value.trim(),
+        linea: document.getElementById("config-linea").value,
+        cantidad_base: Number(document.getElementById("config-cantidad-base").value),
+        porcentaje_merma: Number(document.getElementById("config-merma").value),
+        componentes: componentesConfiguracion.map((componente) => ({
+            producto_id: componente.producto_id,
+            producto: componente.producto,
+            cantidad: componente.cantidad,
+            unidad: componente.unidad,
+            es_base: componente.es_base,
+        })),
+        observaciones: document.getElementById("config-observaciones").value.trim() || null,
+    };
+}
+
+function renderizarConfiguracionesPendientes() {
+    const panel = document.getElementById("configuraciones-pendientes");
+    const lista = document.getElementById("lista-configuraciones-pendientes");
+    panel.classList.toggle("hidden", !configuracionesPendientes.length);
+    lista.replaceChildren();
+    configuracionesPendientes.forEach((configuracion, indice) => {
+        const base = configuracion.componentes.find((componente) => componente.es_base);
+        const insumos = configuracion.componentes.filter(
+            (componente) => !componente.es_base
+        );
+        const tarjeta = document.createElement("details");
+        tarjeta.className = "configuration-capture-card";
+
+        const resumen = document.createElement("summary");
+        const numero = document.createElement("span");
+        numero.className = "configuration-capture-number";
+        numero.textContent = String(indice + 1);
+        const identidad = document.createElement("div");
+        identidad.className = "configuration-capture-identity";
+        const nombre = document.createElement("strong");
+        nombre.textContent = configuracion.nombre;
+        const linea = document.createElement("small");
+        linea.textContent = configuracion.linea;
+        identidad.append(nombre, linea);
+        const datos = document.createElement("div");
+        datos.className = "configuration-capture-summary";
+        const pesoVisual = convertirCantidadParaMostrar(
+            configuracion.cantidad_base,
+            "KILO"
+        );
+        [
+            ["Producto base", base?.producto || "Sin base"],
+            ["Peso", `${pesoVisual.cantidad} ${pesoVisual.unidad}`],
+            ["Merma", `${Number(configuracion.porcentaje_merma).toFixed(2)}%`],
+            ["Insumos", String(insumos.length)],
+        ].forEach(([etiqueta, valor]) => {
+            const bloque = document.createElement("span");
+            const rotulo = document.createElement("small");
+            const contenido = document.createElement("strong");
+            rotulo.textContent = etiqueta;
+            contenido.textContent = valor;
+            bloque.append(rotulo, contenido);
+            datos.appendChild(bloque);
+        });
+        const indicador = document.createElement("span");
+        indicador.className = "configuration-capture-chevron";
+        indicador.setAttribute("aria-hidden", "true");
+        indicador.textContent = "⌄";
+        resumen.append(numero, identidad, datos, indicador);
+
+        const detalle = document.createElement("div");
+        detalle.className = "configuration-capture-detail";
+        const componentes = document.createElement("div");
+        componentes.className = "configuration-capture-components";
+        configuracion.componentes.forEach((componente) => {
+            const renglon = document.createElement("div");
+            const tipo = document.createElement("span");
+            const producto = document.createElement("strong");
+            const cantidad = document.createElement("b");
+            tipo.textContent = componente.es_base ? "Producto base" : "Insumo";
+            producto.textContent = componente.producto;
+            const cantidadVisual = convertirCantidadParaMostrar(
+                componente.cantidad,
+                componente.unidad
+            );
+            cantidad.textContent = `${cantidadVisual.cantidad} ${cantidadVisual.unidad}`;
+            renglon.append(tipo, producto, cantidad);
+            componentes.appendChild(renglon);
+        });
+        const quitar = document.createElement("button");
+        quitar.type = "button";
+        quitar.className = "button-outline button-compact";
+        quitar.textContent = "Quitar captura";
+        quitar.addEventListener("click", () => {
+            configuracionesPendientes.splice(indice, 1);
+            renderizarConfiguracionesPendientes();
+        });
+        detalle.append(componentes, quitar);
+        tarjeta.append(resumen, detalle);
+        lista.appendChild(tarjeta);
+    });
+    document.getElementById("total-configuraciones-pendientes").textContent =
+        `${configuracionesPendientes.length} transformación${configuracionesPendientes.length === 1 ? "" : "es"}`;
+    document.getElementById("config-captura-actual").textContent =
+        `Captura actual · ${configuracionesPendientes.length + 1}`;
+}
+
+function limpiarCapturaConfiguracion() {
+    document.getElementById("config-nombre").value = "";
+    document.getElementById("config-cantidad-base").value = "";
+    document.getElementById("config-merma").value = String(MERMA_TECNICA_PORCENTAJE);
+    document.getElementById("config-observaciones").value = "";
+    componentesConfiguracion = [];
+    cerrarAsignacionInsumosConfiguracion();
+    renderizarComponentesConfiguracion();
+    document.getElementById("config-nombre").focus();
+}
+
+function agregarConfiguracionPendiente() {
+    const configuracion = construirConfiguracionActual();
+    if (!configuracion) return false;
+    const repetida = configuracionesPendientes.some(
+        (pendiente) =>
+            pendiente.linea.toUpperCase() === configuracion.linea.toUpperCase()
+            && pendiente.nombre.toUpperCase() === configuracion.nombre.toUpperCase()
+    );
+    if (repetida) {
+        mensajeConfiguracion("Esa transformación ya está en la lista por guardar.");
+        return false;
+    }
+    configuracionesPendientes.push(configuracion);
+    renderizarConfiguracionesPendientes();
+    limpiarCapturaConfiguracion();
+    mensajeConfiguracion(
+        "Transformación agregada. Puedes capturar otra o guardar todas.",
+        "success"
+    );
+    return true;
+}
+
+async function guardarNuevaConfiguracion(evento) {
+    evento?.preventDefault();
+    const boton = document.getElementById("guardar-configuracion");
+    const hayCapturaActual = Boolean(
+        document.getElementById("config-nombre").value.trim()
+        || document.getElementById("config-cantidad-base").value
+        || componentesConfiguracion.length
+    );
+    if (hayCapturaActual && !agregarConfiguracionPendiente()) return;
+    if (!configuracionesPendientes.length) {
+        mensajeConfiguracion("Captura o agrega por lo menos una transformación.");
         return;
     }
     boton.disabled = true;
-    boton.textContent = "Guardando...";
+    boton.textContent = "Guardando todas...";
     try {
-        await solicitarJson(`${API_CONFIGURACION}/transformaciones`, {
+        await solicitarJson(`${API_CONFIGURACION}/transformaciones/lote`, {
             method: "POST",
-            body: JSON.stringify({
-                nombre: document.getElementById("config-nombre").value.trim(),
-                linea: document.getElementById("config-linea").value,
-                cantidad_base: Number(document.getElementById("config-cantidad-base").value),
-                porcentaje_merma: Number(document.getElementById("config-merma").value),
-                componentes: componentesConfiguracion.map((componente) => ({
+            body: JSON.stringify(configuracionesPendientes.map((configuracion) => ({
+                ...configuracion,
+                componentes: configuracion.componentes.map((componente) => ({
                     producto_id: componente.producto_id,
                     cantidad: componente.cantidad,
                     unidad: componente.unidad,
                     es_base: componente.es_base,
                 })),
-                observaciones: document.getElementById("config-observaciones").value.trim() || null,
-            }),
+            }))),
         });
-        mensajeConfiguracion("Configuración guardada. Ya está disponible en el módulo de transformación.", "success");
+        configuracionesPendientes = [];
+        renderizarConfiguracionesPendientes();
+        mensajeConfiguracion(
+            "Las configuraciones se guardaron y ya están disponibles en el catálogo.",
+            "success"
+        );
         window.setTimeout(() => window.location.reload(), 900);
     } catch (error) {
         mensajeConfiguracion(error.message);
         boton.disabled = false;
-        boton.textContent = "Guardar configuración";
+        boton.textContent = "Guardar todas";
     }
 }
 
@@ -647,18 +938,14 @@ function iniciarPaginaConfiguracion() {
                 document.getElementById("campo-config-insumo-producto").classList.remove("hidden");
                 if (baseRelacionada) {
                     document.getElementById("config-insumo-tipo").value = "INSUMO";
+                    await cargarProporcionesFormulaConfiguracion();
                 }
             }
         });
-        document.getElementById("config-cantidad-base").addEventListener("input", (evento) => {
-            const baseSugerida = componentesConfiguracion.find(
-                (componente) => componente.es_base && componente.es_sugerido
-            );
-            if (baseSugerida && Number(evento.target.value) > 0) {
-                baseSugerida.cantidad = Number(evento.target.value);
-                renderizarComponentesConfiguracion();
-            }
-        });
+        document.getElementById("config-cantidad-base").addEventListener(
+            "input",
+            recalcularCantidadesInsumosConfiguracion
+        );
         document.getElementById("ir-asignar-insumos").addEventListener(
             "click",
             alternarAsignacionInsumosConfiguracion
@@ -669,8 +956,17 @@ function iniciarPaginaConfiguracion() {
             );
             document.getElementById("config-insumo-unidad").textContent =
                 producto?.unidad || "kg";
+            recalcularCantidadesInsumosConfiguracion();
         });
         document.getElementById("agregar-config-insumo").addEventListener("click", agregarComponenteConfiguracion);
+        document.getElementById("agregar-configuracion-lote").addEventListener(
+            "click",
+            agregarConfiguracionPendiente
+        );
+        document.getElementById("guardar-configuracion").addEventListener(
+            "click",
+            guardarNuevaConfiguracion
+        );
         formulario.addEventListener("submit", guardarNuevaConfiguracion);
     }
     document.querySelectorAll(".configuration-line").forEach((boton) => {
@@ -791,7 +1087,8 @@ function crearDocumentoDetalleHistorial(titulo, folio, partidas, tipo) {
         const producto = document.createElement("td");
         producto.textContent = limpiarNombreProducto(partida.ProductName) || "Producto";
         const cantidad = document.createElement("td");
-        cantidad.textContent = `${Number(partida.Quantity || 0).toFixed(3)} kg`;
+        const cantidadVisual = convertirCantidadParaMostrar(partida.Quantity, "KILO");
+        cantidad.textContent = `${cantidadVisual.cantidad} ${cantidadVisual.unidad}`;
         fila.append(producto, cantidad);
         cuerpo.appendChild(fila);
     });
@@ -877,7 +1174,7 @@ async function exportarHistorialExcel() {
         const celdaTexto = (valor, estilo = "Dato", combinadas = 0) =>
             `<Cell ss:StyleID="${estilo}"${combinadas ? ` ss:MergeAcross="${combinadas}"` : ""}><Data ss:Type="String">${escaparXml(valor)}</Data></Cell>`;
         const celdaNumero = (valor) =>
-            `<Cell ss:StyleID="Cantidad"><Data ss:Type="Number">${Number(valor || 0).toFixed(3)}</Data></Cell>`;
+            `<Cell ss:StyleID="Cantidad"><Data ss:Type="Number">${Number(valor || 0).toFixed(2)}</Data></Cell>`;
         const fechaTexto = (valor) => {
             const fecha = valor ? new Date(valor) : null;
             return fecha && !Number.isNaN(fecha.getTime())
@@ -912,7 +1209,7 @@ async function exportarHistorialExcel() {
   <Style ss:ID="Etiqueta"><Font ss:Bold="1" ss:Color="#263A78"/><Interior ss:Color="#EEF2FA" ss:Pattern="Solid"/></Style>
   <Style ss:ID="Dato"><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D8E0EA"/></Borders><Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
   <Style ss:ID="DatoCentrado"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style>
-  <Style ss:ID="Cantidad"><NumberFormat ss:Format="0.000"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
+  <Style ss:ID="Cantidad"><NumberFormat ss:Format="0.00"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
   <Style ss:ID="Salida"><Font ss:Bold="1" ss:Color="#B51223"/><Interior ss:Color="#FFF0F1" ss:Pattern="Solid"/></Style>
   <Style ss:ID="Entrada"><Font ss:Bold="1" ss:Color="#08776C"/><Interior ss:Color="#EAF8F0" ss:Pattern="Solid"/></Style>
  </Styles>
@@ -1256,7 +1553,11 @@ function renderizarInsumosTransformacion() {
     if (cuerpo) {
         insumosTransformacionCalculados.forEach((insumo) => {
             const fila = document.createElement("tr");
-            [insumo.producto, formatoNumero(insumo.cantidad_calculada, 3), insumo.unidad].forEach((texto) => {
+            const cantidadVisual = convertirCantidadParaMostrar(
+                insumo.cantidad_calculada,
+                insumo.unidad
+            );
+            [insumo.producto, cantidadVisual.cantidad, cantidadVisual.unidad].forEach((texto) => {
                 const celda = document.createElement("td");
                 celda.textContent = texto;
                 fila.appendChild(celda);
@@ -1275,9 +1576,9 @@ function actualizarMermaTransformacion() {
     );
     const factorRendimiento = 1 - (porcentajeMerma / 100);
     const resultante = base * factorRendimiento;
-    document.getElementById("cantidad-resultante-transformacion").value = resultante.toFixed(3);
+    document.getElementById("cantidad-resultante-transformacion").value = resultante.toFixed(2);
     const pesoAproximado = document.getElementById("peso-aproximado-transformacion");
-    if (pesoAproximado) pesoAproximado.textContent = resultante.toFixed(3);
+    if (pesoAproximado) pesoAproximado.textContent = resultante.toFixed(2);
     const merma = base * (porcentajeMerma / 100);
     const porcentaje = base > 0 ? porcentajeMerma : 0;
     const nivelNormal = porcentaje <= MERMA_TECNICA_PORCENTAJE;
@@ -1286,13 +1587,13 @@ function actualizarMermaTransformacion() {
     const resumen = document.getElementById("resumen-merma-transformacion");
     if (resumen) {
         resumen.textContent = base > 0
-            ? `De ${base.toFixed(3)} kg se obtendrán aproximadamente ${resultante.toFixed(3)} kg.`
+            ? `De ${base.toFixed(2)} kg se obtendrán aproximadamente ${resultante.toFixed(2)} kg.`
             : "Escribe los kilos que vas a utilizar.";
         resumen.classList.toggle("merma-normal", nivelNormal);
         resumen.classList.toggle("merma-alerta", !nivelNormal);
     }
     const pesoSencillo = document.getElementById("peso-resultante-sencillo");
-    if (pesoSencillo) pesoSencillo.textContent = `${resultante.toFixed(3)} kg`;
+    if (pesoSencillo) pesoSencillo.textContent = `${resultante.toFixed(2)} kg`;
     return { merma, porcentaje, nivelNormal };
 }
 
@@ -1670,8 +1971,8 @@ function solicitarConfirmacionRegistro() {
 
         document.getElementById("confirmacion-producto-salida").textContent = productoSalida;
         document.getElementById("confirmacion-producto-entrada").textContent = productoEntrada;
-        document.getElementById("confirmacion-cantidad-salida").textContent = `${cantidadSalida.toFixed(3)} kg`;
-        document.getElementById("confirmacion-cantidad-entrada").textContent = `${cantidadEntrada.toFixed(3)} kg`;
+        document.getElementById("confirmacion-cantidad-salida").textContent = `${cantidadSalida.toFixed(2)} kg`;
+        document.getElementById("confirmacion-cantidad-entrada").textContent = `${cantidadEntrada.toFixed(2)} kg`;
 
         const cerrar = (confirmado) => {
             modal.classList.add("hidden");

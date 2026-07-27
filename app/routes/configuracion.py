@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 
 from app.schemas.configuracion import CrearConfiguracionTransformacion
@@ -99,4 +99,49 @@ def crear_transformacion(
     return {
         'mensaje': 'Configuración guardada correctamente.',
         'transformacion_id': transformacion_id,
+    }
+
+
+@router.post('/transformaciones/lote', status_code=status.HTTP_201_CREATED)
+def crear_transformaciones_lote(
+    request: Request,
+    datos: list[CrearConfiguracionTransformacion] = Body(
+        min_length=1,
+        max_length=20,
+    ),
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    sesion = seguridad_sesion.requerir_permiso(
+        request, 'crear_configuracion'
+    )
+    nombres = {
+        (registro.linea.strip().upper(), registro.nombre.strip().upper())
+        for registro in datos
+    }
+    if len(nombres) != len(datos):
+        raise HTTPException(
+            status_code=400,
+            detail='La lista contiene una transformación repetida.',
+        )
+
+    transformaciones_ids = []
+    for indice, registro in enumerate(datos, start=1):
+        try:
+            transformaciones_ids.append(
+                base_datos.crear_configuracion_transformacion(
+                    datos=registro,
+                    usuario_id=int(sesion['user_id']),
+                )
+            )
+        except ValueError as error:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'No se pudo guardar la transformación {indice} '
+                    f'({registro.nombre}): {error}'
+                ),
+            ) from error
+    return {
+        'mensaje': f'{len(transformaciones_ids)} configuraciones guardadas.',
+        'transformaciones_ids': transformaciones_ids,
     }
