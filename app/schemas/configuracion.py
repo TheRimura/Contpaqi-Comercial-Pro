@@ -45,3 +45,5 @@ class CrearConfiguracionTransformacion(BaseModel):
                 'Debes marcar exactamente un componente como producto base.'
             )
         return self
+
+
