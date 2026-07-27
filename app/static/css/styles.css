@@ -329,6 +329,7 @@ tbody tr:hover { background: var(--red-soft); }
 .configuration-batch { margin-bottom: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: #f8fafc; }
 .configuration-batch .ingredients-heading { margin-bottom: 10px; }
 .configuration-capture-list { display: grid; gap: 8px; }
+.configuration-capture-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .configuration-capture-card { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
 .configuration-capture-card[open] { border-color: var(--blue); box-shadow: 0 8px 20px rgba(38,58,120,.08); }
 .configuration-capture-card summary { display: grid; grid-template-columns: 28px minmax(170px, .8fr) minmax(390px, 1.7fr) 24px; align-items: center; gap: 11px; padding: 11px 13px; cursor: pointer; list-style: none; }
