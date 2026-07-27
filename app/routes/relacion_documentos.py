@@ -207,7 +207,7 @@ def exportar_documentos_relacionados(
     seguridad_sesion.requerir_permiso(request, 'ver_historial')
     return jsonable_encoder(
         base_datos.listar_documentos_relacionados_exportacion(
-            limite=500
+            limite=400
         )
     )
 

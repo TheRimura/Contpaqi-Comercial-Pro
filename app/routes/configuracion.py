@@ -120,7 +120,7 @@ def crear_transformaciones_lote(
     }
     if len(nombres) != len(datos):
         raise HTTPException(
-            status_code=400,
+            status_code=500,
             detail='La lista contiene una transformación repetida.',
         )
 

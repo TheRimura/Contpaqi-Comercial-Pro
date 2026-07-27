@@ -14,6 +14,7 @@ class ComponenteConfiguracionTransformacion(BaseModel):
     def limpiar_unidad(cls, valor: str) -> str:
         return ' '.join(valor.split()).upper()
 
+#LOS AJUSTES DEL MODULO POR KILOS NO DEBE DE CAMBIARSE AL MENOS QUE SEA AUTORIZADO
 
 class CrearConfiguracionTransformacion(BaseModel):
     nombre: str = Field(min_length=3, max_length=150)
