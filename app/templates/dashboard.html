@@ -229,19 +229,19 @@
             <div class="history-kpis" aria-label="Resumen de transformaciones del mes">
                 <article class="history-kpi">
                     <small>Transformaciones del mes</small>
-                    <strong>{{ resumen_historial.transformaciones }}</strong>
+                    <strong id="historial-kpi-transformaciones">{{ resumen_historial.transformaciones }}</strong>
                 </article>
                 <article class="history-kpi">
                     <small>Kilos procesados</small>
-                    <strong>{{ '%.2f'|format(resumen_historial.kilos_procesados) }} <span>kg</span></strong>
+                    <strong><span id="historial-kpi-kilos" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.kilos_procesados) }}</span> <span>kg</span></strong>
                 </article>
                 <article class="history-kpi">
                     <small>Merma acumulada</small>
-                    <strong>{{ '%.2f'|format(resumen_historial.merma_acumulada) }} <span>kg</span></strong>
+                    <strong><span id="historial-kpi-merma" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.merma_acumulada) }}</span> <span>kg</span></strong>
                 </article>
                 <article class="history-kpi history-kpi-performance">
                     <small>Rendimiento</small>
-                    <strong>{{ '%.1f'|format(resumen_historial.rendimiento) }}<span>%</span></strong>
+                    <strong><span id="historial-kpi-rendimiento" class="history-kpi-value">{{ '%.1f'|format(resumen_historial.rendimiento) }}</span><span>%</span></strong>
                 </article>
             </div>
 
@@ -251,9 +251,63 @@
                     <h2>Transformaciones realizadas</h2>
                 </div>
                 <div class="history-actions">
+                    <button id="mostrar-filtros-historial" type="button" class="button-outline" aria-expanded="false">Filtros</button>
                     <button id="exportar-historial" type="button" class="button-outline">Exportar documentos</button>
                 </div>
             </header>
+
+            <form id="filtros-historial" class="history-filters hidden">
+                <div class="field">
+                    <label for="historial-fecha-desde">Desde</label>
+                    <input id="historial-fecha-desde" type="date">
+                </div>
+                <div class="field">
+                    <label for="historial-fecha-hasta">Hasta</label>
+                    <input id="historial-fecha-hasta" type="date">
+                </div>
+                <div class="field">
+                    <label for="historial-linea">Línea cárnica</label>
+                    <select id="historial-linea">
+                        <option value="">Todas</option>
+                        <option value="CERDO">Cerdo</option>
+                        <option value="POLLO">Pollo</option>
+                        <option value="RES LOCAL">Res Local</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="historial-transformacion">Transformación</label>
+                    <input id="historial-transformacion" type="search" maxlength="150" placeholder="Nombre del producto">
+                </div>
+                <div class="field">
+                    <label for="historial-tablajero">Tablajero</label>
+                    <input id="historial-tablajero" type="search" maxlength="150" placeholder="Nombre del responsable">
+                </div>
+                <div class="field">
+                    <label for="historial-folio">Folio SA o EA</label>
+                    <input id="historial-folio" type="search" maxlength="50" placeholder="Ej. SA61460">
+                </div>
+                <div class="field">
+                    <label for="historial-estado">Estado</label>
+                    <select id="historial-estado">
+                        <option value="">Todos</option>
+                        <option value="RELACIONADO">Relacionado</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="historial-nivel-merma">Nivel de merma</label>
+                    <select id="historial-nivel-merma">
+                        <option value="">Todos</option>
+                        <option value="NORMAL">Normal (hasta 8%)</option>
+                        <option value="ADVERTENCIA">Advertencia (8% a 12%)</option>
+                        <option value="CRITICA">Crítica (más de 12%)</option>
+                    </select>
+                </div>
+                <div class="history-filter-actions">
+                    <button id="limpiar-filtros-historial" type="button" class="button-outline">Limpiar</button>
+                    <button type="submit">Buscar</button>
+                </div>
+            </form>
+            <p id="resumen-filtros-historial" class="history-filter-summary hidden"></p>
 
             <div class="history-table-wrap">
                 <table class="history-table">

@@ -1167,6 +1167,14 @@ class BaseDatos(ComandosBaseDatos):
     def listar_historial_transformaciones(
         self,
         limite: int = 100,
+        fecha_desde: str = '',
+        fecha_hasta: str = '',
+        linea: str = '',
+        transformacion: str = '',
+        tablajero: str = '',
+        folio: str = '',
+        estado: str = '',
+        nivel_merma: str = '',
     ) -> list[dict]:
         limite = min(max(int(limite), 1), 500)
         filas = self.fetchall(
@@ -1187,6 +1195,7 @@ class BaseDatos(ComandosBaseDatos):
                 ISNULL(U.UserName, '') AS usuario,
                 ISNULL(Empleado.OfficialName, '') AS tablajero,
                 ISNULL(Base.ProductName, '') AS producto_base,
+                ISNULL(Base.Category1, '') AS linea,
                 ISNULL(Base.Quantity, 0) AS cantidad_base,
                 ISNULL(Resultado.ProductName, '') AS producto_resultante,
                 ISNULL(Resultado.Quantity, 0) AS cantidad_resultante,
@@ -1209,7 +1218,7 @@ class BaseDatos(ComandosBaseDatos):
             ) AS Empleado
             OUTER APPLY
             (
-                SELECT TOP 1 P.ProductName, DI.Quantity
+                SELECT TOP 1 P.ProductName, P.Category1, DI.Quantity
                 FROM dbo.docDocumentItem AS DI
                 INNER JOIN dbo.orgProduct AS P
                     ON P.ProductID = DI.ProductID
@@ -1241,11 +1250,80 @@ class BaseDatos(ComandosBaseDatos):
               AND E.DeletedOn IS NULL
               AND TRY_CONVERT(INT, S.CustomCbo) = 2
               AND TRY_CONVERT(INT, E.CustomCbo) = 5
+              AND (? = '' OR CAST(R.CreatedOn AS DATE) >= TRY_CONVERT(DATE, ?))
+              AND (? = '' OR CAST(R.CreatedOn AS DATE) <= TRY_CONVERT(DATE, ?))
+              AND (? = '' OR UPPER(ISNULL(Base.Category1, '')) = UPPER(?))
+              AND (
+                    ? = ''
+                    OR UPPER(ISNULL(Resultado.ProductName, '')) LIKE
+                       '%' + UPPER(?) + '%'
+                  )
+              AND (
+                    ? = ''
+                    OR UPPER(ISNULL(Empleado.OfficialName, '')) LIKE
+                       '%' + UPPER(?) + '%'
+                  )
+              AND (
+                    ? = ''
+                    OR UPPER(
+                        ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '')
+                        + ' '
+                        + ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '')
+                    ) LIKE '%' + UPPER(?) + '%'
+                  )
+              AND (? = '' OR UPPER(?) = 'RELACIONADO')
+              AND (
+                    ? = ''
+                    OR (
+                        UPPER(?) = 'NORMAL'
+                        AND ISNULL(Base.Quantity, 0) > 0
+                        AND (
+                            (ISNULL(Base.Quantity, 0) - ISNULL(Resultado.Quantity, 0))
+                            / ISNULL(Base.Quantity, 0) * 100
+                        ) <= ?
+                    )
+                    OR (
+                        UPPER(?) = 'ADVERTENCIA'
+                        AND ISNULL(Base.Quantity, 0) > 0
+                        AND (
+                            (ISNULL(Base.Quantity, 0) - ISNULL(Resultado.Quantity, 0))
+                            / ISNULL(Base.Quantity, 0) * 100
+                        ) > ?
+                        AND (
+                            (ISNULL(Base.Quantity, 0) - ISNULL(Resultado.Quantity, 0))
+                            / ISNULL(Base.Quantity, 0) * 100
+                        ) <= ?
+                    )
+                    OR (
+                        UPPER(?) = 'CRITICA'
+                        AND ISNULL(Base.Quantity, 0) > 0
+                        AND (
+                            (ISNULL(Base.Quantity, 0) - ISNULL(Resultado.Quantity, 0))
+                            / ISNULL(Base.Quantity, 0) * 100
+                        ) > ?
+                    )
+                  )
             ORDER BY
                 R.CreatedOn DESC,
                 R.DocumentWarehouseRelationID DESC
             """,
-            (limite,),
+            (
+                limite,
+                fecha_desde, fecha_desde,
+                fecha_hasta, fecha_hasta,
+                linea, linea,
+                transformacion, transformacion,
+                tablajero, tablajero,
+                folio, folio,
+                estado, estado,
+                nivel_merma, nivel_merma,
+                AJUSTES_MODULO.merma_tecnica_porcentaje,
+                nivel_merma,
+                AJUSTES_MODULO.merma_tecnica_porcentaje,
+                AJUSTES_MODULO.merma_tecnica_porcentaje * 1.5,
+                nivel_merma,
+                AJUSTES_MODULO.merma_tecnica_porcentaje * 1.5,
+            ),
         )
         patron_rango = re.compile(
             r"\s*\.?\s*1\s*\(\s*\d+\s*(?:-\s*\d+|\+)\s*\)\s*$",

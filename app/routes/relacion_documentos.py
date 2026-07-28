@@ -1,4 +1,5 @@
 import unicodedata
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -208,6 +209,36 @@ def exportar_documentos_relacionados(
     return jsonable_encoder(
         base_datos.listar_documentos_relacionados_exportacion(
             limite=400
+        )
+    )
+
+
+@router.get('/historial')
+def consultar_historial(
+    request: Request,
+    fecha_desde: Optional[date] = Query(default=None),
+    fecha_hasta: Optional[date] = Query(default=None),
+    linea: str = Query(default='', max_length=30),
+    transformacion: str = Query(default='', max_length=150),
+    tablajero: str = Query(default='', max_length=150),
+    folio: str = Query(default='', max_length=50),
+    estado: str = Query(default='', max_length=30),
+    nivel_merma: str = Query(default='', max_length=30),
+    limite: int = Query(default=500, ge=1, le=500),
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    seguridad_sesion.requerir_permiso(request, 'ver_historial')
+    return jsonable_encoder(
+        base_datos.listar_historial_transformaciones(
+            limite=limite,
+            fecha_desde=fecha_desde.isoformat() if fecha_desde else '',
+            fecha_hasta=fecha_hasta.isoformat() if fecha_hasta else '',
+            linea=linea,
+            transformacion=transformacion,
+            tablajero=tablajero,
+            folio=folio,
+            estado=estado,
+            nivel_merma=nivel_merma,
         )
     )
 

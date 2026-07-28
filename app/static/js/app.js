@@ -34,6 +34,8 @@ let cantidadFormulaBaseConfiguracion = 0;
 const PRODUCTOS_POR_PAGINA = Number(AJUSTES_INTERFAZ.productosPorPagina || 12);
 const HISTORIAL_POR_PAGINA = 10;
 let paginaHistorialActual = 1;
+let registrosHistorialActual = [];
+let historialCargadoDesdeServidor = false;
 let registrosAuditoriaConfiguracion = [];
 
 function limpiarNombreProducto(nombre) {
@@ -1471,6 +1473,89 @@ function iniciarPaginaConfiguracion() {
     );
 }
 
+function normalizarRegistroHistorial(registro) {
+    const entrada = Number(registro.cantidad_base || 0);
+    const salida = Number(registro.cantidad_resultante || 0);
+    const merma = Math.max(entrada - salida, 0);
+    const porcentajeMerma = entrada > 0 ? merma / entrada * 100 : 0;
+    return { ...registro, entrada, salida, merma, porcentajeMerma };
+}
+
+function crearFilaHistorial(registroOriginal) {
+    const registro = normalizarRegistroHistorial(registroOriginal);
+    const fila = document.createElement("tr");
+    fila.className = "history-row";
+    fila.dataset.relacionId = String(registro.relacion_id);
+    fila.tabIndex = 0;
+    fila.title = "Ver documentos relacionados";
+    const fecha = registro.fecha_hora ? new Date(registro.fecha_hora) : null;
+    const fechaTexto = fecha && !Number.isNaN(fecha.getTime())
+        ? fecha.toLocaleDateString("es-MX")
+        : "Sin fecha";
+    const horaTexto = fecha && !Number.isNaN(fecha.getTime())
+        ? fecha.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })
+        : "";
+    fila.innerHTML = `
+        <td><span class="history-date"></span><small></small></td>
+        <td><strong></strong><small></small></td>
+        <td><strong></strong>${Number(registro.total_insumos || 0) ? `<small>${Number(registro.total_insumos)} insumos</small>` : ""}</td>
+        <td class="history-number">${registro.entrada.toFixed(2)} kg</td>
+        <td class="history-number">${registro.salida.toFixed(2)} kg</td>
+        <td class="history-number"><strong>${registro.merma.toFixed(2)} kg</strong><small>${registro.porcentajeMerma.toFixed(1)}%</small></td>
+        <td><strong></strong></td>
+        <td><span class="history-folios"></span></td>
+        <td><span class="history-status">Relacionado</span></td>`;
+    fila.children[0].querySelector("span").textContent = fechaTexto;
+    fila.children[0].querySelector("small").textContent = horaTexto;
+    fila.children[1].querySelector("strong").textContent = registro.tablajero || "No registrado";
+    fila.children[1].querySelector("small").textContent = registro.usuario || "Sin usuario";
+    fila.children[2].querySelector("strong").textContent = limpiarNombreProducto(registro.producto_base) || "No disponible";
+    fila.children[6].querySelector("strong").textContent = limpiarNombreProducto(registro.producto_resultante) || "No disponible";
+    fila.children[7].querySelector("span").textContent = `${registro.folio_salida || "Sin folio"} → ${registro.folio_entrada || "Sin folio"}`;
+    const abrir = () => abrirDetalleHistorial(Number(registro.relacion_id));
+    fila.addEventListener("click", abrir);
+    fila.addEventListener("keydown", (evento) => {
+        if (evento.key === "Enter" || evento.key === " ") {
+            evento.preventDefault();
+            abrir();
+        }
+    });
+    return fila;
+}
+
+function renderizarFilasHistorial() {
+    const cuerpo = document.getElementById("filas-historial");
+    if (!cuerpo) return;
+    cuerpo.replaceChildren();
+    registrosHistorialActual.forEach((registro) => {
+        cuerpo.appendChild(crearFilaHistorial(registro));
+    });
+    if (!registrosHistorialActual.length) {
+        const fila = document.createElement("tr");
+        fila.innerHTML = '<td colspan="9" class="history-empty">No se encontraron transformaciones con estos filtros.</td>';
+        cuerpo.appendChild(fila);
+    }
+    renderizarPaginaHistorial();
+}
+
+function actualizarResumenHistorial() {
+    const datos = registrosHistorialActual.map(normalizarRegistroHistorial);
+    const kilos = datos.reduce((total, registro) => total + registro.entrada, 0);
+    const salida = datos.reduce((total, registro) => total + registro.salida, 0);
+    const merma = Math.max(kilos - salida, 0);
+    const rendimiento = kilos > 0 ? salida / kilos * 100 : 0;
+    const valores = {
+        "historial-kpi-transformaciones": String(datos.length),
+        "historial-kpi-kilos": kilos.toFixed(2),
+        "historial-kpi-merma": merma.toFixed(2),
+        "historial-kpi-rendimiento": rendimiento.toFixed(1),
+    };
+    Object.entries(valores).forEach(([id, valor]) => {
+        const elemento = document.getElementById(id);
+        if (elemento) elemento.textContent = valor;
+    });
+}
+
 function renderizarPaginaHistorial() {
     const filas = [...document.querySelectorAll("#filas-historial .history-row")];
     const paginacion = document.getElementById("paginacion-historial");
@@ -1507,42 +1592,71 @@ function conectarControlesHistorial() {
         "click",
         () => cambiarPaginaHistorial(1)
     );
-    document.querySelectorAll("#filas-historial .history-row").forEach((fila) => {
-        const abrir = () => abrirDetalleHistorial(Number(fila.dataset.relacionId));
-        fila.addEventListener("click", abrir);
-        fila.addEventListener("keydown", (evento) => {
-            if (evento.key === "Enter" || evento.key === " ") {
-                evento.preventDefault();
-                abrir();
-            }
-        });
+    document.getElementById("mostrar-filtros-historial")?.addEventListener("click", () => {
+        const panel = document.getElementById("filtros-historial");
+        const abrir = panel.classList.contains("hidden");
+        panel.classList.toggle("hidden", !abrir);
+        document.getElementById("mostrar-filtros-historial")
+            .setAttribute("aria-expanded", String(abrir));
+    });
+    document.getElementById("filtros-historial")?.addEventListener("submit", (evento) => {
+        evento.preventDefault();
+        consultarHistorialFiltrado();
+    });
+    document.getElementById("limpiar-filtros-historial")?.addEventListener("click", () => {
+        document.getElementById("filtros-historial").reset();
+        consultarHistorialFiltrado();
     });
 }
 
 async function actualizarHistorialDesdeServidor() {
-    const historialActual = document.getElementById("vista-historial");
-    if (!historialActual) return;
+    if (!document.getElementById("vista-historial")) return;
+    await consultarHistorialFiltrado();
+}
 
+function parametrosFiltrosHistorial() {
+    const campos = {
+        fecha_desde: "historial-fecha-desde",
+        fecha_hasta: "historial-fecha-hasta",
+        linea: "historial-linea",
+        transformacion: "historial-transformacion",
+        tablajero: "historial-tablajero",
+        folio: "historial-folio",
+        estado: "historial-estado",
+        nivel_merma: "historial-nivel-merma",
+    };
+    const parametros = new URLSearchParams({ limite: "500" });
+    Object.entries(campos).forEach(([nombre, id]) => {
+        const valor = document.getElementById(id)?.value?.trim();
+        if (valor) parametros.set(nombre, valor);
+    });
+    return parametros;
+}
+
+async function consultarHistorialFiltrado() {
+    const cuerpo = document.getElementById("filas-historial");
+    if (!cuerpo) return;
+    cuerpo.innerHTML = '<tr><td colspan="9" class="history-empty">Consultando historial en SSM...</td></tr>';
     try {
-        const respuesta = await fetch("/dashboard", {
-            credentials: "same-origin",
-            cache: "no-store",
-        });
-        if (!respuesta.ok) return;
-
-        const documento = new DOMParser().parseFromString(
-            await respuesta.text(),
-            "text/html"
+        const parametros = parametrosFiltrosHistorial();
+        registrosHistorialActual = await solicitarJson(
+            `${API_RELACIONES}/historial?${parametros.toString()}`
         );
-        const historialNuevo = documento.getElementById("vista-historial");
-        if (!historialNuevo) return;
-
-        historialActual.innerHTML = historialNuevo.innerHTML;
+        historialCargadoDesdeServidor = true;
         paginaHistorialActual = 1;
-        conectarControlesHistorial();
-        renderizarPaginaHistorial();
+        renderizarFilasHistorial();
+        actualizarResumenHistorial();
+        const resumen = document.getElementById("resumen-filtros-historial");
+        const filtrosAplicados = [...parametros.keys()].filter(
+            (nombre) => nombre !== "limite"
+        ).length;
+        resumen.textContent = filtrosAplicados
+            ? `${registrosHistorialActual.length} registros encontrados con ${filtrosAplicados} filtros.`
+            : `${registrosHistorialActual.length} transformaciones disponibles.`;
+        resumen.classList.remove("hidden");
     } catch (error) {
-        console.error("No fue posible actualizar el historial.", error);
+        registrosHistorialActual = [];
+        cuerpo.innerHTML = `<tr><td colspan="9" class="history-empty">${error.message}</td></tr>`;
     }
 }
 
@@ -1627,9 +1741,19 @@ async function exportarHistorialExcel() {
     }
 
     try {
-        const partidas = await solicitarJson(
+        const partidasDisponibles = await solicitarJson(
             `${API_RELACIONES}/historial/exportacion`
         );
+        const relacionesVisibles = new Set(
+            registrosHistorialActual.map(
+                (registro) => Number(registro.relacion_id)
+            )
+        );
+        const partidas = historialCargadoDesdeServidor
+            ? partidasDisponibles.filter(
+                (partida) => relacionesVisibles.has(Number(partida.relacion_id))
+            )
+            : partidasDisponibles;
         if (!Array.isArray(partidas) || !partidas.length) {
             throw new Error("No hay documentos relacionados para exportar.");
         }
@@ -2705,5 +2829,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const vistaSolicitada = window.location.hash.replace("#", "");
     if (["historial", "configuracion"].includes(vistaSolicitada)) {
         mostrarVistaModulo(vistaSolicitada);
+        if (vistaSolicitada === "historial") actualizarHistorialDesdeServidor();
     }
 });
