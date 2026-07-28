@@ -9,6 +9,7 @@
 </head>
 <body id="dashboardPage" class="app-body"
       data-merma-tecnica="{{ ajustes.merma_tecnica_porcentaje }}"
+      data-maximo-kilos="{{ ajustes.maximo_kilos_por_transformacion }}"
       data-transformaciones-por-pagina="{{ ajustes.transformaciones_por_pagina }}"
       data-productos-por-pagina="{{ ajustes.productos_por_pagina }}">
     <header class="app-header with-primary-nav">
@@ -492,7 +493,7 @@
 
         <section class="configuration-layout">
             <aside class="configuration-catalog">
-                <p class="eyebrow">CatálogoM</p>
+                <p class="eyebrow">Catálogo</p>
                 <h3>Líneas disponibles</h3>
                 <div class="configuration-lines">
                     {% for linea in lineas %}
@@ -691,11 +692,6 @@
             <div class="catalog-delete-product">
                 <small>Producto seleccionado</small>
                 <strong id="nombre-producto-a-eliminar">Producto</strong>
-            </div>
-            <div class="field audit-reason-field">
-                <label for="motivo-eliminacion-producto">Motivo del cambio</label>
-                <textarea id="motivo-eliminacion-producto" maxlength="300" rows="3" placeholder="Explica por qué se ocultará este producto"></textarea>
-                <small>Este motivo quedará guardado en la auditoría.</small>
             </div>
             <div class="dialog-actions">
                 <button id="cancelar-eliminacion-producto" type="button" class="button-outline">Cancelar</button>

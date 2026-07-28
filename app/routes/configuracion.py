@@ -158,7 +158,7 @@ def crear_transformaciones_lote(
     }
     if len(nombres) != len(datos):
         raise HTTPException(
-            status_code=500,
+            status_code=400,
             detail='La lista contiene una transformación repetida.',
         )
 
@@ -173,6 +173,9 @@ def crear_transformaciones_lote(
                 )
             )
         except ValueError as error:
+            base_datos.eliminar_configuraciones_incompletas(
+                transformaciones_ids
+            )
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -180,6 +183,11 @@ def crear_transformaciones_lote(
                     f'({registro.nombre}): {error}'
                 ),
             ) from error
+        except Exception:
+            base_datos.eliminar_configuraciones_incompletas(
+                transformaciones_ids
+            )
+            raise
     return {
         'mensaje': f'{len(transformaciones_ids)} configuraciones guardadas.',
         'transformaciones_ids': transformaciones_ids,

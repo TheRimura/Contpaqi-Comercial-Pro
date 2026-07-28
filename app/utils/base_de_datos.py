@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import secrets
 import unicodedata
 
 import pyodbc
@@ -13,9 +12,6 @@ from typing import Optional
 from cayal.comandos_base_datos import ComandosBaseDatos
 
 from app.settings import AJUSTES_MODULO
-
-
-_CLAVE_FIRMA_TEMPORAL = secrets.token_urlsafe(64)
 
 
 class BaseDatos(ComandosBaseDatos):
@@ -73,8 +69,49 @@ class BaseDatos(ComandosBaseDatos):
                 "SESSION_COOKIE_NAME no puede estar vacío."
             )
 
+        if not clave_firma:
+            clave_firma = str(self.fetchone(
+                """
+                SET XACT_ABORT ON;
+                IF OBJECT_ID(
+                    'dbo.ModuloCarnicoConfiguracionSeguridad', 'U'
+                ) IS NULL
+                BEGIN
+                    CREATE TABLE dbo.ModuloCarnicoConfiguracionSeguridad
+                    (
+                        id_configuracion TINYINT NOT NULL
+                            CONSTRAINT PK_ModuloCarnicoConfiguracionSeguridad
+                            PRIMARY KEY,
+                        clave_firma NVARCHAR(200) NOT NULL,
+                        fecha_creacion DATETIME2(0) NOT NULL
+                            CONSTRAINT DF_ModuloCarnicoSeguridad_Fecha
+                            DEFAULT SYSDATETIME()
+                    );
+                END;
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.ModuloCarnicoConfiguracionSeguridad
+                    WHERE id_configuracion = 1
+                )
+                BEGIN
+                    INSERT dbo.ModuloCarnicoConfiguracionSeguridad
+                        (id_configuracion, clave_firma)
+                    VALUES (
+                        1,
+                        CONVERT(NVARCHAR(36), NEWID())
+                        + CONVERT(NVARCHAR(36), NEWID())
+                        + CONVERT(NVARCHAR(36), NEWID())
+                    );
+                END;
+                SELECT clave_firma
+                FROM dbo.ModuloCarnicoConfiguracionSeguridad
+                WHERE id_configuracion = 1;
+                """,
+                (),
+            ))
+
         return {
-            "clave_firma": clave_firma or _CLAVE_FIRMA_TEMPORAL,
+            "clave_firma": clave_firma,
             "duracion_sesion_segundos": duracion,
             "nombre_cookie": nombre_cookie,
         }
@@ -348,7 +385,7 @@ class BaseDatos(ComandosBaseDatos):
         return self.fetchall(
             """
             SELECT
-                P.Category2 AS producto_base,
+                Base.ProductName AS producto_base,
                 COALESCE(
                     MIN(CASE
                         WHEN UPPER(LTRIM(RTRIM(P.ProductName))) =
@@ -415,9 +452,12 @@ class BaseDatos(ComandosBaseDatos):
             FROM dbo.orgProduct AS P
             OUTER APPLY
             (
-                SELECT TOP 1 B.ProductID
+                SELECT TOP 1 B.ProductID, B.ProductName
                 FROM dbo.orgProduct AS B
                 WHERE B.DiscontinuedOn IS NULL
+                  AND B.ProductID <> P.ProductID
+                  AND UPPER(LTRIM(RTRIM(REPLACE(B.ProductName, '.', '')))) <>
+                      UPPER(LTRIM(RTRIM(REPLACE(P.ProductName, '.', ''))))
                   AND UPPER(LTRIM(RTRIM(ISNULL(B.Category1, '')))) =
                       UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
                   AND UPPER(LTRIM(RTRIM(ISNULL(B.Category2, '')))) =
@@ -434,6 +474,7 @@ class BaseDatos(ComandosBaseDatos):
               AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
               AND UPPER(LTRIM(RTRIM(P.ProductName))) <>
                   UPPER(LTRIM(RTRIM(P.Category2)))
+              AND Base.ProductID IS NOT NULL
             ORDER BY P.Category1, P.Category2, P.ProductName
             """,
             (),
@@ -545,6 +586,9 @@ class BaseDatos(ComandosBaseDatos):
                     ON C.ProductID = F.ComponenteID
                    AND C.DiscontinuedOn IS NULL
                 WHERE F.ProductID = P.ProductID
+                  AND F.ComponenteID <> P.ProductID
+                  AND UPPER(LTRIM(RTRIM(REPLACE(F.Componente, '.', '')))) <>
+                      UPPER(LTRIM(RTRIM(REPLACE(P.ProductName, '.', ''))))
                   AND UPPER(LTRIM(RTRIM(ISNULL(C.Category1, ''))))
                       IN ('CERDO', 'POLLO', 'RES LOCAL')
                 ORDER BY
@@ -573,14 +617,17 @@ class BaseDatos(ComandosBaseDatos):
                     P.ProductName AS producto_resultante,
                     P.Unit AS unidad_resultante,
                     P.Category1 AS linea,
-                    P.Category2 AS producto_base,
+                    Base.ProductName AS producto_base,
                     Base.ProductID AS producto_base_id
                 FROM dbo.orgProduct AS P
                 OUTER APPLY
                 (
-                    SELECT TOP 1 B.ProductID
+                    SELECT TOP 1 B.ProductID, B.ProductName
                     FROM dbo.orgProduct AS B
                     WHERE B.DiscontinuedOn IS NULL
+                      AND B.ProductID <> P.ProductID
+                      AND UPPER(LTRIM(RTRIM(REPLACE(B.ProductName, '.', '')))) <>
+                          UPPER(LTRIM(RTRIM(REPLACE(P.ProductName, '.', ''))))
                       AND UPPER(LTRIM(RTRIM(ISNULL(B.Category1, '')))) =
                           UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
                       AND UPPER(LTRIM(RTRIM(ISNULL(B.Category2, '')))) =
@@ -596,12 +643,20 @@ class BaseDatos(ComandosBaseDatos):
                   AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
                       IN ('CERDO', 'POLLO', 'RES LOCAL')
                   AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
+                  AND Base.ProductID IS NOT NULL
                 """,
                 (int(producto_resultante_id),),
             )
         if not disponibles or not disponibles[0].get('producto_base_id'):
             return None
         registro = disponibles[0]
+        if int(registro['producto_base_id']) == int(producto_resultante_id):
+            return None
+        if (
+            str(registro['producto_base']).strip(' .').upper()
+            == str(registro['producto_resultante']).strip(' .').upper()
+        ):
+            return None
         producto_formula_id = self.buscar_producto_formula_relacionado(
             producto_resultante_id=int(producto_resultante_id),
             nombre_resultante=registro['nombre_transformacion'],
@@ -2889,22 +2944,70 @@ class BaseDatos(ComandosBaseDatos):
                 json.dumps(componentes, ensure_ascii=False),
             ),
         ) or 0)
-        self.registrar_auditoria_configuracion(
-            configuracion_id=transformacion_id,
-            configuracion_nombre=datos.nombre,
-            accion='CREAR',
-            usuario_id=usuario_id,
-            usuario_nombre=usuario_nombre,
-            motivo=datos.motivo_auditoria,
-            valores_nuevos={
-                'linea': datos.linea,
-                'nombre': datos.nombre,
-                'cantidad_base': float(datos.cantidad_base),
-                'porcentaje_merma': float(datos.porcentaje_merma),
-                'componentes': componentes,
-            },
-        )
+        try:
+            self.registrar_auditoria_configuracion(
+                configuracion_id=transformacion_id,
+                configuracion_nombre=datos.nombre,
+                accion='CREAR',
+                usuario_id=usuario_id,
+                usuario_nombre=usuario_nombre,
+                motivo=datos.motivo_auditoria,
+                valores_nuevos={
+                    'linea': datos.linea,
+                    'nombre': datos.nombre,
+                    'cantidad_base': float(datos.cantidad_base),
+                    'porcentaje_merma': float(datos.porcentaje_merma),
+                    'componentes': componentes,
+                },
+            )
+        except Exception:
+            self.eliminar_configuraciones_incompletas([transformacion_id])
+            raise
         return transformacion_id
+
+    def eliminar_configuraciones_incompletas(
+        self,
+        transformaciones_ids: list[int],
+    ) -> None:
+        """Revierte configuraciones de un lote que no terminó correctamente."""
+        ids = [int(valor) for valor in transformaciones_ids if int(valor) > 0]
+        if not ids:
+            return
+        self.command(
+            """
+            SET XACT_ABORT ON;
+            BEGIN TRANSACTION;
+            BEGIN TRY
+                DECLARE @Ids TABLE (id INT PRIMARY KEY);
+                INSERT @Ids (id)
+                SELECT TRY_CONVERT(INT, [value])
+                FROM OPENJSON(?)
+                WHERE TRY_CONVERT(INT, [value]) IS NOT NULL;
+
+                DELETE A
+                FROM dbo.ModuloCarnicoConfiguracionAuditoria AS A
+                INNER JOIN @Ids AS I ON I.id = A.configuracion_id;
+                DELETE C
+                FROM dbo.TransformacionesUsuarioComponente AS C
+                INNER JOIN @Ids AS I
+                    ON I.id = C.id_transformacion_usuario;
+                DELETE D
+                FROM dbo.TransformacionesUsuarioDetalle AS D
+                INNER JOIN @Ids AS I
+                    ON I.id = D.id_transformacion_usuario;
+                DELETE T
+                FROM dbo.TransformacionesUsuario AS T
+                INNER JOIN @Ids AS I
+                    ON I.id = T.id_transformacion_usuario;
+                COMMIT TRANSACTION;
+            END TRY
+            BEGIN CATCH
+                IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+                THROW;
+            END CATCH
+            """,
+            (json.dumps(ids),),
+        )
 
 
 @cache

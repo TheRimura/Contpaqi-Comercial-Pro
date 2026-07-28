@@ -1,6 +1,7 @@
 const API_RELACIONES = "/api/relaciones-documentos";
 const AJUSTES_INTERFAZ = document.body?.dataset || {};
 const MERMA_TECNICA_PORCENTAJE = Number(AJUSTES_INTERFAZ.mermaTecnica || 8);
+const MAXIMO_KILOS_TRANSFORMACION = Number(AJUSTES_INTERFAZ.maximoKilos || 3000);
 let catalogos = { movimientos: [], proveedores: [], usuarios_fisicos: [] };
 let documentos = { salida: [], entrada: [] };
 let partidasEntrada = [];
@@ -37,8 +38,30 @@ let registrosAuditoriaConfiguracion = [];
 
 function limpiarNombreProducto(nombre) {
     return String(nombre || "")
+        .replace(/^[.\s]+/, "")
         .replace(/\s*\.?\s*1\s*\(\s*\d+\s*(?:-\s*\d+|\+)\s*\)\s*$/i, "")
         .trim();
+}
+
+function validarKilosTransformacion(mostrarError = true) {
+    const entrada = document.getElementById("cantidad-base-transformacion");
+    const kilos = Number(entrada?.value || 0);
+    const valido = Number.isFinite(kilos)
+        && kilos > 0
+        && kilos <= MAXIMO_KILOS_TRANSFORMACION;
+    if (entrada) {
+        entrada.setCustomValidity(
+            valido
+                ? ""
+                : `La cantidad debe ser mayor que 0 y no exceder ${MAXIMO_KILOS_TRANSFORMACION.toLocaleString("es-MX")} kg.`
+        );
+    }
+    if (!valido && mostrarError) {
+        mostrarMensaje(
+            `La cantidad debe ser mayor que 0 y no exceder ${MAXIMO_KILOS_TRANSFORMACION.toLocaleString("es-MX")} kg.`
+        );
+    }
+    return valido;
 }
 
 function convertirCantidadParaMostrar(cantidad, unidad = "KILO", decimales = 2) {
@@ -345,11 +368,9 @@ function solicitarConfirmacionEliminarProductoCatalogo(producto) {
         const modal = document.getElementById("modal-confirmar-eliminacion-producto");
         const botonConfirmar = document.getElementById("confirmar-eliminacion-producto");
         const botonCancelar = document.getElementById("cancelar-eliminacion-producto");
-        const campoMotivo = document.getElementById("motivo-eliminacion-producto");
         const nombre = limpiarNombreProducto(producto?.producto) || "Producto seleccionado";
 
         document.getElementById("nombre-producto-a-eliminar").textContent = nombre;
-        campoMotivo.value = "";
 
         const cerrar = (motivo = null) => {
             modal.classList.add("hidden");
@@ -358,16 +379,7 @@ function solicitarConfirmacionEliminarProductoCatalogo(producto) {
             botonCancelar.removeEventListener("click", cancelar);
             resolve(motivo);
         };
-        const confirmar = () => {
-            const motivo = campoMotivo.value.trim();
-            if (motivo.length < 5) {
-                campoMotivo.setCustomValidity("Escribe un motivo de al menos 5 caracteres.");
-                campoMotivo.reportValidity();
-                return;
-            }
-            campoMotivo.setCustomValidity("");
-            cerrar(motivo);
-        };
+        const confirmar = () => cerrar("Producto ocultado desde el catálogo");
         const cancelar = () => cerrar();
 
         botonConfirmar.addEventListener("click", confirmar);
@@ -1984,7 +1996,7 @@ async function cargarTransformacionPrecargada() {
 
 function calcularInsumosTransformacion() {
     insumosTransformacionCalculados = [];
-    if (!detalleTransformacionSeleccionada) {
+    if (!detalleTransformacionSeleccionada || !validarKilosTransformacion(false)) {
         return;
     }
     const componentes = detalleTransformacionSeleccionada.componentes || [];
@@ -2003,6 +2015,12 @@ function calcularInsumosTransformacion() {
 
 function actualizarMermaTransformacion() {
     const base = Number(document.getElementById("cantidad-base-transformacion").value || 0);
+    if (!validarKilosTransformacion(false)) {
+        document.getElementById("cantidad-resultante-transformacion").value = "";
+        const pesoAproximadoInvalido = document.getElementById("peso-aproximado-transformacion");
+        if (pesoAproximadoInvalido) pesoAproximadoInvalido.textContent = "0.00";
+        return { merma: 0, porcentaje: 0, nivelNormal: false };
+    }
     const porcentajeMerma = Number(
         detalleTransformacionSeleccionada?.porcentaje_merma ??
         MERMA_TECNICA_PORCENTAJE
@@ -2027,7 +2045,14 @@ async function localizarDocumentosTransformacion() {
     const cantidadBase = Number(document.getElementById("cantidad-base-transformacion").value || 0);
     const cantidadResultante = Number(document.getElementById("cantidad-resultante-transformacion").value || 0);
     const tablajero = document.getElementById("tablajero-transformacion");
-    if (!detalleTransformacionSeleccionada || !baseId || !resultanteId || cantidadBase <= 0 || cantidadResultante <= 0) {
+    if (
+        !detalleTransformacionSeleccionada
+        || !baseId
+        || !resultanteId
+        || baseId === resultanteId
+        || !validarKilosTransformacion()
+        || cantidadResultante <= 0
+    ) {
         mostrarMensaje("No fue posible preparar la transformación. Revisa los kilos e inténtalo nuevamente.");
         return;
     }
@@ -2658,6 +2683,12 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("transformacion-precargada").addEventListener("change", cargarTransformacionPrecargada);
     document.getElementById("cantidad-base-transformacion").addEventListener("input", () => {
         limpiarVistaPreviaTransformacion();
+        if (!validarKilosTransformacion(false)) {
+            actualizarMermaTransformacion();
+            calcularInsumosTransformacion();
+            window.clearTimeout(temporizadorVistaPreviaTransformacion);
+            return;
+        }
         actualizarMermaTransformacion();
         calcularInsumosTransformacion();
         window.clearTimeout(temporizadorVistaPreviaTransformacion);
