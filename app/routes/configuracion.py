@@ -1,12 +1,49 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 
-from app.schemas.configuracion import CrearConfiguracionTransformacion
+from app.schemas.configuracion import (
+    CrearConfiguracionTransformacion,
+    EventoAuditoriaConfiguracion,
+)
 from app.utils.base_de_datos import BaseDatos, obtener_base_datos
 from app.utils.seguridad import seguridad_sesion
 
 
 router = APIRouter(prefix='/api/configuracion', tags=['Configuración'])
+
+
+@router.get('/auditoria')
+def consultar_auditoria(
+    request: Request,
+    limite: int = Query(default=100, ge=1, le=500),
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    seguridad_sesion.requerir_permiso(request, 'ver_configuracion')
+    return jsonable_encoder(
+        base_datos.listar_auditoria_configuraciones(limite)
+    )
+
+
+@router.post('/auditoria/eventos', status_code=status.HTTP_201_CREATED)
+def registrar_evento_auditoria(
+    datos: EventoAuditoriaConfiguracion,
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    sesion = seguridad_sesion.requerir_permiso(
+        request, 'crear_configuracion'
+    )
+    auditoria_id = base_datos.registrar_auditoria_configuracion(
+        configuracion_id=datos.configuracion_id,
+        configuracion_nombre=datos.configuracion_nombre,
+        accion=datos.accion,
+        usuario_id=int(sesion['user_id']),
+        usuario_nombre=str(sesion.get('usuario') or 'Usuario'),
+        motivo=datos.motivo,
+        valores_anteriores=datos.valores_anteriores,
+        valores_nuevos=datos.valores_nuevos,
+    )
+    return {'auditoria_id': auditoria_id}
 
 
 @router.get('/productos-base')
@@ -93,6 +130,7 @@ def crear_transformacion(
         transformacion_id = base_datos.crear_configuracion_transformacion(
             datos=datos,
             usuario_id=int(sesion['user_id']),
+            usuario_nombre=str(sesion.get('usuario') or 'Usuario'),
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -131,6 +169,7 @@ def crear_transformaciones_lote(
                 base_datos.crear_configuracion_transformacion(
                     datos=registro,
                     usuario_id=int(sesion['user_id']),
+                    usuario_nombre=str(sesion.get('usuario') or 'Usuario'),
                 )
             )
         except ValueError as error:

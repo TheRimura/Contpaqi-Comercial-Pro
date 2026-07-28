@@ -2260,9 +2260,103 @@ class BaseDatos(ComandosBaseDatos):
                 ALTER TABLE dbo.TransformacionesUsuario
                 ADD proveedor_id INT NULL;
             END;
+
+            IF OBJECT_ID(
+                'dbo.ModuloCarnicoConfiguracionAuditoria',
+                'U'
+            ) IS NULL
+            BEGIN
+                CREATE TABLE dbo.ModuloCarnicoConfiguracionAuditoria (
+                    id_auditoria INT IDENTITY(1,1) NOT NULL
+                        CONSTRAINT PK_ModuloCarnicoConfiguracionAuditoria
+                        PRIMARY KEY,
+                    configuracion_id INT NULL,
+                    configuracion_nombre NVARCHAR(150) NOT NULL,
+                    accion NVARCHAR(30) NOT NULL,
+                    usuario_id BIGINT NULL,
+                    usuario_nombre NVARCHAR(150) NOT NULL,
+                    motivo NVARCHAR(300) NOT NULL,
+                    valores_anteriores_json NVARCHAR(MAX) NULL,
+                    valores_nuevos_json NVARCHAR(MAX) NULL,
+                    fecha DATETIME2 NOT NULL
+                        CONSTRAINT DF_MCCA_fecha DEFAULT SYSDATETIME()
+                );
+                CREATE INDEX IX_MCCA_fecha
+                    ON dbo.ModuloCarnicoConfiguracionAuditoria(fecha DESC);
+            END;
             """,
             (),
         )
+
+    def registrar_auditoria_configuracion(
+        self,
+        configuracion_id,
+        configuracion_nombre: str,
+        accion: str,
+        usuario_id,
+        usuario_nombre: str,
+        motivo: str,
+        valores_anteriores=None,
+        valores_nuevos=None,
+    ) -> int:
+        self.asegurar_proveedor_transformaciones_usuario()
+        return int(self.fetchone(
+            """
+            INSERT dbo.ModuloCarnicoConfiguracionAuditoria (
+                configuracion_id, configuracion_nombre, accion,
+                usuario_id, usuario_nombre, motivo,
+                valores_anteriores_json, valores_nuevos_json
+            )
+            OUTPUT INSERTED.id_auditoria
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                configuracion_id,
+                configuracion_nombre,
+                accion,
+                usuario_id,
+                usuario_nombre,
+                motivo,
+                (
+                    json.dumps(valores_anteriores, ensure_ascii=False)
+                    if valores_anteriores is not None else None
+                ),
+                (
+                    json.dumps(valores_nuevos, ensure_ascii=False)
+                    if valores_nuevos is not None else None
+                ),
+            ),
+        ) or 0)
+
+    def listar_auditoria_configuraciones(
+        self,
+        limite: int = 100,
+    ) -> list[dict]:
+        self.asegurar_proveedor_transformaciones_usuario()
+        registros = self.fetchall(
+            """
+            SELECT TOP (?)
+                id_auditoria, configuracion_id, configuracion_nombre,
+                accion, usuario_id, usuario_nombre, motivo,
+                valores_anteriores_json, valores_nuevos_json, fecha
+            FROM dbo.ModuloCarnicoConfiguracionAuditoria
+            ORDER BY fecha DESC, id_auditoria DESC
+            """,
+            (int(limite),),
+        )
+        for registro in registros:
+            for campo in (
+                'valores_anteriores_json',
+                'valores_nuevos_json',
+            ):
+                texto = registro.pop(campo, None)
+                try:
+                    registro[campo.removesuffix('_json')] = (
+                        json.loads(texto) if texto else None
+                    )
+                except (TypeError, ValueError):
+                    registro[campo.removesuffix('_json')] = None
+        return registros
 
     def buscar_productos_base_configuracion(
         self, linea: str, termino: str = ''
@@ -2271,15 +2365,25 @@ class BaseDatos(ComandosBaseDatos):
         return self.fetchall(
             """
             SELECT TOP (200)
-                ProductID AS product_id,
-                ProductName AS producto,
-                ISNULL(Unit, 'KILO') AS unidad
-            FROM dbo.orgProduct
+                P.ProductID AS product_id,
+                P.ProductName AS producto,
+                ISNULL(P.Unit, 'KILO') AS unidad,
+                P.CreatedOn AS fecha_creacion,
+                CAST(CASE
+                    WHEN P.CreatedOn >= DATEADD(DAY, -30, GETDATE())
+                    THEN 1 ELSE 0
+                END AS BIT) AS es_reciente,
+                CAST(CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM dbo.zvwFormulasListasPCocinar AS F
+                    WHERE F.ComponenteID = P.ProductID
+                ) THEN 1 ELSE 0 END AS BIT) AS tiene_receta
+            FROM dbo.orgProduct AS P
             WHERE DiscontinuedOn IS NULL
-              AND UPPER(LTRIM(RTRIM(ISNULL(Category1, '')))) =
+              AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
                   UPPER(LTRIM(RTRIM(?)))
-              AND (? = '' OR ProductName LIKE '%' + ? + '%')
-            ORDER BY ProductName
+              AND (? = '' OR P.ProductName LIKE '%' + ? + '%')
+            ORDER BY P.ProductName
             """,
             (str(linea).strip(), texto, texto),
         )
@@ -2633,7 +2737,12 @@ class BaseDatos(ComandosBaseDatos):
             for formula in formulas
         ]
 
-    def crear_configuracion_transformacion(self, datos, usuario_id: int) -> int:
+    def crear_configuracion_transformacion(
+        self,
+        datos,
+        usuario_id: int,
+        usuario_nombre: str = 'Usuario',
+    ) -> int:
         self.asegurar_proveedor_transformaciones_usuario()
         producto_resultante_id = self.fetchone(
             """
@@ -2738,7 +2847,7 @@ class BaseDatos(ComandosBaseDatos):
             (1 - float(datos.porcentaje_merma) / 100),
             3,
         )
-        return int(self.fetchone(
+        transformacion_id = int(self.fetchone(
             """
             SET XACT_ABORT ON;
             BEGIN TRANSACTION;
@@ -2780,6 +2889,22 @@ class BaseDatos(ComandosBaseDatos):
                 json.dumps(componentes, ensure_ascii=False),
             ),
         ) or 0)
+        self.registrar_auditoria_configuracion(
+            configuracion_id=transformacion_id,
+            configuracion_nombre=datos.nombre,
+            accion='CREAR',
+            usuario_id=usuario_id,
+            usuario_nombre=usuario_nombre,
+            motivo=datos.motivo_auditoria,
+            valores_nuevos={
+                'linea': datos.linea,
+                'nombre': datos.nombre,
+                'cantidad_base': float(datos.cantidad_base),
+                'porcentaje_merma': float(datos.porcentaje_merma),
+                'componentes': componentes,
+            },
+        )
+        return transformacion_id
 
 
 @cache

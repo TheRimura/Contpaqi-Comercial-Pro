@@ -21,6 +21,7 @@ let productosConfiguracionDisponibles = [];
 let lineaCatalogoActual = "";
 let temporizadorCatalogo = null;
 let productosCatalogoActual = [];
+let productosCatalogoSinFiltrar = [];
 let productoCatalogoSeleccionadoId = 0;
 let modoEliminacionCatalogo = false;
 let controladorCargaComponentesConfiguracion = null;
@@ -32,6 +33,7 @@ let cantidadFormulaBaseConfiguracion = 0;
 const PRODUCTOS_POR_PAGINA = Number(AJUSTES_INTERFAZ.productosPorPagina || 12);
 const HISTORIAL_POR_PAGINA = 10;
 let paginaHistorialActual = 1;
+let registrosAuditoriaConfiguracion = [];
 
 function limpiarNombreProducto(nombre) {
     return String(nombre || "")
@@ -178,11 +180,15 @@ function renderizarPaginaCatalogo() {
             fila.append(nombre, unidad);
             fila.addEventListener("click", async () => {
                 if (modoEliminacionCatalogo) {
-                    const confirmado = await solicitarConfirmacionEliminarProductoCatalogo(
+                    const motivo = await solicitarConfirmacionEliminarProductoCatalogo(
                         producto
                     );
-                    if (confirmado) {
-                        ocultarProductoCatalogo(Number(producto.product_id));
+                    if (motivo) {
+                        try {
+                            await ocultarProductoCatalogo(producto, motivo);
+                        } catch (error) {
+                            mensajeConfiguracion(error.message);
+                        }
                     }
                     return;
                 }
@@ -209,6 +215,68 @@ function cambiarPaginaCatalogo(cambio) {
     document.getElementById("catalogo-productos").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function actualizarUnidadesCatalogo() {
+    const selector = document.getElementById("filtro-unidad-catalogo");
+    const seleccion = selector.value;
+    const unidades = [...new Set(
+        productosCatalogoSinFiltrar
+            .map((producto) => String(producto.unidad || "SIN UNIDAD").trim().toUpperCase())
+            .filter(Boolean)
+    )].sort();
+    selector.replaceChildren(new Option("Todas las unidades", ""));
+    unidades.forEach((unidad) => selector.add(new Option(unidad, unidad)));
+    selector.value = unidades.includes(seleccion) ? seleccion : "";
+}
+
+function aplicarFiltrosCatalogo() {
+    const termino = document.getElementById("buscar-producto-catalogo")
+        .value.trim().toLocaleUpperCase("es-MX");
+    const unidad = document.getElementById("filtro-unidad-catalogo").value;
+    const receta = document.getElementById("filtro-receta-catalogo").value;
+    const antiguedad = document.getElementById("filtro-antiguedad-catalogo").value;
+    productosCatalogoActual = productosCatalogoSinFiltrar.filter((producto) => {
+        const coincideNombre = !termino || String(producto.producto || "")
+            .toLocaleUpperCase("es-MX").includes(termino);
+        const unidadProducto = String(producto.unidad || "SIN UNIDAD").trim().toUpperCase();
+        const coincideUnidad = !unidad || unidadProducto === unidad;
+        const tieneReceta = Boolean(producto.tiene_receta);
+        const coincideReceta = (
+            !receta
+            || (receta === "CON_RECETA" && tieneReceta)
+            || (receta === "SIN_RECETA" && !tieneReceta)
+        );
+        const coincideAntiguedad = (
+            !antiguedad
+            || (antiguedad === "RECIENTES" && Boolean(producto.es_reciente))
+        );
+        return coincideNombre && coincideUnidad && coincideReceta && coincideAntiguedad;
+    });
+    paginaCatalogoActual = 1;
+    renderizarPaginaCatalogo();
+    document.getElementById("catalogo-productos-total").textContent =
+        `${productosCatalogoActual.length} de ${productosCatalogoSinFiltrar.length} productos`;
+    const filtrosActivos = [unidad, receta, antiguedad].filter(Boolean).length;
+    const contador = document.getElementById("total-filtros-catalogo");
+    contador.textContent = String(filtrosActivos);
+    contador.classList.toggle("hidden", filtrosActivos === 0);
+}
+
+function limpiarFiltrosCatalogo() {
+    document.getElementById("buscar-producto-catalogo").value = "";
+    document.getElementById("filtro-unidad-catalogo").value = "";
+    document.getElementById("filtro-receta-catalogo").value = "";
+    document.getElementById("filtro-antiguedad-catalogo").value = "";
+    aplicarFiltrosCatalogo();
+}
+
+function alternarFiltrosCatalogo() {
+    const panel = document.getElementById("filtros-catalogo");
+    const boton = document.getElementById("mostrar-filtros-catalogo");
+    const abrir = panel.classList.contains("hidden");
+    panel.classList.toggle("hidden", !abrir);
+    boton.setAttribute("aria-expanded", String(abrir));
+}
+
 async function cargarProductosCatalogo(linea, termino = "") {
     lineaCatalogoActual = linea;
     const panel = document.getElementById("catalogo-productos");
@@ -224,36 +292,52 @@ async function cargarProductosCatalogo(linea, termino = "") {
     });
     try {
         const productos = await solicitarJson(
-            `${API_CONFIGURACION}/productos-base?linea=${encodeURIComponent(linea)}&termino=${encodeURIComponent(termino)}`
+            `${API_CONFIGURACION}/productos-base?linea=${encodeURIComponent(linea)}`
         );
         const ocultos = obtenerProductosOcultos();
-        productosCatalogoActual = productos.filter(
+        productosCatalogoSinFiltrar = productos.filter(
             (producto) => !ocultos.has(Number(producto.product_id))
         );
         productoCatalogoSeleccionadoId = 0;
-        paginaCatalogoActual = 1;
-        renderizarPaginaCatalogo();
-        document.getElementById("catalogo-productos-total").textContent =
-            `${productosCatalogoActual.length} producto${productosCatalogoActual.length === 1 ? "" : "s"}`;
+        actualizarUnidadesCatalogo();
+        aplicarFiltrosCatalogo();
     } catch (error) {
         productosCatalogoActual = [];
+        productosCatalogoSinFiltrar = [];
         document.getElementById("paginacion-productos-catalogo").classList.add("hidden");
         lista.innerHTML = `<p class="catalog-loading catalog-error">${error.message}</p>`;
     }
 }
 
-function ocultarProductoCatalogo(productoId) {
+async function ocultarProductoCatalogo(producto, motivo) {
+    const productoId = Number(producto?.product_id);
     if (!modoEliminacionCatalogo || !productoId) return;
+    await solicitarJson(`${API_CONFIGURACION}/auditoria/eventos`, {
+        method: "POST",
+        body: JSON.stringify({
+            accion: "OCULTAR",
+            configuracion_nombre: limpiarNombreProducto(producto.producto),
+            motivo,
+            valores_anteriores: {
+                visible: true,
+                product_id: productoId,
+                linea: lineaCatalogoActual,
+            },
+            valores_nuevos: { visible: false },
+        }),
+    });
     const ocultos = obtenerProductosOcultos();
     ocultos.add(productoId);
     guardarProductosOcultos(ocultos);
     productosCatalogoActual = productosCatalogoActual.filter(
         (producto) => Number(producto.product_id) !== productoId
     );
+    productosCatalogoSinFiltrar = productosCatalogoSinFiltrar.filter(
+        (registro) => Number(registro.product_id) !== productoId
+    );
     productoCatalogoSeleccionadoId = 0;
-    renderizarPaginaCatalogo();
-    document.getElementById("catalogo-productos-total").textContent =
-        `${productosCatalogoActual.length} productos visibles`;
+    actualizarUnidadesCatalogo();
+    aplicarFiltrosCatalogo();
 }
 
 function solicitarConfirmacionEliminarProductoCatalogo(producto) {
@@ -261,19 +345,30 @@ function solicitarConfirmacionEliminarProductoCatalogo(producto) {
         const modal = document.getElementById("modal-confirmar-eliminacion-producto");
         const botonConfirmar = document.getElementById("confirmar-eliminacion-producto");
         const botonCancelar = document.getElementById("cancelar-eliminacion-producto");
+        const campoMotivo = document.getElementById("motivo-eliminacion-producto");
         const nombre = limpiarNombreProducto(producto?.producto) || "Producto seleccionado";
 
         document.getElementById("nombre-producto-a-eliminar").textContent = nombre;
+        campoMotivo.value = "";
 
-        const cerrar = (confirmado) => {
+        const cerrar = (motivo = null) => {
             modal.classList.add("hidden");
             document.body.classList.remove("modal-open");
             botonConfirmar.removeEventListener("click", confirmar);
             botonCancelar.removeEventListener("click", cancelar);
-            resolve(confirmado);
+            resolve(motivo);
         };
-        const confirmar = () => cerrar(true);
-        const cancelar = () => cerrar(false);
+        const confirmar = () => {
+            const motivo = campoMotivo.value.trim();
+            if (motivo.length < 5) {
+                campoMotivo.setCustomValidity("Escribe un motivo de al menos 5 caracteres.");
+                campoMotivo.reportValidity();
+                return;
+            }
+            campoMotivo.setCustomValidity("");
+            cerrar(motivo);
+        };
+        const cancelar = () => cerrar();
 
         botonConfirmar.addEventListener("click", confirmar);
         botonCancelar.addEventListener("click", cancelar);
@@ -281,6 +376,219 @@ function solicitarConfirmacionEliminarProductoCatalogo(producto) {
         document.body.classList.add("modal-open");
         botonCancelar.focus();
     });
+}
+
+function solicitarMotivoAuditoria() {
+    return new Promise((resolve) => {
+        const modal = document.getElementById("modal-motivo-auditoria");
+        const campo = document.getElementById("motivo-auditoria-configuracion");
+        const confirmar = document.getElementById("confirmar-motivo-auditoria");
+        const cancelar = document.getElementById("cancelar-motivo-auditoria");
+        campo.value = "";
+
+        const cerrar = (motivo = null) => {
+            modal.classList.add("hidden");
+            document.body.classList.remove("modal-open");
+            confirmar.removeEventListener("click", guardar);
+            cancelar.removeEventListener("click", regresar);
+            resolve(motivo);
+        };
+        const guardar = () => {
+            const motivo = campo.value.trim();
+            if (motivo.length < 5) {
+                campo.setCustomValidity("Escribe un motivo de al menos 5 caracteres.");
+                campo.reportValidity();
+                return;
+            }
+            campo.setCustomValidity("");
+            cerrar(motivo);
+        };
+        const regresar = () => cerrar();
+        confirmar.addEventListener("click", guardar);
+        cancelar.addEventListener("click", regresar);
+        modal.classList.remove("hidden");
+        document.body.classList.add("modal-open");
+        campo.focus();
+    });
+}
+
+function formatearFechaAuditoria(valor) {
+    if (!valor) return "Sin fecha";
+    const fecha = new Date(valor);
+    return Number.isNaN(fecha.getTime())
+        ? String(valor)
+        : fecha.toLocaleString("es-MX", {
+            dateStyle: "short",
+            timeStyle: "short",
+        });
+}
+
+function crearResumenValoresAuditoria(datos) {
+    const contenedor = document.createElement("div");
+    contenedor.className = "audit-readable-values";
+    if (!datos || typeof datos !== "object") {
+        contenedor.textContent = "No aplica";
+        return contenedor;
+    }
+    const etiquetas = {
+        linea: "Línea cárnica",
+        nombre: "Nombre",
+        cantidad_base: "Kilos registrados",
+        porcentaje_merma: "Merma esperada",
+        producto_base: "Producto base",
+        producto_resultante_id: "Producto resultante",
+        total_componentes: "Total de componentes",
+        visible: "Visible en el catálogo",
+        product_id: "Producto",
+        componentes: "Productos e insumos",
+    };
+    Object.entries(datos).forEach(([clave, valor]) => {
+        const fila = document.createElement("div");
+        const etiqueta = document.createElement("span");
+        etiqueta.textContent = etiquetas[clave] || clave.replaceAll("_", " ");
+        const contenido = document.createElement("strong");
+        if (clave === "porcentaje_merma" && Number.isFinite(Number(valor))) {
+            contenido.textContent = `${Number(valor).toFixed(2)}%`;
+        } else if (clave === "cantidad_base" && Number.isFinite(Number(valor))) {
+            contenido.textContent = `${Number(valor).toFixed(2)} kg`;
+        } else if (clave === "visible") {
+            contenido.textContent = valor ? "Sí" : "No";
+        } else if (Array.isArray(valor)) {
+            contenido.textContent = valor.length
+                ? `${valor.length} elemento${valor.length === 1 ? "" : "s"}`
+                : "Sin elementos";
+            if (valor.length) {
+                const lista = document.createElement("ul");
+                valor.forEach((elemento) => {
+                    const item = document.createElement("li");
+                    if (elemento && typeof elemento === "object") {
+                        const cantidad = Number(elemento.cantidad || 0);
+                        item.textContent = [
+                            elemento.es_base ? "Producto base" : "Insumo",
+                            elemento.producto || `Producto ${elemento.product_id || ""}`,
+                            cantidad ? `${cantidad.toFixed(3)} ${elemento.unidad || ""}` : "",
+                        ].filter(Boolean).join(" · ");
+                    } else {
+                        item.textContent = String(elemento);
+                    }
+                    lista.appendChild(item);
+                });
+                fila.append(etiqueta, contenido, lista);
+                contenedor.appendChild(fila);
+                return;
+            }
+        } else {
+            contenido.textContent = String(valor ?? "No registrado");
+        }
+        fila.append(etiqueta, contenido);
+        contenedor.appendChild(fila);
+    });
+    return contenedor;
+}
+
+function abrirDetalleAuditoria(registro) {
+    const modal = document.getElementById("modal-detalle-auditoria");
+    const contenido = document.getElementById("detalle-auditoria-contenido");
+    document.getElementById("titulo-detalle-auditoria").textContent =
+        registro.configuracion_nombre;
+    contenido.replaceChildren();
+
+    const resumen = document.createElement("div");
+    resumen.className = "audit-detail-summary";
+    [
+        ["Acción", registro.accion],
+        ["Usuario", registro.usuario_nombre],
+        ["Fecha", formatearFechaAuditoria(registro.fecha)],
+        ["Motivo", registro.motivo],
+    ].forEach(([etiqueta, valor]) => {
+        const bloque = document.createElement("div");
+        const pequeno = document.createElement("small");
+        pequeno.textContent = etiqueta;
+        const fuerte = document.createElement("strong");
+        fuerte.textContent = valor || "No registrado";
+        bloque.append(pequeno, fuerte);
+        resumen.appendChild(bloque);
+    });
+
+    const valores = document.createElement("div");
+    valores.className = "audit-values-grid";
+    [
+        ["Valores anteriores", registro.valores_anteriores],
+        ["Valores nuevos", registro.valores_nuevos],
+    ].forEach(([titulo, datos]) => {
+        const bloque = document.createElement("section");
+        bloque.className = "audit-values";
+        const encabezado = document.createElement("strong");
+        encabezado.textContent = titulo;
+        bloque.append(encabezado, crearResumenValoresAuditoria(datos));
+        valores.appendChild(bloque);
+    });
+    contenido.append(resumen, valores);
+    modal.classList.remove("hidden");
+    document.body.classList.add("modal-open");
+}
+
+function renderizarAuditoriaConfiguracion() {
+    const cuerpo = document.getElementById("filas-auditoria-configuracion");
+    cuerpo.replaceChildren();
+    if (!registrosAuditoriaConfiguracion.length) {
+        const fila = document.createElement("tr");
+        const celda = document.createElement("td");
+        celda.colSpan = 6;
+        celda.className = "empty-table-cell";
+        celda.textContent = "Todavía no hay cambios registrados.";
+        fila.appendChild(celda);
+        cuerpo.appendChild(fila);
+        return;
+    }
+    registrosAuditoriaConfiguracion.forEach((registro) => {
+        const fila = document.createElement("tr");
+        const valores = [
+            formatearFechaAuditoria(registro.fecha),
+            registro.usuario_nombre,
+            registro.accion,
+            registro.configuracion_nombre,
+            registro.motivo,
+        ];
+        valores.forEach((valor, indice) => {
+            const celda = document.createElement("td");
+            if (indice === 2) {
+                const insignia = document.createElement("span");
+                insignia.className = `audit-action ${registro.accion}`;
+                insignia.textContent = valor;
+                celda.appendChild(insignia);
+            } else {
+                celda.textContent = valor || "—";
+            }
+            fila.appendChild(celda);
+        });
+        const acciones = document.createElement("td");
+        const ver = document.createElement("button");
+        ver.type = "button";
+        ver.className = "button-outline";
+        ver.textContent = "Ver detalle";
+        ver.addEventListener("click", () => abrirDetalleAuditoria(registro));
+        acciones.appendChild(ver);
+        fila.appendChild(acciones);
+        cuerpo.appendChild(fila);
+    });
+}
+
+async function abrirAuditoriaConfiguracion() {
+    const panel = document.getElementById("panel-auditoria-configuracion");
+    panel.classList.remove("hidden");
+    document.getElementById("filas-auditoria-configuracion").innerHTML =
+        '<tr><td colspan="6" class="empty-table-cell">Consultando auditoría...</td></tr>';
+    try {
+        registrosAuditoriaConfiguracion = await solicitarJson(
+            `${API_CONFIGURACION}/auditoria?limite=100`
+        );
+        renderizarAuditoriaConfiguracion();
+    } catch (error) {
+        document.getElementById("filas-auditoria-configuracion").innerHTML =
+            `<tr><td colspan="6" class="empty-table-cell">${error.message}</td></tr>`;
+    }
+    panel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function activarEliminacionCatalogo() {
@@ -315,9 +623,15 @@ function cerrarCatalogoProductos() {
     document.getElementById("catalogo-productos").classList.add("hidden");
     document.getElementById("configuraciones-guardadas").classList.remove("hidden");
     document.getElementById("buscar-producto-catalogo").value = "";
+    document.getElementById("filtro-unidad-catalogo").value = "";
+    document.getElementById("filtro-receta-catalogo").value = "";
+    document.getElementById("filtro-antiguedad-catalogo").value = "";
+    document.getElementById("filtros-catalogo").classList.add("hidden");
+    document.getElementById("mostrar-filtros-catalogo").setAttribute("aria-expanded", "false");
     document.querySelectorAll(".configuration-line").forEach((boton) => boton.classList.remove("active"));
     lineaCatalogoActual = "";
     productosCatalogoActual = [];
+    productosCatalogoSinFiltrar = [];
     productoCatalogoSeleccionadoId = 0;
     paginaCatalogoActual = 1;
 }
@@ -1006,6 +1320,8 @@ async function guardarNuevaConfiguracion(evento) {
         mensajeConfiguracion("Captura o agrega por lo menos una transformación.");
         return;
     }
+    const motivoAuditoria = await solicitarMotivoAuditoria();
+    if (!motivoAuditoria) return;
     boton.disabled = true;
     boton.textContent = "Guardando todas...";
     try {
@@ -1013,6 +1329,7 @@ async function guardarNuevaConfiguracion(evento) {
             method: "POST",
             body: JSON.stringify(configuracionesPendientes.map((configuracion) => ({
                 ...configuracion,
+                motivo_auditoria: motivoAuditoria,
                 componentes: configuracion.componentes.map((componente) => ({
                     producto_id: componente.producto_id,
                     cantidad: componente.cantidad,
@@ -1084,6 +1401,21 @@ function iniciarPaginaConfiguracion() {
         );
         formulario.addEventListener("submit", guardarNuevaConfiguracion);
     }
+    document.getElementById("boton-auditoria-configuracion")?.addEventListener(
+        "click",
+        abrirAuditoriaConfiguracion
+    );
+    document.getElementById("cerrar-auditoria-configuracion")?.addEventListener(
+        "click",
+        () => document.getElementById("panel-auditoria-configuracion").classList.add("hidden")
+    );
+    document.getElementById("cerrar-detalle-auditoria")?.addEventListener(
+        "click",
+        () => {
+            document.getElementById("modal-detalle-auditoria").classList.add("hidden");
+            document.body.classList.remove("modal-open");
+        }
+    );
     document.querySelectorAll(".configuration-line").forEach((boton) => {
         boton.addEventListener("click", () => {
             cancelarEliminacionCatalogo();
@@ -1102,9 +1434,29 @@ function iniciarPaginaConfiguracion() {
     document.getElementById("buscar-producto-catalogo").addEventListener("input", (evento) => {
         window.clearTimeout(temporizadorCatalogo);
         temporizadorCatalogo = window.setTimeout(() => {
-            if (lineaCatalogoActual) cargarProductosCatalogo(lineaCatalogoActual, evento.target.value.trim());
+            if (lineaCatalogoActual) aplicarFiltrosCatalogo();
         }, 250);
     });
+    document.getElementById("filtro-unidad-catalogo").addEventListener(
+        "change",
+        aplicarFiltrosCatalogo
+    );
+    document.getElementById("filtro-receta-catalogo").addEventListener(
+        "change",
+        aplicarFiltrosCatalogo
+    );
+    document.getElementById("filtro-antiguedad-catalogo").addEventListener(
+        "change",
+        aplicarFiltrosCatalogo
+    );
+    document.getElementById("mostrar-filtros-catalogo").addEventListener(
+        "click",
+        alternarFiltrosCatalogo
+    );
+    document.getElementById("limpiar-filtros-catalogo").addEventListener(
+        "click",
+        limpiarFiltrosCatalogo
+    );
 }
 
 function renderizarPaginaHistorial() {
@@ -2035,11 +2387,49 @@ function solicitarConfirmacionRegistro() {
         const productoEntrada = limpiarNombreProducto(document.getElementById("resultante-transformacion").selectedOptions[0]?.textContent) || "Producto obtenido";
         const cantidadSalida = Number(document.getElementById("cantidad-base-transformacion").value || 0);
         const cantidadEntrada = Number(document.getElementById("cantidad-resultante-transformacion").value || 0);
+        const linea = document.getElementById("linea-transformacion").value || "Sin línea";
+        const transformacion = limpiarNombreProducto(
+            document.getElementById("transformacion-precargada").selectedOptions[0]?.textContent
+        ) || "Sin transformación";
+        const tablajero = document.getElementById("tablajero-transformacion");
+        const porcentajeMerma = Number(
+            detalleTransformacionSeleccionada?.porcentaje_merma
+            ?? MERMA_TECNICA_PORCENTAJE
+        );
+        const folios = document.getElementById("resumen-folios-transformacion").textContent || "Por generar";
 
         document.getElementById("confirmacion-producto-salida").textContent = productoSalida;
         document.getElementById("confirmacion-producto-entrada").textContent = productoEntrada;
         document.getElementById("confirmacion-cantidad-salida").textContent = `${cantidadSalida.toFixed(2)} kg`;
         document.getElementById("confirmacion-cantidad-entrada").textContent = `${cantidadEntrada.toFixed(2)} kg`;
+        document.getElementById("confirmacion-linea").textContent = linea;
+        document.getElementById("confirmacion-transformacion").textContent = transformacion;
+        document.getElementById("confirmacion-tablajero").textContent =
+            tablajero.selectedOptions[0]?.textContent || "Sin tablajero";
+        document.getElementById("confirmacion-merma").textContent =
+            `${porcentajeMerma.toFixed(2)}%`;
+        document.getElementById("confirmacion-folios").textContent = folios;
+
+        const panelInsumos = document.getElementById("confirmacion-insumos-panel");
+        const listaInsumos = document.getElementById("confirmacion-lista-insumos");
+        listaInsumos.replaceChildren();
+        insumosTransformacionCalculados.forEach((insumo) => {
+            const fila = document.createElement("div");
+            fila.className = "confirmation-supply";
+            const nombre = document.createElement("span");
+            const cantidad = document.createElement("strong");
+            const cantidadVisual = convertirCantidadParaMostrar(
+                insumo.cantidad_calculada,
+                insumo.unidad
+            );
+            nombre.textContent = limpiarNombreProducto(insumo.producto);
+            cantidad.textContent = `${cantidadVisual.cantidad} ${cantidadVisual.unidad}`;
+            fila.append(nombre, cantidad);
+            listaInsumos.appendChild(fila);
+        });
+        panelInsumos.classList.toggle("hidden", !insumosTransformacionCalculados.length);
+        document.getElementById("confirmacion-total-insumos").textContent =
+            `${insumosTransformacionCalculados.length} insumo${insumosTransformacionCalculados.length === 1 ? "" : "s"}`;
 
         const cerrar = (confirmado) => {
             modal.classList.add("hidden");

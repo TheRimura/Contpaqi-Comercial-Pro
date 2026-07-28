@@ -28,6 +28,7 @@ class CrearConfiguracionTransformacion(BaseModel):
         max_length=100,
     )
     observaciones: str | None = Field(default=None, max_length=500)
+    motivo_auditoria: str = Field(min_length=5, max_length=300)
 
 
     @field_validator('nombre', 'linea')
@@ -47,4 +48,25 @@ class CrearConfiguracionTransformacion(BaseModel):
             )
         return self
 
+
+class EventoAuditoriaConfiguracion(BaseModel):
+    accion: str = Field(min_length=3, max_length=30)
+    configuracion_id: int | None = Field(default=None, gt=0)
+    configuracion_nombre: str = Field(min_length=1, max_length=150)
+    motivo: str = Field(min_length=5, max_length=300)
+    valores_anteriores: dict | None = None
+    valores_nuevos: dict | None = None
+
+    @field_validator('accion')
+    @classmethod
+    def validar_accion(cls, valor: str) -> str:
+        accion = valor.strip().upper()
+        if accion not in {'CREAR', 'EDITAR', 'OCULTAR', 'REACTIVAR'}:
+            raise ValueError('La acción de auditoría no es válida.')
+        return accion
+
+    @field_validator('configuracion_nombre', 'motivo')
+    @classmethod
+    def limpiar_texto_auditoria(cls, valor: str) -> str:
+        return ' '.join(valor.split())
 

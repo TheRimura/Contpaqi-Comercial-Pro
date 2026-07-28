@@ -352,8 +352,27 @@
                 <p>Define el producto base, sus insumos consumibles y el producto resultante.</p>
             </div>
             {% if permisos.crear_configuracion %}
-            <button id="boton-nueva-configuracion" type="button">Nuevo</button>
+            <div class="configuration-toolbar-actions">
+                <button id="boton-auditoria-configuracion" type="button" class="button-outline">Ver auditoría</button>
+                <button id="boton-nueva-configuracion" type="button">Nuevo</button>
+            </div>
             {% endif %}
+        </section>
+
+        <section id="panel-auditoria-configuracion" class="configuration-audit hidden">
+            <div class="ingredients-heading">
+                <div><p class="eyebrow">Control de cambios</p><h3>Auditoría de configuraciones</h3></div>
+                <button id="cerrar-auditoria-configuracion" type="button" class="button-outline">Cerrar auditoría</button>
+            </div>
+            <p class="detail-help">Consulta quién realizó cada cambio, cuándo se hizo y cuál fue el motivo.</p>
+            <div class="registration-table-wrap">
+                <table class="registration-table audit-table">
+                    <thead><tr><th>Fecha y hora</th><th>Usuario</th><th>Acción</th><th>Configuración</th><th>Motivo</th><th></th></tr></thead>
+                    <tbody id="filas-auditoria-configuracion">
+                        <tr><td colspan="6" class="empty-table-cell">Abre la auditoría para consultar los movimientos.</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </section>
 
         {% if permisos.crear_configuracion %}
@@ -491,7 +510,35 @@
                     </div>
                     <div class="catalog-search">
                         <input id="buscar-producto-catalogo" type="search" placeholder="Buscar producto por nombre">
+                        <button id="mostrar-filtros-catalogo" type="button" class="button-outline catalog-filter-toggle" aria-controls="filtros-catalogo" aria-expanded="false">
+                            Filtros
+                            <span id="total-filtros-catalogo" class="filter-count hidden">0</span>
+                        </button>
                         <span id="catalogo-productos-total"></span>
+                    </div>
+                    <div id="filtros-catalogo" class="catalog-filter-bar hidden" aria-label="Filtros del catálogo">
+                        <div class="field">
+                            <label for="filtro-unidad-catalogo">Unidad</label>
+                            <select id="filtro-unidad-catalogo">
+                                <option value="">Todas las unidades</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="filtro-receta-catalogo">Receta e insumos</label>
+                            <select id="filtro-receta-catalogo">
+                                <option value="">Todos los productos</option>
+                                <option value="CON_RECETA">Con receta o insumos</option>
+                                <option value="SIN_RECETA">Sin receta registrada</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="filtro-antiguedad-catalogo">Fecha de creación</label>
+                            <select id="filtro-antiguedad-catalogo">
+                                <option value="">Cualquier fecha</option>
+                                <option value="RECIENTES">Recién creados (30 días)</option>
+                            </select>
+                        </div>
+                        <button id="limpiar-filtros-catalogo" type="button" class="button-outline">Limpiar filtros</button>
                     </div>
                     <p id="ayuda-interaccion-catalogo" class="catalog-interaction-help">Un clic selecciona el producto; doble clic muestra sus insumos.</p>
                     <div id="lista-productos-catalogo" class="catalog-product-list"></div>
@@ -578,6 +625,13 @@
             <div class="dialog-icon confirmation-icon" aria-hidden="true">✓</div>
             <p class="eyebrow">Confirmar registro</p>
             <h2 id="titulo-confirmar-registro">¿Registrar esta transformación?</h2>
+            <p class="confirmation-help">Revisa la información antes de generar los documentos en SSM.</p>
+            <div class="confirmation-meta">
+                <div><small>Línea</small><strong id="confirmacion-linea">—</strong></div>
+                <div><small>Transformación</small><strong id="confirmacion-transformacion">—</strong></div>
+                <div><small>Tablajero</small><strong id="confirmacion-tablajero">—</strong></div>
+                <div><small>Merma</small><strong id="confirmacion-merma">—</strong></div>
+            </div>
             <div class="confirmation-route" aria-label="Documentos que se generarán">
                 <article class="confirmation-document confirmation-document-out">
                     <div class="confirmation-document-heading">
@@ -604,9 +658,20 @@
                     <span id="confirmacion-cantidad-entrada" class="confirmation-quantity">0.00 kg</span>
                 </article>
             </div>
+            <div class="confirmation-folios">
+                <small>Documentos relacionados</small>
+                <strong id="confirmacion-folios">—</strong>
+            </div>
+            <section id="confirmacion-insumos-panel" class="confirmation-supplies hidden" aria-labelledby="confirmacion-insumos-titulo">
+                <div class="confirmation-supplies-heading">
+                    <strong id="confirmacion-insumos-titulo">Insumos que se consumirán</strong>
+                    <span id="confirmacion-total-insumos">0 insumos</span>
+                </div>
+                <div class="confirmation-supplies-list" id="confirmacion-lista-insumos"></div>
+            </section>
             <div class="dialog-actions">
-                <button id="cancelar-registro-transformacion" type="button" class="button-outline">Cancelar</button>
-                <button id="confirmar-registro-transformacion" type="button">Registrar transformación</button>
+                <button id="cancelar-registro-transformacion" type="button" class="button-outline">Regresar y corregir</button>
+                <button id="confirmar-registro-transformacion" type="button">Confirmar y registrar</button>
             </div>
         </section>
     </div>
@@ -621,10 +686,43 @@
                 <small>Producto seleccionado</small>
                 <strong id="nombre-producto-a-eliminar">Producto</strong>
             </div>
+            <div class="field audit-reason-field">
+                <label for="motivo-eliminacion-producto">Motivo del cambio</label>
+                <textarea id="motivo-eliminacion-producto" maxlength="300" rows="3" placeholder="Explica por qué se ocultará este producto"></textarea>
+                <small>Este motivo quedará guardado en la auditoría.</small>
+            </div>
             <div class="dialog-actions">
                 <button id="cancelar-eliminacion-producto" type="button" class="button-outline">Cancelar</button>
                 <button id="confirmar-eliminacion-producto" type="button">eliminar producto</button>
             </div>
+        </section>
+    </div>
+
+    <div id="modal-motivo-auditoria" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-motivo-auditoria">
+        <section class="movement-dialog confirmation-dialog">
+            <div class="dialog-icon confirmation-icon" aria-hidden="true">✓</div>
+            <p class="eyebrow">Control de cambios</p>
+            <h2 id="titulo-motivo-auditoria">¿Guardar las configuraciones?</h2>
+            <p>Indica el motivo para dejar constancia de este registro.</p>
+            <div class="field audit-reason-field">
+                <label for="motivo-auditoria-configuracion">Motivo</label>
+                <textarea id="motivo-auditoria-configuracion" maxlength="300" rows="3" placeholder="Ej. Nueva receta autorizada por producción"></textarea>
+                <small>Mínimo 5 caracteres.</small>
+            </div>
+            <div class="dialog-actions">
+                <button id="cancelar-motivo-auditoria" type="button" class="button-outline">Regresar</button>
+                <button id="confirmar-motivo-auditoria" type="button">Continuar y guardar</button>
+            </div>
+        </section>
+    </div>
+
+    <div id="modal-detalle-auditoria" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-detalle-auditoria">
+        <section class="detail-dialog audit-detail-dialog">
+            <header class="detail-dialog-heading">
+                <div><p class="eyebrow">Detalle del cambio</p><h2 id="titulo-detalle-auditoria">Auditoría</h2></div>
+                <button id="cerrar-detalle-auditoria" type="button" class="button-outline">Cerrar</button>
+            </header>
+            <div id="detalle-auditoria-contenido" class="audit-detail-content"></div>
         </section>
     </div>
 
