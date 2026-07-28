@@ -18,7 +18,7 @@ def consultar_auditoria(
     limite: int = Query(default=100, ge=1, le=500),
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
-    seguridad_sesion.requerir_permiso(request, 'ver_configuracion')
+    seguridad_sesion.requerir_permiso(request, 'ver_auditoria')
     return jsonable_encoder(
         base_datos.listar_auditoria_configuraciones(limite)
     )

@@ -351,14 +351,19 @@
                 <h2>Relaciones de entrada y salida</h2>
                 <p>Define el producto base, sus insumos consumibles y el producto resultante.</p>
             </div>
-            {% if permisos.crear_configuracion %}
+            {% if permisos.crear_configuracion or permisos.auditoria %}
             <div class="configuration-toolbar-actions">
+                {% if permisos.auditoria %}
                 <button id="boton-auditoria-configuracion" type="button" class="button-outline">Ver auditoría</button>
+                {% endif %}
+                {% if permisos.crear_configuracion %}
                 <button id="boton-nueva-configuracion" type="button">Nuevo</button>
+                {% endif %}
             </div>
             {% endif %}
         </section>
 
+        {% if permisos.auditoria %}
         <section id="panel-auditoria-configuracion" class="configuration-audit hidden">
             <div class="ingredients-heading">
                 <div><p class="eyebrow">Control de cambios</p><h3>Auditoría de configuraciones</h3></div>
@@ -374,6 +379,7 @@
                 </table>
             </div>
         </section>
+        {% endif %}
 
         {% if permisos.crear_configuracion %}
         <form id="form-nueva-configuracion" class="configuration-create hidden" novalidate>

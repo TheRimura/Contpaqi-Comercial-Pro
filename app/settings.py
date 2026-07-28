@@ -38,6 +38,7 @@ class PermisosModulo:
 
     grupos_acceso_modulo: frozenset[int]
     grupos_ver_configuracion: frozenset[int]
+    grupos_ver_auditoria: frozenset[int]
     grupos_ver_historial: frozenset[int]
     grupos_crear_configuracion: frozenset[int]
     grupos_registrar_transformaciones: frozenset[int]
@@ -50,6 +51,7 @@ class PermisosModulo:
 
         grupos_con_permisos_internos = (
             self.grupos_ver_configuracion
+            | self.grupos_ver_auditoria
             | self.grupos_ver_historial
             | self.grupos_crear_configuracion
             | self.grupos_registrar_transformaciones
@@ -69,6 +71,13 @@ class PermisosModulo:
                 "Un grupo que crea configuraciones también debe poder "
                 "ver Configuración."
             )
+        if not self.grupos_ver_auditoria.issubset(
+            self.grupos_ver_configuracion
+        ):
+            raise ValueError(
+                "Un grupo que consulta auditoría también debe poder "
+                "ver Configuración."
+            )
 
     def grupo_tiene_permiso(
         self,
@@ -78,6 +87,7 @@ class PermisosModulo:
         grupos_autorizados_por_permiso = {
             "acceso_modulo": self.grupos_acceso_modulo,
             "ver_configuracion": self.grupos_ver_configuracion,
+            "ver_auditoria": self.grupos_ver_auditoria,
             "ver_historial": self.grupos_ver_historial,
             "crear_configuracion": self.grupos_crear_configuracion,
             "registrar_transformaciones": (
@@ -100,6 +110,7 @@ class PermisosModulo:
 PERMISOS_MODULO = PermisosModulo(
     grupos_acceso_modulo=frozenset({1}),
     grupos_ver_configuracion=frozenset({1}),
+    grupos_ver_auditoria=frozenset({1}),
     grupos_ver_historial=frozenset({1}),
     grupos_crear_configuracion=frozenset({1}),
     grupos_registrar_transformaciones=frozenset({1}),

@@ -113,6 +113,9 @@ class SeguridadSesion:
             "configuracion": self.tiene_permiso(
                 sesion, "ver_configuracion"
             ),
+            "auditoria": self.tiene_permiso(
+                sesion, "ver_auditoria"
+            ),
             "historial": self.tiene_permiso(
                 sesion, "ver_historial"
             ),
