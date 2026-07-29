@@ -2315,9 +2315,35 @@ async function solicitarTipoMovimiento() {
     try {
         if (!datosCargados) await cargarDatos();
         if (!datosCargados) return;
-        transformacionesDisponibles = await solicitarJson(
+        const lineasConfiguradas = await solicitarJson(
+            `${API_RELACIONES}/transformacion/lineas`
+        );
+        const respuestasTransformaciones = await Promise.all(
+            lineasConfiguradas.map((registro) =>
+                solicitarJson(
+                    `${API_RELACIONES}/transformacion/precargadas?linea=${encodeURIComponent(registro.Category1)}`
+                )
+            )
+        );
+        const configuracionesGuardadas = respuestasTransformaciones
+            .flat()
+            .map((registro) => ({ ...registro, origen_catalogo: false }));
+        const productosCatalogo = await solicitarJson(
             `${API_RELACIONES}/transformacion/disponibles`
         );
+        const clavesConfiguradas = new Set(
+            configuracionesGuardadas.map((registro) =>
+                `${registro.linea}|${registro.nombre_transformacion}`.toUpperCase()
+            )
+        );
+        transformacionesDisponibles = [
+            ...configuracionesGuardadas,
+            ...productosCatalogo.filter((registro) =>
+                !clavesConfiguradas.has(
+                    `${registro.linea}|${registro.nombre_transformacion}`.toUpperCase()
+                )
+            ),
+        ];
         const movimientosPermitidos = catalogos.movimientos.filter((registro) =>
             Number(registro.EntradaID) === 5 && Number(registro.SalidaID) === 2
         );
@@ -2326,7 +2352,9 @@ async function solicitarTipoMovimiento() {
             "ItemValue", "ItemValue", "Selecciona el movimiento"
         );
         const lineas = [...new Set(
-            transformacionesDisponibles.map((registro) => registro.linea).filter(Boolean)
+            lineasConfiguradas
+                .map((registro) => registro.Category1)
+                .filter(Boolean)
         )].sort((a, b) => a.localeCompare(b, "es"));
         renderizarTiposTransformacion(lineas);
         document.getElementById("movimiento-inicial").value = "";
@@ -2435,9 +2463,35 @@ async function abrirCambioTransformacion() {
     document.getElementById("paginacion-transformaciones").classList.add("hidden");
     try {
         if (!transformacionesDisponibles.length) {
-            transformacionesDisponibles = await solicitarJson(
+            const lineasConfiguradas = await solicitarJson(
+                `${API_RELACIONES}/transformacion/lineas`
+            );
+            const respuestasTransformaciones = await Promise.all(
+                lineasConfiguradas.map((registro) =>
+                    solicitarJson(
+                        `${API_RELACIONES}/transformacion/precargadas?linea=${encodeURIComponent(registro.Category1)}`
+                    )
+                )
+            );
+            const configuracionesGuardadas = respuestasTransformaciones
+                .flat()
+                .map((registro) => ({ ...registro, origen_catalogo: false }));
+            const productosCatalogo = await solicitarJson(
                 `${API_RELACIONES}/transformacion/disponibles`
             );
+            const clavesConfiguradas = new Set(
+                configuracionesGuardadas.map((registro) =>
+                    `${registro.linea}|${registro.nombre_transformacion}`.toUpperCase()
+                )
+            );
+            transformacionesDisponibles = [
+                ...configuracionesGuardadas,
+                ...productosCatalogo.filter((registro) =>
+                    !clavesConfiguradas.has(
+                        `${registro.linea}|${registro.nombre_transformacion}`.toUpperCase()
+                    )
+                ),
+            ];
         }
         transformacionesLineaActual = transformacionesDisponibles.filter(
             (registro) => registro.linea === lineaTransformacionSeleccionada
@@ -2486,7 +2540,7 @@ function renderizarPaginaTransformaciones() {
                 String(transformacion.transformacion_id) === transformacionCatalogoActualId
             );
             boton.addEventListener("click", () =>
-                seleccionarTransformacionAlternativa(transformacion.transformacion_id)
+                seleccionarTransformacionAlternativa(transformacion)
             );
             lista.appendChild(boton);
         });
@@ -2509,15 +2563,15 @@ function cerrarCambioTransformacion() {
     document.body.classList.remove("modal-open");
 }
 
-async function seleccionarTransformacionAlternativa(transformacionId) {
-    const seleccionada = transformacionesDisponibles.find(
-        (registro) => String(registro.transformacion_id) === String(transformacionId)
-    );
+async function seleccionarTransformacionAlternativa(seleccionada) {
     if (!seleccionada) return;
     try {
         limpiarVistaPreviaTransformacion();
+        const rutaDetalle = seleccionada.origen_catalogo
+            ? `${API_RELACIONES}/transformacion/catalogo/${seleccionada.transformacion_id}`
+            : `${API_RELACIONES}/transformacion/precargadas/${seleccionada.transformacion_id}`;
         const detalle = await solicitarJson(
-            `${API_RELACIONES}/transformacion/catalogo/${seleccionada.transformacion_id}`
+            rutaDetalle
         );
         detalleTransformacionSeleccionada = detalle;
         document.getElementById("linea-transformacion").value = detalle.linea;
@@ -2532,12 +2586,19 @@ async function seleccionarTransformacionAlternativa(transformacionId) {
             "product_id", "producto_resultante", "Producto resultante"
         );
         document.getElementById("resultante-transformacion").value = String(detalle.resultantes[0].product_id);
+        const configuracionId = seleccionada.origen_catalogo
+            ? 0
+            : Number(seleccionada.transformacion_id);
         llenarSelect(
             "transformacion-precargada",
-            [{ transformacion_id: 0, nombre_transformacion: detalle.nombre_transformacion }],
+            [{
+                transformacion_id: configuracionId,
+                nombre_transformacion: detalle.nombre_transformacion,
+            }],
             "transformacion_id", "nombre_transformacion", "Transformación"
         );
-        document.getElementById("transformacion-precargada").value = "0";
+        document.getElementById("transformacion-precargada").value =
+            String(configuracionId);
         actualizarMermaTransformacion();
         calcularInsumosTransformacion();
         document.getElementById("linea-seleccionada-sencilla").textContent = seleccionada.linea;
