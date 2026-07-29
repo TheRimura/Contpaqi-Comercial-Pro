@@ -65,7 +65,6 @@
             <div id="espacio-transformacion" class="transformation-workspace">
             <section id="datos-transformacion" class="transformation-card hidden">
                 <div class="card-heading">
-                    <span class="step">1</span>
                     <div>
                         <p class="eyebrow">Preparar transformación</p>
                         <h3>Registra una transformación</h3>
@@ -126,7 +125,6 @@
             <section id="panel-documentos" class="document-grid">
                 <article class="document-card document-out">
                     <div class="card-heading">
-                        <span class="step">1</span>
                         <div>
                             <h3>Salida: productos consumidos</h3>
                             <p class="card-caption">Producto base e insumos de la receta</p>
@@ -144,7 +142,6 @@
 
                 <article class="document-card document-in">
                     <div class="card-heading">
-                        <span class="step">2</span>
                         <div>
                             <h3>Entrada: producto obtenido</h3>
                             <p class="card-caption">Resultado esperado después de la merma</p>
@@ -162,7 +159,6 @@
 
             <section id="resumen-registro-transformacion" class="registration-summary hidden">
                 <div class="card-heading">
-                    <span class="step">4</span>
                     <div>
                         <p class="eyebrow">Datos completados por el sistema</p>
                         <h3>Resumen del registro</h3>
@@ -185,7 +181,6 @@
 
             <section id="datos-movimiento-fisico" class="movement-card hidden">
                 <div class="card-heading movement-heading">
-                    <span class="step">3</span>
                     <div>
                         <p class="eyebrow">Datos de la relación</p>
                         <h3>Movimiento físico</h3>
@@ -429,7 +424,6 @@
                 <div><p class="eyebrow">Control de cambios</p><h3>Auditoría de configuraciones</h3></div>
                 <button id="cerrar-auditoria-configuracion" type="button" class="button-outline">Cerrar auditoría</button>
             </div>
-            <p class="detail-help">Consulta quién realizó cada cambio, cuándo se hizo y cuál fue el motivo.</p>
             <div class="registration-table-wrap">
                 <table class="registration-table audit-table">
                     <thead><tr><th>Fecha y hora</th><th>Usuario</th><th>Acción</th><th>Configuración</th><th>Motivo</th><th></th></tr></thead>
@@ -443,13 +437,12 @@
 
         {% if permisos.crear_configuracion %}
         <form id="form-nueva-configuracion" class="configuration-create hidden" novalidate>
-            <div class="card-heading">
-                <span class="step">+</span>
+            <div class="card-heading configuration-create-heading">
                 <div>
-                    <p id="config-captura-actual" class="eyebrow">Captura actual</p>
                     <h3>Registrar una transformación</h3>
                     <p>Captura los datos y agrega los productos que forman la transformación.</p>
                 </div>
+                <button id="agregar-configuracion-lote" type="button" class="button-outline">Agregar otra</button>
             </div>
             <div class="configuration-essential-fields configuration-manual-fields">
                 <div class="field configuration-step-field">
@@ -544,7 +537,6 @@
             <div id="mensaje-configuracion" class="message" role="status" aria-live="polite"></div>
             <div class="form-actions">
                 <button id="cancelar-nueva-configuracion" type="button" class="button-outline">Cancelar</button>
-                <button id="agregar-configuracion-lote" type="button" class="button-outline">Agregar otra</button>
                 <button id="guardar-configuracion" type="button">Guardar todas</button>
             </div>
         </form>
@@ -616,7 +608,6 @@
                 </div>
                 <div id="configuraciones-guardadas">
                     <div class="card-heading">
-                        <span class="step">1</span>
                         <div><p class="eyebrow">Transformaciones guardadas</p><h3>Producto de salida relacionado con producto de entrada</h3></div>
                     </div>
                     <div class="configuration-relations">
@@ -742,6 +733,19 @@
         </section>
     </div>
 
+    <div id="modal-cancelar-configuracion" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-cancelar-configuracion">
+        <section class="movement-dialog confirmation-dialog">
+            <div class="dialog-icon delete-confirmation-icon" aria-hidden="true">!</div>
+            <p class="eyebrow">Confirmar cancelación</p>
+            <h2 id="titulo-cancelar-configuracion">¿Deseas cancelar este registro?</h2>
+            <p>Los datos e insumos capturados que no se hayan guardado se perderán.</p>
+            <div class="dialog-actions">
+                <button id="continuar-configuracion" type="button" class="button-outline">Seguir capturando</button>
+                <button id="confirmar-cancelacion-configuracion" type="button">Sí, cancelar registro</button>
+            </div>
+        </section>
+    </div>
+
     <div id="modal-confirmar-eliminacion-producto" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-confirmar-eliminacion-producto">
         <section class="movement-dialog confirmation-dialog catalog-delete-dialog">
             <div class="dialog-icon delete-confirmation-icon" aria-hidden="true">!</div>
@@ -833,7 +837,7 @@
                 <button id="cerrar-detalle-historial" type="button" class="button-outline">Cerrar</button>
             </header>
             <div id="detalle-historial-contenido" class="history-detail-content">
-                <p class="catalog-loading">Consultando documentos en SSM...</p>
+                <p class="catalog-loading">Buscando...</p>
             </div>
         </section>
     </div>

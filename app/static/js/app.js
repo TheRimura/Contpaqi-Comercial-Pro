@@ -1045,6 +1045,46 @@ function abrirNuevaConfiguracion() {
     formulario.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
+function nuevaConfiguracionTieneDatos() {
+    const linea = document.getElementById("config-linea").value;
+    const nombre = document.getElementById("config-nombre").value.trim();
+    const kilos = Number(document.getElementById("config-cantidad-base").value || 0);
+    const merma = Number(document.getElementById("config-merma").value);
+    const mermaFueModificada = Number.isFinite(merma)
+        && Math.abs(merma - MERMA_TECNICA_PORCENTAJE) > 0.0001;
+
+    return Boolean(
+        linea
+        || nombre
+        || kilos > 0
+        || mermaFueModificada
+        || componentesConfiguracion.length
+        || configuracionesPendientes.length
+        || indiceConfiguracionEnEdicion >= 0
+    );
+}
+
+function cerrarConfirmacionCancelacionConfiguracion() {
+    document.getElementById("modal-cancelar-configuracion").classList.add("hidden");
+    document.body.classList.remove("modal-open");
+}
+
+function solicitarCancelacionNuevaConfiguracion() {
+    if (!nuevaConfiguracionTieneDatos()) {
+        cerrarNuevaConfiguracion();
+        return;
+    }
+
+    document.getElementById("modal-cancelar-configuracion").classList.remove("hidden");
+    document.body.classList.add("modal-open");
+    document.getElementById("continuar-configuracion").focus();
+}
+
+function confirmarCancelacionNuevaConfiguracion() {
+    cerrarConfirmacionCancelacionConfiguracion();
+    cerrarNuevaConfiguracion();
+}
+
 function cerrarNuevaConfiguracion() {
     cancelarCargaComponentesConfiguracion();
     const formulario = document.getElementById("form-nueva-configuracion");
@@ -1182,8 +1222,6 @@ function renderizarConfiguracionesPendientes() {
     });
     document.getElementById("total-configuraciones-pendientes").textContent =
         `${configuracionesPendientes.length} transformación${configuracionesPendientes.length === 1 ? "" : "es"}`;
-    document.getElementById("config-captura-actual").textContent =
-        `Captura actual · ${configuracionesPendientes.length + 1}`;
 }
 
 function restablecerModoEdicionConfiguracion() {
@@ -1370,7 +1408,18 @@ function iniciarPaginaConfiguracion() {
     const formulario = document.getElementById("form-nueva-configuracion");
     if (formulario) {
         document.getElementById("boton-nueva-configuracion").addEventListener("click", abrirNuevaConfiguracion);
-        document.getElementById("cancelar-nueva-configuracion").addEventListener("click", cerrarNuevaConfiguracion);
+        document.getElementById("cancelar-nueva-configuracion").addEventListener(
+            "click",
+            solicitarCancelacionNuevaConfiguracion
+        );
+        document.getElementById("continuar-configuracion").addEventListener(
+            "click",
+            cerrarConfirmacionCancelacionConfiguracion
+        );
+        document.getElementById("confirmar-cancelacion-configuracion").addEventListener(
+            "click",
+            confirmarCancelacionNuevaConfiguracion
+        );
         document.getElementById("config-linea").addEventListener("change", cargarProductosConfiguracion);
         document.getElementById("config-nombre").addEventListener("change", async () => {
             if (!document.getElementById("config-formula").classList.contains("hidden")) {
@@ -1705,7 +1754,7 @@ function crearDocumentoDetalleHistorial(titulo, folio, partidas, tipo) {
 async function abrirDetalleHistorial(relacionId) {
     const modal = document.getElementById("modal-detalle-historial");
     const contenido = document.getElementById("detalle-historial-contenido");
-    contenido.innerHTML = '<p class="catalog-loading">Consultando documentos en SSM...</p>';
+    contenido.innerHTML = '<p class="catalog-loading">Cargando...</p>';
     modal.classList.remove("hidden");
     try {
         const detalle = await solicitarJson(`${API_RELACIONES}/historial/${relacionId}`);
