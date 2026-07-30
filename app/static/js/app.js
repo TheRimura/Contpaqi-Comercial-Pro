@@ -1052,12 +1052,31 @@ function abrirNuevaConfiguracion() {
     formulario.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
+function transformacionPermiteMermaPersonalizada(nombre) {
+    const nombreNormalizado = String(nombre || "").trim().toUpperCase();
+    return nombreNormalizado.includes("MOLIDA")
+        || nombreNormalizado.includes("MOLIDO");
+}
+
+function actualizarCampoMermaConfiguracion() {
+    const nombre = document.getElementById("config-nombre").value;
+    const campo = document.getElementById("campo-config-merma");
+    const entrada = document.getElementById("config-merma");
+    const permitePersonalizar = transformacionPermiteMermaPersonalizada(nombre);
+    campo.classList.toggle("hidden", !permitePersonalizar);
+    entrada.disabled = !permitePersonalizar;
+    if (!permitePersonalizar) {
+        entrada.value = String(MERMA_TECNICA_PORCENTAJE);
+    }
+}
+
 function nuevaConfiguracionTieneDatos() {
     const linea = document.getElementById("config-linea").value;
     const nombre = document.getElementById("config-nombre").value.trim();
     const kilos = Number(document.getElementById("config-cantidad-base").value || 0);
     const merma = Number(document.getElementById("config-merma").value);
-    const mermaFueModificada = Number.isFinite(merma)
+    const mermaFueModificada = transformacionPermiteMermaPersonalizada(nombre)
+        && Number.isFinite(merma)
         && Math.abs(merma - MERMA_TECNICA_PORCENTAJE) > 0.0001;
 
     return Boolean(
@@ -1126,7 +1145,11 @@ function construirConfiguracionActual() {
         nombre: document.getElementById("config-nombre").value.trim(),
         linea: document.getElementById("config-linea").value,
         cantidad_base: Number(document.getElementById("config-cantidad-base").value),
-        porcentaje_merma: Number(document.getElementById("config-merma").value),
+        porcentaje_merma: transformacionPermiteMermaPersonalizada(
+            document.getElementById("config-nombre").value
+        )
+            ? Number(document.getElementById("config-merma").value)
+            : MERMA_TECNICA_PORCENTAJE,
         componentes: componentesConfiguracion.map((componente) => ({
             producto_id: componente.producto_id,
             producto: componente.producto,
@@ -1171,7 +1194,6 @@ function renderizarConfiguracionesPendientes() {
         [
             ["Producto base", base?.producto || "Sin base"],
             ["Peso", `${pesoVisual.cantidad} ${pesoVisual.unidad}`],
-            ["Merma", `${Number(configuracion.porcentaje_merma).toFixed(2)}%`],
             ["Insumos", String(insumos.length)],
         ].forEach(([etiqueta, valor]) => {
             const bloque = document.createElement("span");
@@ -1241,6 +1263,7 @@ function limpiarCapturaConfiguracion() {
     document.getElementById("config-nombre").value = "";
     document.getElementById("config-cantidad-base").value = "";
     document.getElementById("config-merma").value = String(MERMA_TECNICA_PORCENTAJE);
+    actualizarCampoMermaConfiguracion();
     document.getElementById("config-observaciones").value = "";
     componentesConfiguracion = [];
     proporcionesInsumosConfiguracion = new Map();
@@ -1262,6 +1285,7 @@ async function editarConfiguracionPendiente(indice) {
     document.getElementById("config-nombre").value = configuracion.nombre;
     document.getElementById("config-cantidad-base").value = configuracion.cantidad_base;
     document.getElementById("config-merma").value = configuracion.porcentaje_merma;
+    actualizarCampoMermaConfiguracion();
     document.getElementById("config-observaciones").value = configuracion.observaciones || "";
 
     await cargarComponentesParaAsignacion();
@@ -1428,7 +1452,12 @@ function iniciarPaginaConfiguracion() {
             confirmarCancelacionNuevaConfiguracion
         );
         document.getElementById("config-linea").addEventListener("change", cargarProductosConfiguracion);
+        document.getElementById("config-nombre").addEventListener(
+            "input",
+            actualizarCampoMermaConfiguracion
+        );
         document.getElementById("config-nombre").addEventListener("change", async () => {
+            actualizarCampoMermaConfiguracion();
             if (!document.getElementById("config-formula").classList.contains("hidden")) {
                 const baseRelacionada = await agregarBaseSugeridaConfiguracion();
                 document.getElementById("campo-config-insumo-producto").classList.remove("hidden");
@@ -1438,6 +1467,7 @@ function iniciarPaginaConfiguracion() {
                 }
             }
         });
+        actualizarCampoMermaConfiguracion();
         document.getElementById("config-cantidad-base").addEventListener(
             "input",
             recalcularCantidadesInsumosConfiguracion

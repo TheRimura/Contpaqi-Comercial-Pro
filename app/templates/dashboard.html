@@ -412,14 +412,14 @@
                 </div>
                 <div class="field configuration-step-field configuration-wide quantity-field">
                     <span class="configuration-field-number">3</span>
-                    <strong class="configuration-group-title">Configuración de peso y merma</strong>
+                    <strong class="configuration-group-title">Configuración de peso</strong>
                     <div class="configuration-weight-actions">
                         <div class="configuration-measure-field">
                             <label for="config-cantidad-base">Kilos a registrar</label>
                             <div class="quantity-control"><input id="config-cantidad-base" type="number" min="0.01" max="{{ ajustes.maximo_kilos_por_transformacion }}" step="0.01" placeholder="0.00" required><span>kg</span></div>
                         </div>
-                        <div class="configuration-measure-field">
-                            <label for="config-merma">Merma esperada</label>
+                        <div id="campo-config-merma" class="configuration-measure-field hidden">
+                            <label for="config-merma">Merma para producto molido</label>
                             <div class="quantity-control"><input id="config-merma" type="number" min="0" max="99.999" step="0.001" value="{{ ajustes.merma_tecnica_porcentaje }}" required><span>%</span></div>
                         </div>
                         <button id="ir-asignar-insumos" type="button" aria-controls="config-formula" aria-expanded="false">Agregar insumos</button>
@@ -480,6 +480,7 @@
                     <div>
                         <p class="eyebrow">Capturas pendientes</p>
                         <h3>Transformaciones</h3>
+                        <p>Merma general del módulo: {{ ajustes.merma_tecnica_porcentaje }}%. Solo los productos molidos permiten modificarla.</p>
                     </div>
                     <span id="total-configuraciones-pendientes">0 transformaciones</span>
                 </div>

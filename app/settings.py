@@ -4,6 +4,10 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class AjustesModulo:
     merma_tecnica_porcentaje: float = 8.0
+    nombres_con_merma_configurable: tuple[str, ...] = (
+        "MOLIDA",
+        "MOLIDO",
+    )
     transformaciones_por_pagina: int = 12
     productos_por_pagina: int = 12
     maximo_kilos_por_transformacion: float = 3_000.0
@@ -25,6 +29,18 @@ class AjustesModulo:
     @property
     def factor_rendimiento(self) -> float:
         return 1 - (self.merma_tecnica_porcentaje / 100)
+
+    def transformacion_permite_merma_personalizada(
+        self,
+        nombre_transformacion: str,
+    ) -> bool:
+        nombre_normalizado = " ".join(
+            str(nombre_transformacion or "").upper().split()
+        )
+        return any(
+            palabra in nombre_normalizado
+            for palabra in self.nombres_con_merma_configurable
+        )
 
 
 # AJUSTES EDITABLES DEL MÓDULO

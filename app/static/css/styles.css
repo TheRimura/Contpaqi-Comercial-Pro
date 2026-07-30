@@ -437,6 +437,7 @@ tbody tr:hover { background: var(--red-soft); }
 .configuration-step-field label { padding-left: 27px; }
 .configuration-group-title { display: block; margin-bottom: 9px; padding-left: 27px; }
 .configuration-weight-actions { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, .45fr) auto; gap: 12px; align-items: end; }
+.configuration-weight-actions:has(#campo-config-merma.hidden) { grid-template-columns: minmax(180px, 1fr) auto; }
 .configuration-measure-field { display: grid; gap: 6px; }
 .configuration-measure-field label { padding-left: 0; }
 .configuration-weight-actions > button { min-width: 260px; }

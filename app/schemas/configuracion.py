@@ -38,6 +38,12 @@ class CrearConfiguracionTransformacion(BaseModel):
 
     @model_validator(mode='after')
     def validar_componentes(self):
+        if not AJUSTES_MODULO.transformacion_permite_merma_personalizada(
+            self.nombre
+        ):
+            self.porcentaje_merma = (
+                AJUSTES_MODULO.merma_tecnica_porcentaje
+            )
         productos = [componente.producto_id for componente in self.componentes]
         if len(productos) != len(set(productos)):
             raise ValueError('No se puede agregar dos veces el mismo insumo.')
@@ -61,7 +67,7 @@ class EventoAuditoriaConfiguracion(BaseModel):
     @classmethod
     def validar_accion(cls, valor: str) -> str:
         accion = valor.strip().upper()
-        if accion not in {'CREAR', 'EDITAR', 'OCULTAR', 'REACTIVAR'}:
+        if accion not in {'CREO', 'EDITO', 'ELIMINO', 'REACTIVO'}:
             raise ValueError('La acción de auditoría no es válida.')
         return accion
 
@@ -69,4 +75,3 @@ class EventoAuditoriaConfiguracion(BaseModel):
     @classmethod
     def limpiar_texto_auditoria(cls, valor: str) -> str:
         return ' '.join(valor.split())
-

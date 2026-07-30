@@ -744,6 +744,12 @@ class BaseDatos(ComandosBaseDatos):
         if not encabezados:
             return None
         detalle = encabezados[0]
+        if not AJUSTES_MODULO.transformacion_permite_merma_personalizada(
+            detalle['nombre_transformacion']
+        ):
+            detalle['porcentaje_merma'] = (
+                AJUSTES_MODULO.merma_tecnica_porcentaje
+            )
         detalle['resultantes'] = self.fetchall(
             """
             SELECT
