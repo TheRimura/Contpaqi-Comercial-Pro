@@ -512,8 +512,10 @@
                     <div class="catalog-products-heading">
                         <div><p class="eyebrow">Productos base disponibles</p><h3 id="catalogo-productos-titulo">Selecciona una línea</h3></div>
                         <div class="catalog-products-actions">
+                            {% if permisos.eliminar_productos_catalogo %}
                             <button id="eliminar-producto-catalogo" type="button" class="button-outline button-danger">Eliminar</button>
                             <button id="cancelar-eliminacion-catalogo" type="button" class="button-outline hidden">Cancelar</button>
+                            {% endif %}
                             <button id="cerrar-catalogo-productos" type="button" class="button-outline">Cerrar catálogo</button>
                         </div>
                     </div>

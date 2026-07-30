@@ -1498,8 +1498,14 @@ function iniciarPaginaConfiguracion() {
         });
     });
     document.getElementById("cerrar-catalogo-productos").addEventListener("click", cerrarCatalogoProductos);
-    document.getElementById("eliminar-producto-catalogo").addEventListener("click", activarEliminacionCatalogo);
-    document.getElementById("cancelar-eliminacion-catalogo").addEventListener("click", cancelarEliminacionCatalogo);
+    document.getElementById("eliminar-producto-catalogo")?.addEventListener(
+        "click",
+        activarEliminacionCatalogo
+    );
+    document.getElementById("cancelar-eliminacion-catalogo")?.addEventListener(
+        "click",
+        cancelarEliminacionCatalogo
+    );
     document.getElementById("cerrar-detalle-producto").addEventListener("click", () => {
         document.getElementById("modal-detalle-producto").classList.add("hidden");
     });

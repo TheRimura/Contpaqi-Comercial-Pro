@@ -42,6 +42,7 @@ class PermisosModulo:
     grupos_ver_historial: frozenset[int]
     grupos_crear_configuracion: frozenset[int]
     grupos_registrar_transformaciones: frozenset[int]
+    grupos_eliminar_productos_catalogo: frozenset[int]
 
     def validar_coherencia_de_permisos(self) -> None:
         if not self.grupos_acceso_modulo:
@@ -55,6 +56,7 @@ class PermisosModulo:
             | self.grupos_ver_historial
             | self.grupos_crear_configuracion
             | self.grupos_registrar_transformaciones
+            | self.grupos_eliminar_productos_catalogo
         )
         if not grupos_con_permisos_internos.issubset(
             self.grupos_acceso_modulo
@@ -78,6 +80,13 @@ class PermisosModulo:
                 "Un grupo que consulta auditoría también debe poder "
                 "ver Configuración."
             )
+        if not self.grupos_eliminar_productos_catalogo.issubset(
+            self.grupos_ver_configuracion
+        ):
+            raise ValueError(
+                "Un grupo que elimina productos del catálogo también debe "
+                "poder ver Configuración."
+            )
 
     def grupo_tiene_permiso(
         self,
@@ -92,6 +101,9 @@ class PermisosModulo:
             "crear_configuracion": self.grupos_crear_configuracion,
             "registrar_transformaciones": (
                 self.grupos_registrar_transformaciones
+            ),
+            "eliminar_productos_catalogo": (
+                self.grupos_eliminar_productos_catalogo
             ),
         }
         if nombre_permiso not in grupos_autorizados_por_permiso:
@@ -108,11 +120,13 @@ class PermisosModulo:
 # Ejemplo: frozenset({1, 3})
 
 PERMISOS_MODULO = PermisosModulo(
-    grupos_acceso_modulo=frozenset({1}),
-    grupos_ver_configuracion=frozenset({1}),
+    grupos_acceso_modulo=frozenset({1, 12}),
+    grupos_ver_configuracion=frozenset({1,}),
     grupos_ver_auditoria=frozenset({1}),
-    grupos_ver_historial=frozenset({1}),
+    grupos_ver_historial=frozenset({1, 12}),
     grupos_crear_configuracion=frozenset({1}),
-    grupos_registrar_transformaciones=frozenset({1}),
+    grupos_registrar_transformaciones=frozenset({1, 12}),
+    # Agregue aquí los grupos autorizados para ocultar productos.
+    grupos_eliminar_productos_catalogo=frozenset({1}),
 )
 PERMISOS_MODULO.validar_coherencia_de_permisos()

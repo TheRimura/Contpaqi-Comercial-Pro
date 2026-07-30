@@ -125,6 +125,9 @@ class SeguridadSesion:
             "registrar_transformaciones": self.tiene_permiso(
                 sesion, "registrar_transformaciones"
             ),
+            "eliminar_productos_catalogo": self.tiene_permiso(
+                sesion, "eliminar_productos_catalogo"
+            ),
         }
 
     def requerir_sesion(self, request: Request):

@@ -31,7 +31,7 @@ def registrar_evento_auditoria(
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
     sesion = seguridad_sesion.requerir_permiso(
-        request, 'crear_configuracion'
+        request, 'eliminar_productos_catalogo'
     )
     auditoria_id = base_datos.registrar_auditoria_configuracion(
         configuracion_id=datos.configuracion_id,
