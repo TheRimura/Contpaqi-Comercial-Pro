@@ -259,48 +259,16 @@
             <form id="filtros-historial" class="history-filters hidden">
                 <div class="field">
                     <label for="historial-fecha-desde">Desde</label>
-                    <input id="historial-fecha-desde" type="date">
+                    <input id="historial-fecha-desde" type="date" readonly
+                           title="Se actualiza automáticamente con la fecha actual">
                 </div>
                 <div class="field">
                     <label for="historial-fecha-hasta">Hasta</label>
                     <input id="historial-fecha-hasta" type="date">
                 </div>
                 <div class="field">
-                    <label for="historial-linea">Línea cárnica</label>
-                    <select id="historial-linea">
-                        <option value="">Todas</option>
-                        <option value="CERDO">Cerdo</option>
-                        <option value="POLLO">Pollo</option>
-                        <option value="RES LOCAL">Res Local</option>
-                    </select>
-                </div>
-                <div class="field">
                     <label for="historial-transformacion">Transformación</label>
                     <input id="historial-transformacion" type="search" maxlength="150" placeholder="Nombre del producto">
-                </div>
-                <div class="field">
-                    <label for="historial-tablajero">Tablajero</label>
-                    <input id="historial-tablajero" type="search" maxlength="150" placeholder="Nombre del responsable">
-                </div>
-                <div class="field">
-                    <label for="historial-folio">Folio SA o EA</label>
-                    <input id="historial-folio" type="search" maxlength="50" placeholder="Ej. SA61460">
-                </div>
-                <div class="field">
-                    <label for="historial-estado">Estado</label>
-                    <select id="historial-estado">
-                        <option value="">Todos</option>
-                        <option value="RELACIONADO">Relacionado</option>
-                    </select>
-                </div>
-                <div class="field">
-                    <label for="historial-nivel-merma">Nivel de merma</label>
-                    <select id="historial-nivel-merma">
-                        <option value="">Todos</option>
-                        <option value="NORMAL">Normal (hasta 8%)</option>
-                        <option value="ADVERTENCIA">Advertencia (8% a 12%)</option>
-                        <option value="CRITICA">Crítica (más de 12%)</option>
-                    </select>
                 </div>
                 <div class="history-filter-actions">
                     <button id="limpiar-filtros-historial" type="button" class="button-outline">Limpiar</button>
@@ -417,23 +385,6 @@
             </div>
             {% endif %}
         </section>
-
-        {% if permisos.auditoria %}
-        <section id="panel-auditoria-configuracion" class="configuration-audit hidden">
-            <div class="ingredients-heading">
-                <div><p class="eyebrow">Control de cambios</p><h3>Auditoría de configuraciones</h3></div>
-                <button id="cerrar-auditoria-configuracion" type="button" class="button-outline">Cerrar auditoría</button>
-            </div>
-            <div class="registration-table-wrap">
-                <table class="registration-table audit-table">
-                    <thead><tr><th>Fecha y hora</th><th>Usuario</th><th>Acción</th><th>Configuración</th><th>Motivo</th><th></th></tr></thead>
-                    <tbody id="filas-auditoria-configuracion">
-                        <tr><td colspan="6" class="empty-table-cell">Abre la auditoría para consultar los movimientos.</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
-        {% endif %}
 
         {% if permisos.crear_configuracion %}
         <form id="form-nueva-configuracion" class="configuration-create hidden" novalidate>
@@ -629,6 +580,47 @@
                     </div>
                 </div>
             </section>
+        </section>
+    </main>
+    {% endif %}
+
+    <!-- =============== VISTA: AUDITORÍA ================= -->
+    {% if permisos.auditoria %}
+    <main id="vista-auditoria" class="workspace audit-workspace hidden">
+        <section class="capture-toolbar audit-page-header">
+            <div>
+                <p class="eyebrow">Control de cambios</p>
+                <h2>Auditoría de configuraciones</h2>
+                <p>Consulta quién realizó cada cambio, cuándo se hizo y los valores involucrados.</p>
+            </div>
+            <div class="configuration-toolbar-actions">
+                <button id="actualizar-auditoria-configuracion" type="button" class="button-outline">Actualizar</button>
+                <button id="volver-configuracion-auditoria" type="button">Volver a configuración</button>
+            </div>
+        </section>
+
+        <section class="audit-page-card">
+            <div class="audit-page-summary">
+                <div>
+                    <p class="eyebrow">Registros</p>
+                    <strong id="auditoria-total-registros">0 movimientos</strong>
+            <div class="registration-table-wrap audit-page-table-wrap">
+                <table class="registration-table audit-table">
+                    <thead>
+                        <tr>
+                            <th>Fecha y hora</th>
+                            <th>Usuario</th>
+                            <th>Acción</th>
+                            <th>Configuración</th>
+                            <th>Motivo</th>
+                            <th aria-label="Acciones"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="filas-auditoria-configuracion">
+                        <tr><td colspan="6" class="empty-table-cell">Abre la auditoría para consultar los movimientos.</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </section>
     </main>
     {% endif %}

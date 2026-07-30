@@ -544,7 +544,12 @@ function abrirDetalleAuditoria(registro) {
 
 function renderizarAuditoriaConfiguracion() {
     const cuerpo = document.getElementById("filas-auditoria-configuracion");
+    const total = document.getElementById("auditoria-total-registros");
     cuerpo.replaceChildren();
+    if (total) {
+        total.textContent =
+            `${registrosAuditoriaConfiguracion.length} movimiento${registrosAuditoriaConfiguracion.length === 1 ? "" : "s"}`;
+    }
     if (!registrosAuditoriaConfiguracion.length) {
         const fila = document.createElement("tr");
         const celda = document.createElement("td");
@@ -589,8 +594,7 @@ function renderizarAuditoriaConfiguracion() {
 }
 
 async function abrirAuditoriaConfiguracion() {
-    const panel = document.getElementById("panel-auditoria-configuracion");
-    panel.classList.remove("hidden");
+    mostrarVistaModulo("auditoria");
     document.getElementById("filas-auditoria-configuracion").innerHTML =
         '<tr><td colspan="6" class="empty-table-cell">Consultando auditoría...</td></tr>';
     try {
@@ -602,7 +606,10 @@ async function abrirAuditoriaConfiguracion() {
         document.getElementById("filas-auditoria-configuracion").innerHTML =
             `<tr><td colspan="6" class="empty-table-cell">${error.message}</td></tr>`;
     }
-    panel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function volverDesdeAuditoriaConfiguracion() {
+    mostrarVistaModulo("configuracion");
 }
 
 function activarEliminacionCatalogo() {
@@ -1468,9 +1475,13 @@ function iniciarPaginaConfiguracion() {
         "click",
         abrirAuditoriaConfiguracion
     );
-    document.getElementById("cerrar-auditoria-configuracion")?.addEventListener(
+    document.getElementById("actualizar-auditoria-configuracion")?.addEventListener(
         "click",
-        () => document.getElementById("panel-auditoria-configuracion").classList.add("hidden")
+        abrirAuditoriaConfiguracion
+    );
+    document.getElementById("volver-configuracion-auditoria")?.addEventListener(
+        "click",
+        volverDesdeAuditoriaConfiguracion
     );
     document.getElementById("cerrar-detalle-auditoria")?.addEventListener(
         "click",
@@ -1628,7 +1639,43 @@ function cambiarPaginaHistorial(desplazamiento) {
     renderizarPaginaHistorial();
 }
 
+function fechaLocalISO(fecha = new Date()) {
+    const anio = fecha.getFullYear();
+    const mes = String(fecha.getMonth() + 1).padStart(2, "0");
+    const dia = String(fecha.getDate()).padStart(2, "0");
+    return `${anio}-${mes}-${dia}`;
+}
+
+function configurarRangoFechasHistorial() {
+    const fechaDesde = document.getElementById("historial-fecha-desde");
+    const fechaHasta = document.getElementById("historial-fecha-hasta");
+    if (!fechaDesde || !fechaHasta) return;
+
+    const fechaActual = fechaLocalISO();
+    fechaDesde.value = fechaActual;
+    fechaDesde.max = fechaActual;
+    fechaHasta.max = fechaActual;
+    if (fechaHasta.value && fechaHasta.value > fechaActual) {
+        fechaHasta.value = "";
+    }
+    fechaHasta.setCustomValidity("");
+}
+
+function rangoFechasHistorialValido() {
+    const fechaDesde = document.getElementById("historial-fecha-desde");
+    const fechaHasta = document.getElementById("historial-fecha-hasta");
+    if (!fechaDesde || !fechaHasta) return true;
+
+    const rangoValido = !fechaHasta.value || fechaHasta.value <= fechaDesde.value;
+    fechaHasta.setCustomValidity(
+        rangoValido ? "" : "La fecha Hasta debe ser igual o anterior a la fecha Desde."
+    );
+    if (!rangoValido) fechaHasta.reportValidity();
+    return rangoValido;
+}
+
 function conectarControlesHistorial() {
+    configurarRangoFechasHistorial();
     document.getElementById("exportar-historial")?.addEventListener(
         "click",
         exportarHistorialExcel
@@ -1650,10 +1697,12 @@ function conectarControlesHistorial() {
     });
     document.getElementById("filtros-historial")?.addEventListener("submit", (evento) => {
         evento.preventDefault();
+        if (!rangoFechasHistorialValido()) return;
         consultarHistorialFiltrado();
     });
     document.getElementById("limpiar-filtros-historial")?.addEventListener("click", () => {
         document.getElementById("filtros-historial").reset();
+        configurarRangoFechasHistorial();
         consultarHistorialFiltrado();
     });
 }
@@ -1664,21 +1713,16 @@ async function actualizarHistorialDesdeServidor() {
 }
 
 function parametrosFiltrosHistorial() {
-    const campos = {
-        fecha_desde: "historial-fecha-desde",
-        fecha_hasta: "historial-fecha-hasta",
-        linea: "historial-linea",
-        transformacion: "historial-transformacion",
-        tablajero: "historial-tablajero",
-        folio: "historial-folio",
-        estado: "historial-estado",
-        nivel_merma: "historial-nivel-merma",
-    };
     const parametros = new URLSearchParams({ limite: "500" });
-    Object.entries(campos).forEach(([nombre, id]) => {
-        const valor = document.getElementById(id)?.value?.trim();
-        if (valor) parametros.set(nombre, valor);
-    });
+    const desdeVisual = document.getElementById("historial-fecha-desde")?.value;
+    const hastaVisual = document.getElementById("historial-fecha-hasta")?.value;
+    const transformacion = document.getElementById("historial-transformacion")?.value?.trim();
+
+    // En pantalla el rango se recorre desde hoy hacia una fecha anterior.
+    // SQL espera primero la fecha menor y después la fecha mayor.
+    if (hastaVisual) parametros.set("fecha_desde", hastaVisual);
+    if (desdeVisual) parametros.set("fecha_hasta", desdeVisual);
+    if (transformacion) parametros.set("transformacion", transformacion);
     return parametros;
 }
 
@@ -1700,7 +1744,7 @@ async function consultarHistorialFiltrado() {
             (nombre) => nombre !== "limite"
         ).length;
         resumen.textContent = filtrosAplicados
-            ? `${registrosHistorialActual.length} registros encontrados con ${filtrosAplicados} filtros.`
+            ? `${registrosHistorialActual.length} registros encontrados con ${filtrosAplicados} ${filtrosAplicados === 1 ? "filtro" : "filtros"}.`
             : `${registrosHistorialActual.length} transformaciones disponibles.`;
         resumen.classList.remove("hidden");
     } catch (error) {
@@ -2842,6 +2886,7 @@ function mostrarVistaModulo(vista) {
         inicio: document.getElementById("vista-inicio"),
         historial: document.getElementById("vista-historial"),
         configuracion: document.getElementById("vista-configuracion"),
+        auditoria: document.getElementById("vista-auditoria"),
     };
     if (!vistas[vista]) return;
 
@@ -2863,7 +2908,7 @@ function mostrarVistaModulo(vista) {
 
     document.getElementById("boton-Configuracion")?.classList.toggle(
         "current-section",
-        vista === "configuracion"
+        ["configuracion", "auditoria"].includes(vista)
     );
     const hash = vista === "inicio" ? "#inicio" : `#${vista}`;
     window.history.replaceState(null, "", hash);
@@ -2937,8 +2982,9 @@ document.addEventListener("DOMContentLoaded", () => {
         if (detalleTransformacionSeleccionada) localizarDocumentosTransformacion();
     });
     const vistaSolicitada = window.location.hash.replace("#", "");
-    if (["historial", "configuracion"].includes(vistaSolicitada)) {
+    if (["historial", "configuracion", "auditoria"].includes(vistaSolicitada)) {
         mostrarVistaModulo(vistaSolicitada);
         if (vistaSolicitada === "historial") actualizarHistorialDesdeServidor();
+        if (vistaSolicitada === "auditoria") abrirAuditoriaConfiguracion();
     }
 });
