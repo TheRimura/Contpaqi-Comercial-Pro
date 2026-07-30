@@ -1,4 +1,5 @@
 from datetime import datetime
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -17,6 +18,9 @@ from app.routes.relacion_documentos import router as relacion_router
 from app.routes.configuracion import router as configuracion_router
 from app.settings import AJUSTES_MODULO
 from app.utils.base_de_datos import obtener_base_datos
+from app.utils.inicializador_base_datos import (
+    inicializar_base_datos_modulo,
+)
 from app.utils.seguridad import seguridad_sesion
 
 
@@ -24,9 +28,24 @@ BASE_DIR = Path(__file__).resolve().parent
 APP_DIR = BASE_DIR / 'app'
 STATIC_DIR = APP_DIR / 'static'
 
+
+@asynccontextmanager
+async def ciclo_vida_aplicacion(aplicacion: FastAPI):
+    reporte = inicializar_base_datos_modulo()
+    aplicacion.state.inicializacion_base_datos = reporte
+    print(
+        "[BD] Módulo cárnico listo en "
+        f"{reporte.servidor}/{reporte.base_datos}. "
+        f"Tablas creadas: {len(reporte.tablas_creadas)}; "
+        f"reutilizadas: {len(reporte.tablas_reutilizadas)}."
+    )
+    yield
+
+
 app = FastAPI(
     title='CAYAL - Relación de documentos de almacén',
     version='1.0.0',
+    lifespan=ciclo_vida_aplicacion,
 )
 
 @app.middleware('http')
