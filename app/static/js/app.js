@@ -553,7 +553,7 @@ function renderizarAuditoriaConfiguracion() {
     if (!registrosAuditoriaConfiguracion.length) {
         const fila = document.createElement("tr");
         const celda = document.createElement("td");
-        celda.colSpan = 6;
+        celda.colSpan = 5;
         celda.className = "empty-table-cell";
         celda.textContent = "Todavía no hay cambios registrados.";
         fila.appendChild(celda);
@@ -567,7 +567,6 @@ function renderizarAuditoriaConfiguracion() {
             registro.usuario_nombre,
             registro.accion,
             registro.configuracion_nombre,
-            registro.motivo,
         ];
         valores.forEach((valor, indice) => {
             const celda = document.createElement("td");
@@ -596,7 +595,7 @@ function renderizarAuditoriaConfiguracion() {
 async function abrirAuditoriaConfiguracion() {
     mostrarVistaModulo("auditoria");
     document.getElementById("filas-auditoria-configuracion").innerHTML =
-        '<tr><td colspan="6" class="empty-table-cell">Consultando auditoría...</td></tr>';
+        '<tr><td colspan="5" class="empty-table-cell">Consultando auditoría...</td></tr>';
     try {
         registrosAuditoriaConfiguracion = await solicitarJson(
             `${API_CONFIGURACION}/auditoria?limite=100`
@@ -604,7 +603,7 @@ async function abrirAuditoriaConfiguracion() {
         renderizarAuditoriaConfiguracion();
     } catch (error) {
         document.getElementById("filas-auditoria-configuracion").innerHTML =
-            `<tr><td colspan="6" class="empty-table-cell">${error.message}</td></tr>`;
+            `<tr><td colspan="5" class="empty-table-cell">${error.message}</td></tr>`;
     }
 }
 
@@ -1790,21 +1789,33 @@ async function consultarHistorialFiltrado() {
 }
 
 function crearDocumentoDetalleHistorial(titulo, folio, partidas, tipo) {
+    const partidasDocumento = Array.isArray(partidas) ? partidas : [];
     const tarjeta = document.createElement("article");
     tarjeta.className = `history-detail-document history-detail-${tipo}`;
     const encabezado = document.createElement("header");
+    const identidad = document.createElement("div");
+    identidad.className = "history-detail-document-identity";
+    const paso = document.createElement("span");
+    paso.className = "history-detail-step";
+    paso.textContent = tipo === "out" ? "1" : "2";
+    const textos = document.createElement("div");
     const etiqueta = document.createElement("small");
     etiqueta.textContent = titulo;
     const folioElemento = document.createElement("strong");
     folioElemento.textContent = folio || "Sin folio";
-    encabezado.append(etiqueta, folioElemento);
+    textos.append(etiqueta, folioElemento);
+    identidad.append(paso, textos);
+    const totalPartidas = document.createElement("span");
+    totalPartidas.className = "history-detail-item-count";
+    totalPartidas.textContent = `${partidasDocumento.length} partida${partidasDocumento.length === 1 ? "" : "s"}`;
+    encabezado.append(identidad, totalPartidas);
     tarjeta.appendChild(encabezado);
 
     const tabla = document.createElement("table");
     tabla.className = "registration-table";
     tabla.innerHTML = "<thead><tr><th>Producto</th><th>Cantidad</th></tr></thead>";
     const cuerpo = document.createElement("tbody");
-    (partidas || []).forEach((partida) => {
+    partidasDocumento.forEach((partida) => {
         const fila = document.createElement("tr");
         const producto = document.createElement("td");
         producto.textContent = limpiarNombreProducto(partida.ProductName) || "Producto";
@@ -1828,7 +1839,32 @@ function crearDocumentoDetalleHistorial(titulo, folio, partidas, tipo) {
     envoltura.className = "registration-table-wrap";
     envoltura.appendChild(tabla);
     tarjeta.appendChild(envoltura);
+
+    const cantidadTotal = partidasDocumento.reduce(
+        (total, partida) => total + Number(partida.Quantity || 0),
+        0
+    );
+    const total = document.createElement("footer");
+    const etiquetaTotal = document.createElement("span");
+    etiquetaTotal.textContent = "Peso Total:";
+    const cantidadTotalElemento = document.createElement("strong");
+    const totalVisual = convertirCantidadParaMostrar(cantidadTotal, "KILO");
+    cantidadTotalElemento.textContent = `${totalVisual.cantidad} ${totalVisual.unidad}`;
+    total.append(etiquetaTotal, cantidadTotalElemento);
+    tarjeta.appendChild(total);
     return tarjeta;
+}
+
+function crearConexionDetalleHistorial() {
+    const conexion = document.createElement("div");
+    conexion.className = "history-detail-connector";
+    const flecha = document.createElement("span");
+    flecha.textContent = "→";
+    flecha.setAttribute("aria-hidden", "true");
+    const etiqueta = document.createElement("small");
+    etiqueta.textContent = "Relacionado";
+    conexion.append(flecha, etiqueta);
+    return conexion;
 }
 
 async function abrirDetalleHistorial(relacionId) {
@@ -1842,6 +1878,7 @@ async function abrirDetalleHistorial(relacionId) {
             `${detalle.folio_salida} → ${detalle.folio_entrada}`;
         contenido.replaceChildren(
             crearDocumentoDetalleHistorial("Documento de salida", detalle.folio_salida, detalle.salida, "out"),
+            crearConexionDetalleHistorial(),
             crearDocumentoDetalleHistorial("Documento de entrada", detalle.folio_entrada, detalle.entrada, "in")
         );
     } catch (error) {

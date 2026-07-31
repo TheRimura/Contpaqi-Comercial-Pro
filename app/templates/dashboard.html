@@ -257,16 +257,22 @@
             </header>
 
             <form id="filtros-historial" class="history-filters hidden">
-                <div class="field">
-                    <label for="historial-fecha-desde">Desde</label>
-                    <input id="historial-fecha-desde" type="date" readonly
-                           title="Se actualiza automáticamente con la fecha actual">
+                <div class="history-date-filter">
+                    <span class="history-filter-group-title">Periodo</span>
+                    <div class="history-date-fields">
+                        <div class="field">
+                            <label for="historial-fecha-desde">Desde</label>
+                            <input id="historial-fecha-desde" type="date" readonly
+                                   title="Se actualiza automáticamente con la fecha actual">
+                        </div>
+                        <span class="history-date-separator" aria-hidden="true">→</span>
+                        <div class="field">
+                            <label for="historial-fecha-hasta">Hasta</label>
+                            <input id="historial-fecha-hasta" type="date">
+                        </div>
+                    </div>
                 </div>
-                <div class="field">
-                    <label for="historial-fecha-hasta">Hasta</label>
-                    <input id="historial-fecha-hasta" type="date">
-                </div>
-                <div class="field">
+                <div class="field history-transformation-filter">
                     <label for="historial-transformacion">Transformación</label>
                     <input id="historial-transformacion" type="search" maxlength="150" placeholder="Nombre del producto">
                 </div>
@@ -615,12 +621,11 @@
                             <th>Usuario</th>
                             <th>Acción</th>
                             <th>Configuración</th>
-                            <th>Motivo</th>
                             <th aria-label="Acciones"></th>
                         </tr>
                     </thead>
                     <tbody id="filas-auditoria-configuracion">
-                        <tr><td colspan="6" class="empty-table-cell">Abre la auditoría para consultar los movimientos.</td></tr>
+                        <tr><td colspan="5" class="empty-table-cell">Abre la auditoría para consultar los movimientos.</td></tr>
                     </tbody>
                 </table>
             </div>
