@@ -64,6 +64,51 @@ COLUMNAS_ESENCIALES_MODULO = {
         "usuario_nombre",
         "fecha",
     ),
+    "dbo.ModuloCarnicoConfiguracionSeguridad": (
+        "id_configuracion",
+        "clave_firma",
+        "fecha_creacion",
+    ),
+    "dbo.ModuloCarnicoProductoConfigurado": (
+        "id_producto_carnico",
+        "product_id",
+        "nombre_producto",
+        "unidad",
+        "porcentaje_merma",
+        "activo",
+    ),
+    "dbo.ModuloCarnicoProductoBitacora": (
+        "id_bitacora",
+        "accion",
+        "usuario_confirmacion_nombre",
+        "fecha",
+    ),
+    "dbo.ModuloCarnicoTransformacionRegistro": (
+        "id_registro",
+        "producto_salida_config_id",
+        "producto_entrada_config_id",
+        "cantidad_salida",
+        "cantidad_entrada",
+        "cantidad_merma",
+        "porcentaje_merma",
+        "fecha",
+        "id_transformacion",
+        "categoria_base",
+    ),
+    "dbo.ModuloCarnicoCatalogoOculto": (
+        "product_id",
+        "nombre",
+        "linea",
+        "activo",
+        "usuario_id",
+        "fecha",
+    ),
+    "dbo.ModuloAlmacenMarca": (
+        "BrandID",
+        "BrandName",
+        "categoria",
+        "activo",
+    ),
 }
 
 RUTA_SCRIPT_SQL = (
@@ -158,10 +203,18 @@ def inicializar_base_datos_modulo(
             f"No se encontró el script de instalación: {RUTA_SCRIPT_SQL}"
         )
 
-    base_datos.command(
-        RUTA_SCRIPT_SQL.read_text(encoding="utf-8"),
-        (),
-    )
+    try:
+        base_datos.command(
+            RUTA_SCRIPT_SQL.read_text(encoding="utf-8"),
+            (),
+        )
+    except Exception as error:
+        raise RuntimeError(
+            "No fue posible instalar o actualizar las tablas del módulo. "
+            "Verifique que la cuenta de SQL Server tenga permisos de "
+            "CREATE TABLE, ALTER y CREATE INDEX. "
+            f"Detalle original: {error}"
+        ) from error
 
     faltantes_despues = [
         tabla

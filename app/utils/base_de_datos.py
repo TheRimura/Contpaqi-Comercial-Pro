@@ -1,7 +1,9 @@
 import json
+import io
 import os
 import re
 import unicodedata
+from contextlib import redirect_stdout
 from difflib import SequenceMatcher
 
 import pyodbc
@@ -27,7 +29,31 @@ class BaseDatos(ComandosBaseDatos):
     )
 
     def __init__(self):
-        super().__init__(servidor=node())
+        servidor = os.getenv('CAYAL_DB_SERVER', '').strip() or node()
+        base_datos = os.getenv('CAYAL_DB_NAME', '').strip() or 'ComercialSP'
+        cadena_conexion = os.getenv(
+            'CAYAL_DB_CONNECTION_STRING', ''
+        ).strip()
+        usuario = os.getenv('CAYAL_DB_USER', '').strip()
+        contrasena = os.getenv('CAYAL_DB_PASSWORD', '')
+
+        if not cadena_conexion:
+            if usuario:
+                cadena_conexion = (
+                    f'Server={servidor};Database={base_datos};'
+                    f'UID={usuario};PWD={contrasena};'
+                    'TrustServerCertificate=Yes;'
+                )
+            else:
+                cadena_conexion = (
+                    f'Server={servidor};Database={base_datos};'
+                    'Trusted_Connection=Yes;TrustServerCertificate=Yes;'
+                )
+
+        # La versión actual del paquete cayal imprime la cadena ODBC. Se
+        # silencia para evitar exponer credenciales SQL en los logs.
+        with redirect_stdout(io.StringIO()):
+            super().__init__(cadena_de_conexion=cadena_conexion)
         self.base_de_datos = None
 
     def fetchone(self, sql, params=()):
