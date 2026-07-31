@@ -46,25 +46,41 @@ SELECT
 
     ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '') AS FolioSalida,
     ISNULL(Base.ProductName, '') AS ProductoBase,
-    ISNULL(Base.Quantity, 0) AS KilosSalida,
+    CAST(
+        ROUND(ISNULL(Base.Quantity, 0), 2)
+        AS DECIMAL(18,2)
+    ) AS KilosSalida,
 
     ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '') AS FolioEntrada,
     ISNULL(Resultado.ProductName, '') AS ProductoResultante,
-    ISNULL(Resultado.Quantity, 0) AS KilosEntrada,
+    CAST(
+        ROUND(ISNULL(Resultado.Quantity, 0), 2)
+        AS DECIMAL(18,2)
+    ) AS KilosEntrada,
 
-    ISNULL(Base.Quantity, 0) -
-        ISNULL(Resultado.Quantity, 0) AS KilosMerma,
+    CAST(
+        ROUND(
+            ISNULL(Base.Quantity, 0) -
+            ISNULL(Resultado.Quantity, 0),
+            2
+        ) AS DECIMAL(18,2)
+    ) AS KilosMerma,
 
-    CASE
-        WHEN ISNULL(Base.Quantity, 0) > 0
-        THEN (
-            (
-                ISNULL(Base.Quantity, 0) -
-                ISNULL(Resultado.Quantity, 0)
-            ) / Base.Quantity
-        ) * 100
-        ELSE 0
-    END AS PorcentajeMerma,
+    CAST(
+        ROUND(
+            CASE
+                WHEN ISNULL(Base.Quantity, 0) > 0
+                THEN (
+                    (
+                        ISNULL(Base.Quantity, 0) -
+                        ISNULL(Resultado.Quantity, 0)
+                    ) / Base.Quantity
+                ) * 100
+                ELSE 0
+            END,
+            2
+        ) AS DECIMAL(9,2)
+    ) AS PorcentajeMerma,
 
     ISNULL(Empleado.OfficialName, '') AS Tablajero,
     ISNULL(U.UserName, '') AS UsuarioERP

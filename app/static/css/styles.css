@@ -406,10 +406,17 @@ tbody tr:hover { background: var(--red-soft); }
 .audit-page-summary p { margin: 0; color: var(--muted); }
 .audit-page-summary strong { display: block; margin-top: 3px; font-size: 1.05rem; color: var(--ink); }
 .audit-page-table-wrap { max-height: calc(100vh - 300px); overflow: auto; }
-.audit-page-table-wrap .audit-table { min-width: 720px; }
+.audit-page-table-wrap { width: 100%; }
+.audit-page-table-wrap .audit-table { width: 100%; min-width: 720px; table-layout: fixed; }
+.audit-page-table-wrap .audit-table th:nth-child(1) { width: 16%; }
+.audit-page-table-wrap .audit-table th:nth-child(2) { width: 16%; }
+.audit-page-table-wrap .audit-table th:nth-child(3) { width: 12%; }
+.audit-page-table-wrap .audit-table th:nth-child(4) { width: auto; }
+.audit-page-table-wrap .audit-table th:nth-child(5) { width: 126px; }
 .audit-page-table-wrap .audit-table thead { position: sticky; top: 0; z-index: 1; }
-.audit-page-table-wrap .audit-table td:last-child { text-align: right; white-space: nowrap; }
-.audit-table td { vertical-align: top; }
+.audit-page-table-wrap .audit-table th:last-child, .audit-page-table-wrap .audit-table td:last-child { text-align: center; white-space: nowrap; }
+.audit-table td { vertical-align: middle; }
+.audit-table td:nth-child(4) { font-weight: 700; }
 .audit-action { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: var(--red-soft); color: var(--red); font-size: .7rem; font-weight: 900; }
 .audit-action.REACTIVAR { background: #eaf8f2; color: var(--success); }
 .audit-reason-field { margin-top: 14px; text-align: left; }
