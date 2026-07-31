@@ -142,6 +142,6 @@ PERMISOS_MODULO = PermisosModulo(
     grupos_ver_historial=frozenset({1, 12}),
     grupos_crear_configuracion=frozenset({1}),
     grupos_registrar_transformaciones=frozenset({1, 12}),
-    grupos_eliminar_productos_catalogo=frozenset({1}),
+    grupos_eliminar_productos_catalogo=frozenset({1,12}),
 )
 PERMISOS_MODULO.validar_coherencia_de_permisos()

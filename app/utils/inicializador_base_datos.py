@@ -32,6 +32,7 @@ TABLAS_PROPIAS_MODULO = (
     "dbo.ModuloCarnicoProductoConfigurado",
     "dbo.ModuloCarnicoProductoBitacora",
     "dbo.ModuloCarnicoTransformacionRegistro",
+    "dbo.ModuloCarnicoCatalogoOculto",
     "dbo.ModuloAlmacenMarca",
 )
 

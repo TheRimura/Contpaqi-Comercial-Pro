@@ -27,3 +27,4 @@ class RespuestaRelacionDocumentos(BaseModel):
     destination_document_id: int
     folio_salida: str
     folio_entrada: str
+

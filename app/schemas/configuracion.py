@@ -28,7 +28,11 @@ class CrearConfiguracionTransformacion(BaseModel):
         max_length=100,
     )
     observaciones: str | None = Field(default=None, max_length=500)
-    motivo_auditoria: str = Field(min_length=5, max_length=300)
+    motivo_auditoria: str = Field(
+        default='Configuración registrada desde el módulo',
+        min_length=5,
+        max_length=300,
+    )
 
 
     @field_validator('nombre', 'linea')
@@ -74,4 +78,17 @@ class EventoAuditoriaConfiguracion(BaseModel):
     @field_validator('configuracion_nombre', 'motivo')
     @classmethod
     def limpiar_texto_auditoria(cls, valor: str) -> str:
+        return ' '.join(valor.split())
+
+
+class OcultarProductoCatalogo(BaseModel):
+    producto_id: int
+    es_configuracion: bool = False
+    transformacion_id: int | None = Field(default=None, gt=0)
+    nombre: str = Field(min_length=1, max_length=250)
+    linea: str = Field(min_length=1, max_length=100)
+
+    @field_validator('nombre', 'linea')
+    @classmethod
+    def limpiar_texto_ocultamiento(cls, valor: str) -> str:
         return ' '.join(valor.split())

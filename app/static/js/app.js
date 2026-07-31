@@ -17,6 +17,7 @@ let transformacionesLineaActual = [];
 let paginaTransformacionesActual = 1;
 const TRANSFORMACIONES_POR_PAGINA = Number(AJUSTES_INTERFAZ.transformacionesPorPagina || 12);
 const API_CONFIGURACION = "/api/configuracion";
+const CLAVE_CONFIGURACIONES_NUEVAS = "cayal-configuraciones-nuevas";
 let componentesConfiguracion = [];
 let productosConfiguracionDisponibles = [];
 let lineaCatalogoActual = "";
@@ -98,20 +99,89 @@ function mensajeConfiguracion(texto, tipo = "error") {
     mensaje.className = `message visible ${tipo}`;
 }
 
-function obtenerProductosOcultos() {
+function normalizarIdentificadorCatalogo(valor) {
+    return String(valor || "").trim().toLocaleUpperCase("es-MX");
+}
+
+function obtenerConfiguracionesNuevas() {
     try {
-        return new Set(JSON.parse(localStorage.getItem("cayal-productos-ocultos") || "[]").map(Number));
+        const registros = JSON.parse(
+            localStorage.getItem(CLAVE_CONFIGURACIONES_NUEVAS) || "[]"
+        );
+        return Array.isArray(registros) ? registros : [];
     } catch (_) {
-        return new Set();
+        return [];
     }
 }
 
-function guardarProductosOcultos(productos) {
+function guardarConfiguracionesNuevas(registros) {
     try {
-        localStorage.setItem("cayal-productos-ocultos", JSON.stringify([...productos]));
+        localStorage.setItem(
+            CLAVE_CONFIGURACIONES_NUEVAS,
+            JSON.stringify(registros.slice(-30))
+        );
     } catch (_) {
-        // El ocultamiento sigue funcionando durante la sesión actual.
+        // La actualización del catálogo continúa aunque el navegador no guarde datos.
     }
+}
+
+function registrarNotificacionesConfiguraciones(configuraciones) {
+    const anteriores = obtenerConfiguracionesNuevas();
+    configuraciones.forEach((configuracion) => {
+        const linea = normalizarIdentificadorCatalogo(configuracion.linea);
+        const nombre = normalizarIdentificadorCatalogo(configuracion.nombre);
+        const repetida = anteriores.some(
+            (registro) => registro.linea === linea && registro.nombre === nombre
+        );
+        if (!repetida) {
+            anteriores.push({ linea, nombre, fecha: new Date().toISOString() });
+        }
+    });
+    guardarConfiguracionesNuevas(anteriores);
+}
+
+function aplicarNotificacionesConfiguraciones() {
+    const nuevas = obtenerConfiguracionesNuevas();
+    const lineasNuevas = new Set(nuevas.map((registro) => registro.linea));
+    document.querySelectorAll(".configuration-line").forEach((boton) => {
+        const tieneNuevas = lineasNuevas.has(
+            normalizarIdentificadorCatalogo(boton.dataset.linea)
+        );
+        boton.classList.toggle("has-new-configuration", tieneNuevas);
+        boton.title = tieneNuevas
+            ? "Esta línea tiene una transformación nueva"
+            : "";
+    });
+    document.querySelectorAll(".configuration-relation").forEach((tarjeta) => {
+        const esNueva = nuevas.some(
+            (registro) =>
+                registro.linea === normalizarIdentificadorCatalogo(tarjeta.dataset.linea)
+                && registro.nombre === normalizarIdentificadorCatalogo(tarjeta.dataset.nombre)
+        );
+        tarjeta.classList.toggle("recently-created", esNueva);
+        tarjeta.querySelector(".new-configuration-badge")?.remove();
+        if (esNueva) {
+            const insignia = document.createElement("span");
+            insignia.className = "new-configuration-badge";
+            insignia.textContent = "Nueva";
+            tarjeta.appendChild(insignia);
+        }
+    });
+}
+
+function marcarNotificacionesLineaComoVistas(linea) {
+    const lineaNormalizada = normalizarIdentificadorCatalogo(linea);
+    guardarConfiguracionesNuevas(
+        obtenerConfiguracionesNuevas().filter(
+            (registro) => registro.linea !== lineaNormalizada
+        )
+    );
+    document.querySelectorAll(".configuration-line").forEach((boton) => {
+        if (normalizarIdentificadorCatalogo(boton.dataset.linea) === lineaNormalizada) {
+            boton.classList.remove("has-new-configuration");
+            boton.title = "";
+        }
+    });
 }
 
 async function abrirDetalleProductoCatalogo(producto) {
@@ -122,7 +192,21 @@ async function abrirDetalleProductoCatalogo(producto) {
     cuerpo.replaceChildren();
     modal.classList.remove("hidden");
     try {
-        const detalle = await solicitarJson(`${API_CONFIGURACION}/formula/${producto.product_id}`);
+        let detalle;
+        if (producto.es_configuracion && producto.transformacion_id) {
+            const configuracion = await solicitarJson(
+                `${API_RELACIONES}/transformacion/precargadas/${producto.transformacion_id}`
+            );
+            detalle = (configuracion.componentes || []).map((componente) => ({
+                ...componente,
+                formula_id: Number(producto.transformacion_id),
+                formula: producto.producto,
+            }));
+        } else {
+            detalle = await solicitarJson(
+                `${API_CONFIGURACION}/formula/${producto.product_id}`
+            );
+        }
         const formulasAgrupadas = new Map();
         (Array.isArray(detalle) ? detalle : []).forEach((componente) => {
             const formulaId = Number(componente.formula_id || producto.product_id);
@@ -197,11 +281,23 @@ function renderizarPaginaCatalogo() {
             const fila = document.createElement("button");
             fila.type = "button";
             fila.className = "catalog-product";
+            fila.classList.toggle("catalog-configuration", Boolean(producto.es_configuracion));
             fila.dataset.productoId = String(producto.product_id);
             const nombre = document.createElement("strong");
             nombre.textContent = limpiarNombreProducto(producto.producto);
             const unidad = document.createElement("span");
-            unidad.textContent = producto.unidad || "SIN UNIDAD";
+            unidad.textContent = producto.es_configuracion
+                ? "TRANSFORMACIÓN"
+                : (producto.unidad || "SIN UNIDAD");
+            const esNueva = obtenerConfiguracionesNuevas().some(
+                (registro) =>
+                    registro.linea === normalizarIdentificadorCatalogo(lineaCatalogoActual)
+                    && registro.nombre === normalizarIdentificadorCatalogo(producto.producto)
+            );
+            if (esNueva) {
+                fila.classList.add("recently-created");
+                unidad.textContent = "NUEVA TRANSFORMACIÓN";
+            }
             fila.append(nombre, unidad);
             fila.addEventListener("click", async () => {
                 if (modoEliminacionCatalogo) {
@@ -319,10 +415,7 @@ async function cargarProductosCatalogo(linea, termino = "") {
         const productos = await solicitarJson(
             `${API_CONFIGURACION}/productos-base?linea=${encodeURIComponent(linea)}`
         );
-        const ocultos = obtenerProductosOcultos();
-        productosCatalogoSinFiltrar = productos.filter(
-            (producto) => !ocultos.has(Number(producto.product_id))
-        );
+        productosCatalogoSinFiltrar = productos;
         productoCatalogoSeleccionadoId = 0;
         actualizarUnidadesCatalogo();
         aplicarFiltrosCatalogo();
@@ -337,28 +430,30 @@ async function cargarProductosCatalogo(linea, termino = "") {
 async function ocultarProductoCatalogo(producto, motivo) {
     const productoId = Number(producto?.product_id);
     if (!modoEliminacionCatalogo || !productoId) return;
-    await solicitarJson(`${API_CONFIGURACION}/auditoria/eventos`, {
+    await solicitarJson(`${API_CONFIGURACION}/catalogo/ocultar`, {
         method: "POST",
         body: JSON.stringify({
-            accion: "OCULTAR",
-            configuracion_nombre: limpiarNombreProducto(producto.producto),
-            motivo,
-            valores_anteriores: {
-                visible: true,
-                product_id: productoId,
-                linea: lineaCatalogoActual,
-            },
-            valores_nuevos: { visible: false },
+            producto_id: productoId,
+            es_configuracion: Boolean(producto.es_configuracion),
+            transformacion_id: producto.transformacion_id || null,
+            nombre: limpiarNombreProducto(producto.producto),
+            linea: lineaCatalogoActual,
         }),
     });
-    const ocultos = obtenerProductosOcultos();
-    ocultos.add(productoId);
-    guardarProductosOcultos(ocultos);
     productosCatalogoActual = productosCatalogoActual.filter(
         (producto) => Number(producto.product_id) !== productoId
     );
     productosCatalogoSinFiltrar = productosCatalogoSinFiltrar.filter(
         (registro) => Number(registro.product_id) !== productoId
+    );
+    const identificadorOculto = producto.es_configuracion
+        ? Number(producto.transformacion_id || 0)
+        : productoId;
+    transformacionesDisponibles = transformacionesDisponibles.filter(
+        (registro) => Number(registro.transformacion_id) !== identificadorOculto
+    );
+    transformacionesLineaActual = transformacionesLineaActual.filter(
+        (registro) => Number(registro.transformacion_id) !== identificadorOculto
     );
     productoCatalogoSeleccionadoId = 0;
     actualizarUnidadesCatalogo();
@@ -389,40 +484,6 @@ function solicitarConfirmacionEliminarProductoCatalogo(producto) {
         modal.classList.remove("hidden");
         document.body.classList.add("modal-open");
         botonCancelar.focus();
-    });
-}
-
-function solicitarMotivoAuditoria() {
-    return new Promise((resolve) => {
-        const modal = document.getElementById("modal-motivo-auditoria");
-        const campo = document.getElementById("motivo-auditoria-configuracion");
-        const confirmar = document.getElementById("confirmar-motivo-auditoria");
-        const cancelar = document.getElementById("cancelar-motivo-auditoria");
-        campo.value = "";
-
-        const cerrar = (motivo = null) => {
-            modal.classList.add("hidden");
-            document.body.classList.remove("modal-open");
-            confirmar.removeEventListener("click", guardar);
-            cancelar.removeEventListener("click", regresar);
-            resolve(motivo);
-        };
-        const guardar = () => {
-            const motivo = campo.value.trim();
-            if (motivo.length < 5) {
-                campo.setCustomValidity("Escribe un motivo de al menos 5 caracteres.");
-                campo.reportValidity();
-                return;
-            }
-            campo.setCustomValidity("");
-            cerrar(motivo);
-        };
-        const regresar = () => cerrar();
-        confirmar.addEventListener("click", guardar);
-        cancelar.addEventListener("click", regresar);
-        modal.classList.remove("hidden");
-        document.body.classList.add("modal-open");
-        campo.focus();
     });
 }
 
@@ -700,6 +761,12 @@ function recalcularCantidadesInsumosConfiguracion() {
             componente.cantidad = kilos;
             return;
         }
+        if (Number(componente.cantidad_por_kilo || 0) > 0) {
+            componente.cantidad = Number(
+                (kilos * Number(componente.cantidad_por_kilo)).toFixed(6)
+            );
+            return;
+        }
         const cantidadFormula = Number(
             componente.cantidad_formula
             || proporcionesInsumosConfiguracion.get(Number(componente.producto_id))
@@ -713,27 +780,42 @@ function recalcularCantidadesInsumosConfiguracion() {
     });
 
     const selector = document.getElementById("config-insumo-producto");
-    const proporcion = Number(
+    const proporcionFormula = Number(
         proporcionesInsumosConfiguracion.get(Number(selector?.value || 0)) || 0
+    );
+    const productoSeleccionado = productosConfiguracionDisponibles.find(
+        (producto) => Number(producto.product_id) === Number(selector?.value || 0)
+    );
+    const proporcionPorKilo = Number(
+        productoSeleccionado?.cantidad_por_kilo || 0
     );
     const campoCantidad = document.getElementById("config-insumo-cantidad");
     const unidadCantidad = document.getElementById("config-insumo-unidad");
+    const etiquetaCantidad = document.getElementById("config-insumo-cantidad-etiqueta");
     if (campoCantidad) {
-        const cantidadCalculada = (
-            kilos > 0 && proporcion > 0 && cantidadFormulaBaseConfiguracion > 0
-        )
-            ? kilos * proporcion / cantidadFormulaBaseConfiguracion
-            : 0;
-        const productoSeleccionado = productosConfiguracionDisponibles.find(
-            (producto) => Number(producto.product_id) === Number(selector?.value || 0)
+        const usaFormula = (
+            proporcionFormula > 0 && cantidadFormulaBaseConfiguracion > 0
         );
+        const tieneProporcion = kilos > 0 && (usaFormula || proporcionPorKilo > 0);
+        const cantidadCalculada = usaFormula
+            ? kilos * proporcionFormula / cantidadFormulaBaseConfiguracion
+            : kilos * proporcionPorKilo;
         const cantidadVisual = convertirCantidadParaMostrar(
             cantidadCalculada,
             productoSeleccionado?.unidad || "KILO"
         );
-        campoCantidad.value = cantidadCalculada > 0
-            ? cantidadVisual.cantidad.replace(/,/g, "")
-            : "";
+        campoCantidad.readOnly = true;
+        campoCantidad.placeholder = tieneProporcion
+            ? "Según los kilos"
+            : (productoSeleccionado ? "Sin proporción en SSM" : "Selecciona un insumo");
+        if (tieneProporcion) {
+            campoCantidad.value = cantidadVisual.cantidad.replace(/,/g, "");
+        } else {
+            campoCantidad.value = "";
+        }
+        if (etiquetaCantidad) {
+            etiquetaCantidad.textContent = "Cantidad automática";
+        }
         if (unidadCantidad) {
             unidadCantidad.textContent = cantidadCalculada > 0
                 ? cantidadVisual.unidad
@@ -774,6 +856,17 @@ async function cargarProporcionesFormulaConfiguracion() {
     cantidadFormulaBaseConfiguracion = Number(
         proporcionesInsumosConfiguracion.get(Number(sugerencia.producto_base_id)) || 0
     );
+    if (cantidadFormulaBaseConfiguracion <= 0) {
+        const componentesCarnicos = componentesFormula.filter(
+            (componente) =>
+                String(componente.linea || "").trim().toUpperCase() ===
+                String(linea).trim().toUpperCase()
+        );
+        cantidadFormulaBaseConfiguracion = componentesCarnicos.reduce(
+            (mayor, componente) => Math.max(mayor, Number(componente.cantidad || 0)),
+            0
+        );
+    }
     if (cantidadFormulaBaseConfiguracion <= 0) return false;
 
     const base = componentesConfiguracion.find((componente) => componente.es_base);
@@ -924,22 +1017,19 @@ async function alternarAsignacionInsumosConfiguracion() {
         boton.focus();
         return;
     }
+    limpiarMensajeConfiguracion();
     if (!(await cargarComponentesParaAsignacion())) return;
     const baseRelacionada = await agregarBaseSugeridaConfiguracion();
-    const formulaRelacionada = baseRelacionada
-        ? await cargarProporcionesFormulaConfiguracion()
-        : false;
+    if (baseRelacionada) {
+        await cargarProporcionesFormulaConfiguracion();
+    }
     document.getElementById("campo-config-insumo-producto").classList.remove("hidden");
     if (baseRelacionada) {
         document.getElementById("config-insumo-tipo").value = "INSUMO";
     }
     if (!baseRelacionada) {
         mensajeConfiguracion(
-            "No se encontró el producto base. Selecciónalo y cambia el tipo a Producto base."
-        );
-    } else if (!formulaRelacionada) {
-        mensajeConfiguracion(
-            "La fórmula no contiene proporciones válidas para calcular automáticamente los insumos."
+            "No fue posible relacionar automáticamente el producto base. Revisa la línea y el nombre de la transformación."
         );
     }
     seccion.classList.remove("hidden");
@@ -999,24 +1089,35 @@ function renderizarComponentesConfiguracion() {
 function agregarComponenteConfiguracion() {
     const selector = document.getElementById("config-insumo-producto");
     const productoId = Number(selector.value || 0);
-    const cantidadFormula = Number(
-        proporcionesInsumosConfiguracion.get(productoId) || 0
-    );
-    const kilos = Number(document.getElementById("config-cantidad-base").value || 0);
-    const cantidad = (
-        kilos > 0
-        && cantidadFormula > 0
-        && cantidadFormulaBaseConfiguracion > 0
-    )
-        ? Number((kilos * cantidadFormula / cantidadFormulaBaseConfiguracion).toFixed(6))
-        : 0;
-    const esBase = document.getElementById("config-insumo-tipo").value === "BASE";
     const producto = productosConfiguracionDisponibles.find(
         (registro) => Number(registro.product_id) === productoId
     );
-    if (!producto || cantidad <= 0) {
+    const cantidadFormula = Number(
+        proporcionesInsumosConfiguracion.get(productoId) || 0
+    );
+    const cantidadPorKilo = Number(producto?.cantidad_por_kilo || 0);
+    const kilos = Number(document.getElementById("config-cantidad-base").value || 0);
+    const usaFormula = (
+        kilos > 0
+        && cantidadFormula > 0
+        && cantidadFormulaBaseConfiguracion > 0
+    );
+    const cantidadAutomatica = Number((
+        usaFormula
+            ? kilos * cantidadFormula / cantidadFormulaBaseConfiguracion
+            : kilos * cantidadPorKilo
+    ).toFixed(6));
+    const esBase = document.getElementById("config-insumo-tipo").value === "BASE";
+    const cantidad = esBase
+        ? kilos
+        : cantidadAutomatica;
+    if (!producto || cantidad <= 0 || kilos <= 0) {
         mensajeConfiguracion(
-            "Selecciona un insumo incluido en la fórmula. La cantidad se calcula automáticamente."
+            !producto
+                ? "Selecciona un producto o insumo."
+                : cantidadFormula <= 0 && cantidadPorKilo <= 0
+                ? "El insumo seleccionado no tiene una proporción registrada en SSM para esta transformación."
+                : "Selecciona un insumo y captura kilos válidos para la transformación."
         );
         return;
     }
@@ -1032,11 +1133,15 @@ function agregarComponenteConfiguracion() {
         producto: limpiarNombreProducto(producto.producto),
         cantidad,
         cantidad_formula: cantidadFormula,
+        cantidad_por_kilo: usaFormula ? null : cantidadPorKilo,
         unidad: producto.unidad || "KILO",
         es_base: esBase,
     });
     selector.value = "";
     document.getElementById("config-insumo-cantidad").value = "";
+    document.getElementById("config-insumo-cantidad").readOnly = true;
+    document.getElementById("config-insumo-cantidad").placeholder = "Selecciona un insumo";
+    document.getElementById("config-insumo-cantidad-etiqueta").textContent = "Cantidad automática";
     document.getElementById("config-insumo-tipo").value = "INSUMO";
     document.getElementById("config-insumo-unidad").textContent = "kg";
     limpiarMensajeConfiguracion();
@@ -1155,6 +1260,8 @@ function construirConfiguracionActual() {
             cantidad: componente.cantidad,
             unidad: componente.unidad,
             es_base: componente.es_base,
+            cantidad_formula: componente.cantidad_formula || null,
+            cantidad_por_kilo: componente.cantidad_por_kilo || null,
         })),
         observaciones: document.getElementById("config-observaciones").value.trim() || null,
     };
@@ -1402,16 +1509,16 @@ async function guardarNuevaConfiguracion(evento) {
         mensajeConfiguracion("Captura o agrega por lo menos una transformación.");
         return;
     }
-    const motivoAuditoria = await solicitarMotivoAuditoria();
-    if (!motivoAuditoria) return;
     boton.disabled = true;
     boton.textContent = "Guardando todas...";
+    const configuracionesGuardadas = configuracionesPendientes.map(
+        (configuracion) => ({ ...configuracion })
+    );
     try {
         await solicitarJson(`${API_CONFIGURACION}/transformaciones/lote`, {
             method: "POST",
             body: JSON.stringify(configuracionesPendientes.map((configuracion) => ({
                 ...configuracion,
-                motivo_auditoria: motivoAuditoria,
                 componentes: configuracion.componentes.map((componente) => ({
                     producto_id: componente.producto_id,
                     cantidad: componente.cantidad,
@@ -1420,6 +1527,7 @@ async function guardarNuevaConfiguracion(evento) {
                 })),
             }))),
         });
+        registrarNotificacionesConfiguraciones(configuracionesGuardadas);
         configuracionesPendientes = [];
         renderizarConfiguracionesPendientes();
         mensajeConfiguracion(
@@ -1481,7 +1589,22 @@ function iniciarPaginaConfiguracion() {
             );
             document.getElementById("config-insumo-unidad").textContent =
                 producto?.unidad || "kg";
+            document.getElementById("config-insumo-cantidad").value = "";
+            if (!producto) {
+                limpiarMensajeConfiguracion();
+                recalcularCantidadesInsumosConfiguracion();
+                return;
+            }
             recalcularCantidadesInsumosConfiguracion();
+            if (
+                producto
+                && (
+                    proporcionesInsumosConfiguracion.has(Number(producto.product_id))
+                    || Number(producto.cantidad_por_kilo || 0) > 0
+                )
+            ) {
+                limpiarMensajeConfiguracion();
+            }
         });
         document.getElementById("agregar-config-insumo").addEventListener("click", agregarComponenteConfiguracion);
         document.getElementById("agregar-configuracion-lote").addEventListener(
@@ -1520,12 +1643,14 @@ function iniciarPaginaConfiguracion() {
         }
     );
     document.querySelectorAll(".configuration-line").forEach((boton) => {
-        boton.addEventListener("click", () => {
+        boton.addEventListener("click", async () => {
             cancelarEliminacionCatalogo();
             document.getElementById("buscar-producto-catalogo").value = "";
-            cargarProductosCatalogo(boton.dataset.linea);
+            await cargarProductosCatalogo(boton.dataset.linea);
+            marcarNotificacionesLineaComoVistas(boton.dataset.linea);
         });
     });
+    aplicarNotificacionesConfiguraciones();
     document.getElementById("cerrar-catalogo-productos").addEventListener("click", cerrarCatalogoProductos);
     document.getElementById("eliminar-producto-catalogo")?.addEventListener(
         "click",

@@ -2,6 +2,7 @@ import json
 import os
 import re
 import unicodedata
+from difflib import SequenceMatcher
 
 import pyodbc
 
@@ -407,6 +408,7 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def listar_transformaciones_precargadas(self, linea: str) -> list[dict]:
+        self.asegurar_tabla_catalogo_oculto()
         self.asegurar_proveedor_transformaciones_usuario()
         return self.fetchall(
             """
@@ -434,6 +436,7 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def listar_transformaciones_disponibles(self) -> list[dict]:
+        self.asegurar_tabla_catalogo_oculto()
         return self.fetchall(
             """
             SELECT
@@ -469,6 +472,12 @@ class BaseDatos(ComandosBaseDatos):
                     B.ProductID
             ) AS Base
             WHERE P.DiscontinuedOn IS NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM dbo.ModuloCarnicoCatalogoOculto AS O
+                  WHERE O.product_id = P.ProductID
+                    AND O.activo = 1
+              )
               AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
                   IN ('CERDO', 'POLLO', 'RES LOCAL')
               AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
@@ -493,12 +502,50 @@ class BaseDatos(ComandosBaseDatos):
             'PAQUETE', 'CAJA', 'KG', 'KILO', 'KILOS',
         }
         palabras = re.findall(r'[A-Z0-9]+', texto)
-        return {
-            palabra[:-1] if palabra.endswith('S') and len(palabra) > 4
-            else palabra
-            for palabra in palabras
-            if palabra not in palabras_ignoradas
+        alias = {
+            'ALA': 'ALA', 'ALAS': 'ALA', 'ALITA': 'ALA',
+            'ALITAS': 'ALA', 'ALONE': 'ALA', 'ALONES': 'ALA',
+            'PICANTE': 'PICANTE', 'PICANTES': 'PICANTE',
+            'PICOSITA': 'PICANTE', 'PICOSITAS': 'PICANTE',
         }
+        resultado = set()
+        for palabra in palabras:
+            if palabra in palabras_ignoradas:
+                continue
+            singular = (
+                palabra[:-1]
+                if palabra.endswith('S') and len(palabra) > 4
+                else palabra
+            )
+            resultado.add(alias.get(palabra, alias.get(singular, singular)))
+        return resultado
+
+    @staticmethod
+    def _nombre_producto_normalizado(nombre: str) -> str:
+        texto = unicodedata.normalize('NFKD', str(nombre or '').upper())
+        texto = ''.join(
+            caracter for caracter in texto
+            if not unicodedata.combining(caracter)
+        )
+        return ' '.join(re.findall(r'[A-Z0-9]+', texto))
+
+    @classmethod
+    def _semejanza_nombre_producto(cls, esperado: str, candidato: str) -> float:
+        nombre_esperado = cls._nombre_producto_normalizado(esperado)
+        nombre_candidato = cls._nombre_producto_normalizado(candidato)
+        if not nombre_esperado or not nombre_candidato:
+            return 0.0
+        palabras_esperadas = cls._palabras_clave_producto(nombre_esperado)
+        palabras_candidatas = cls._palabras_clave_producto(nombre_candidato)
+        coincidencia_texto = SequenceMatcher(
+            None, nombre_esperado, nombre_candidato
+        ).ratio()
+        coincidencia_palabras = (
+            len(palabras_esperadas & palabras_candidatas) /
+            len(palabras_esperadas | palabras_candidatas)
+            if palabras_esperadas and palabras_candidatas else 0.0
+        )
+        return max(coincidencia_texto, coincidencia_palabras)
 
     def buscar_producto_formula_relacionado(
         self,
@@ -538,30 +585,45 @@ class BaseDatos(ComandosBaseDatos):
         palabras_resultante = self._palabras_clave_producto(
             nombre_resultante
         )
+        palabras_genericas = {
+            'CERDO', 'POLLO', 'RES', 'CARNE', 'PRODUCTO', 'FRESCO',
+            'CONGELADA', 'CONGELADO', 'PREPARADA', 'PREPARADO',
+        }
         coincidencias = []
         for candidato in candidatos:
             palabras_formula = self._palabras_clave_producto(
                 candidato.get('Producto') or ''
             )
             comunes = palabras_resultante & palabras_formula
+            comunes_distintivas = comunes - palabras_genericas
             cobertura = (
                 len(comunes) / len(palabras_resultante)
                 if palabras_resultante else 0
             )
-            if len(comunes) >= 2 and cobertura >= 0.75:
+            semejanza = self._semejanza_nombre_producto(
+                nombre_resultante, candidato.get('Producto') or ''
+            )
+            coincidencia_suficiente = (
+                (len(comunes) >= 2 and cobertura >= 0.60)
+                or (comunes_distintivas and semejanza >= 0.40)
+            )
+            if coincidencia_suficiente:
                 coincidencias.append((
+                    len(comunes_distintivas),
                     cobertura,
+                    semejanza,
                     -len(palabras_formula - palabras_resultante),
                     int(candidato['ProductID']),
                 ))
         if not coincidencias:
             return 0
         coincidencias.sort(reverse=True)
-        return coincidencias[0][2]
+        return coincidencias[0][4]
 
     def obtener_transformacion_catalogo(
         self, producto_resultante_id: int
     ) -> Optional[dict]:
+        self.asegurar_tabla_catalogo_oculto()
         disponibles = self.fetchall(
             """
             SELECT TOP 1
@@ -598,6 +660,12 @@ class BaseDatos(ComandosBaseDatos):
             ) AS Base
             WHERE P.ProductID = ?
               AND P.DiscontinuedOn IS NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM dbo.ModuloCarnicoCatalogoOculto AS O
+                  WHERE O.product_id = P.ProductID
+                    AND O.activo = 1
+              )
               AND EXISTS
               (
                   SELECT 1
@@ -640,6 +708,12 @@ class BaseDatos(ComandosBaseDatos):
                 ) AS Base
                 WHERE P.ProductID = ?
                   AND P.DiscontinuedOn IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM dbo.ModuloCarnicoCatalogoOculto AS O
+                      WHERE O.product_id = P.ProductID
+                        AND O.activo = 1
+                  )
                   AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
                       IN ('CERDO', 'POLLO', 'RES LOCAL')
                   AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
@@ -2500,31 +2574,159 @@ class BaseDatos(ComandosBaseDatos):
     def buscar_productos_base_configuracion(
         self, linea: str, termino: str = ''
     ) -> list[dict]:
+        self.asegurar_tabla_catalogo_oculto()
         texto = str(termino or '').strip()
         return self.fetchall(
             """
+            WITH Catalogo AS
+            (
+                SELECT
+                    -T.id_transformacion_usuario AS product_id,
+                    T.nombre_transformacion AS producto,
+                    CAST('TRANSFORMACION' AS NVARCHAR(50)) AS unidad,
+                    T.fecha_creacion,
+                    CAST(CASE
+                        WHEN T.fecha_creacion >= DATEADD(DAY, -30, GETDATE())
+                        THEN 1 ELSE 0
+                    END AS BIT) AS es_reciente,
+                    CAST(1 AS BIT) AS tiene_receta,
+                    CAST(1 AS BIT) AS es_configuracion,
+                    T.id_transformacion_usuario AS transformacion_id
+                FROM dbo.TransformacionesUsuario AS T
+                INNER JOIN dbo.orgProduct AS Base
+                    ON Base.ProductID = T.producto_origen
+                   AND Base.DiscontinuedOn IS NULL
+                WHERE T.activa = 1
+                  AND UPPER(LTRIM(RTRIM(ISNULL(Base.Category1, '')))) =
+                      UPPER(LTRIM(RTRIM(?)))
+                  AND (
+                      ? = ''
+                      OR T.nombre_transformacion LIKE '%' + ? + '%'
+                  )
+
+                UNION ALL
+
+                SELECT
+                    P.ProductID AS product_id,
+                    P.ProductName AS producto,
+                    CAST(ISNULL(P.Unit, 'KILO') AS NVARCHAR(50)) AS unidad,
+                    P.CreatedOn AS fecha_creacion,
+                    CAST(CASE
+                        WHEN P.CreatedOn >= DATEADD(DAY, -30, GETDATE())
+                        THEN 1 ELSE 0
+                    END AS BIT) AS es_reciente,
+                    CAST(CASE WHEN EXISTS (
+                        SELECT 1
+                        FROM dbo.zvwFormulasListasPCocinar AS F
+                        WHERE F.ComponenteID = P.ProductID
+                    ) THEN 1 ELSE 0 END AS BIT) AS tiene_receta,
+                    CAST(0 AS BIT) AS es_configuracion,
+                    CAST(NULL AS INT) AS transformacion_id
+                FROM dbo.orgProduct AS P
+                WHERE P.DiscontinuedOn IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM dbo.ModuloCarnicoCatalogoOculto AS O
+                      WHERE O.product_id = P.ProductID
+                        AND O.activo = 1
+                  )
+                  AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
+                      UPPER(LTRIM(RTRIM(?)))
+                  AND (? = '' OR P.ProductName LIKE '%' + ? + '%')
+            )
             SELECT TOP (200)
-                P.ProductID AS product_id,
-                P.ProductName AS producto,
-                ISNULL(P.Unit, 'KILO') AS unidad,
-                P.CreatedOn AS fecha_creacion,
-                CAST(CASE
-                    WHEN P.CreatedOn >= DATEADD(DAY, -30, GETDATE())
-                    THEN 1 ELSE 0
-                END AS BIT) AS es_reciente,
-                CAST(CASE WHEN EXISTS (
-                    SELECT 1
-                    FROM dbo.zvwFormulasListasPCocinar AS F
-                    WHERE F.ComponenteID = P.ProductID
-                ) THEN 1 ELSE 0 END AS BIT) AS tiene_receta
-            FROM dbo.orgProduct AS P
-            WHERE DiscontinuedOn IS NULL
-              AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
-                  UPPER(LTRIM(RTRIM(?)))
-              AND (? = '' OR P.ProductName LIKE '%' + ? + '%')
-            ORDER BY P.ProductName
+                product_id,
+                producto,
+                unidad,
+                fecha_creacion,
+                es_reciente,
+                tiene_receta,
+                es_configuracion,
+                transformacion_id
+            FROM Catalogo
+            ORDER BY es_configuracion DESC, producto
             """,
-            (str(linea).strip(), texto, texto),
+            (
+                str(linea).strip(), texto, texto,
+                str(linea).strip(), texto, texto,
+            ),
+        )
+
+    def asegurar_tabla_catalogo_oculto(self) -> None:
+        self.command(
+            """
+            IF OBJECT_ID('dbo.ModuloCarnicoCatalogoOculto', 'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.ModuloCarnicoCatalogoOculto (
+                    product_id INT NOT NULL
+                        CONSTRAINT PK_ModuloCarnicoCatalogoOculto PRIMARY KEY,
+                    nombre NVARCHAR(250) NOT NULL,
+                    linea NVARCHAR(100) NULL,
+                    activo BIT NOT NULL
+                        CONSTRAINT DF_MCCO_activo DEFAULT 1,
+                    usuario_id BIGINT NULL,
+                    fecha DATETIME2 NOT NULL
+                        CONSTRAINT DF_MCCO_fecha DEFAULT SYSUTCDATETIME()
+                );
+            END;
+            """,
+            (),
+        )
+
+    def ocultar_producto_catalogo(
+        self,
+        producto_id: int,
+        es_configuracion: bool,
+        transformacion_id: int | None,
+        nombre: str,
+        linea: str,
+        usuario_id: int,
+        usuario_nombre: str,
+    ) -> None:
+        if es_configuracion:
+            if not transformacion_id:
+                raise ValueError('La configuración seleccionada no es válida.')
+            self.command(
+                """
+                UPDATE dbo.TransformacionesUsuario
+                SET activa = 0
+                WHERE id_transformacion_usuario = ?
+                  AND activa = 1
+                """,
+                (int(transformacion_id),),
+            )
+            configuracion_id = int(transformacion_id)
+        else:
+            if int(producto_id) <= 0:
+                raise ValueError('El producto seleccionado no es válido.')
+            self.asegurar_tabla_catalogo_oculto()
+            self.command(
+                """
+                MERGE dbo.ModuloCarnicoCatalogoOculto AS Destino
+                USING (SELECT ? AS product_id) AS Origen
+                    ON Destino.product_id = Origen.product_id
+                WHEN MATCHED THEN UPDATE SET
+                    nombre = ?, linea = ?, activo = 1,
+                    usuario_id = ?, fecha = SYSUTCDATETIME()
+                WHEN NOT MATCHED THEN
+                    INSERT (product_id, nombre, linea, activo, usuario_id)
+                    VALUES (?, ?, ?, 1, ?);
+                """,
+                (
+                    int(producto_id), nombre, linea, int(usuario_id),
+                    int(producto_id), nombre, linea, int(usuario_id),
+                ),
+            )
+            configuracion_id = None
+        self.registrar_auditoria_configuracion(
+            configuracion_id=configuracion_id,
+            configuracion_nombre=nombre,
+            accion='ELIMINO',
+            usuario_id=usuario_id,
+            usuario_nombre=usuario_nombre,
+            motivo='Producto ocultado desde el catálogo',
+            valores_anteriores={'visible': True, 'linea': linea},
+            valores_nuevos={'visible': False},
         )
 
     def buscar_productos_resultantes_configuracion(
@@ -2582,6 +2784,71 @@ class BaseDatos(ComandosBaseDatos):
         )
         if formula_exacta:
             return formula_exacta[0]
+
+        # Category1 define la línea, Category2 el producto padre y
+        # ProductName el producto resultante. Primero localizamos el resultado
+        # tolerando errores pequeños de captura y después resolvemos su padre.
+        productos_linea = self.fetchall(
+            """
+            SELECT ProductID, ProductName, Category2,
+                   ISNULL(Unit, 'KILO') AS unidad
+            FROM dbo.orgProduct
+            WHERE DiscontinuedOn IS NULL
+              AND UPPER(LTRIM(RTRIM(ISNULL(Category1, '')))) =
+                  UPPER(LTRIM(RTRIM(?)))
+              AND NULLIF(LTRIM(RTRIM(Category2)), '') IS NOT NULL
+            """,
+            (str(linea).strip(),),
+        )
+        resultados_ordenados = sorted(
+            (
+                (
+                    self._semejanza_nombre_producto(
+                        nombre, producto.get('ProductName')
+                    ),
+                    producto,
+                )
+                for producto in productos_linea
+            ),
+            key=lambda elemento: elemento[0],
+            reverse=True,
+        )
+        if resultados_ordenados and resultados_ordenados[0][0] >= 0.60:
+            resultado = resultados_ordenados[0][1]
+            categoria_padre = resultado.get('Category2') or ''
+            candidatos_base = []
+            for producto in productos_linea:
+                if int(producto['ProductID']) == int(resultado['ProductID']):
+                    continue
+                semejanza_categoria = self._semejanza_nombre_producto(
+                    categoria_padre, producto.get('ProductName')
+                )
+                semejanza_autorreferencia = self._semejanza_nombre_producto(
+                    producto.get('Category2'), producto.get('ProductName')
+                )
+                palabras_padre = self._palabras_clave_producto(categoria_padre)
+                palabras_producto = self._palabras_clave_producto(
+                    producto.get('ProductName')
+                )
+                if palabras_padre & palabras_producto:
+                    candidatos_base.append((
+                        semejanza_autorreferencia,
+                        semejanza_categoria,
+                        -int(producto['ProductID']),
+                        producto,
+                    ))
+            if candidatos_base:
+                candidatos_base.sort(
+                    key=lambda elemento: elemento[:3], reverse=True
+                )
+                base = candidatos_base[0][3]
+                return {
+                    'producto_resultante_id': int(resultado['ProductID']),
+                    'producto_resultante': resultado['ProductName'],
+                    'producto_base_id': int(base['ProductID']),
+                    'producto_base': base['ProductName'],
+                    'unidad': base.get('unidad') or 'KILO',
+                }
 
         filas = self.fetchall(
             """
@@ -2746,11 +3013,40 @@ class BaseDatos(ComandosBaseDatos):
     def buscar_componentes_configuracion(self, linea: str) -> list[dict]:
         return self.fetchall(
             """
+            WITH BasesFormula AS
+            (
+                SELECT
+                    F.ProductID AS formula_id,
+                    MAX(CAST(F.CantidadComp AS DECIMAL(18,8))) AS cantidad_base
+                FROM dbo.zvwFormulasListasPCocinar AS F
+                INNER JOIN dbo.orgProduct AS Base
+                    ON Base.ProductID = F.ComponenteID
+                   AND Base.DiscontinuedOn IS NULL
+                WHERE UPPER(LTRIM(RTRIM(ISNULL(Base.Category1, '')))) =
+                      UPPER(LTRIM(RTRIM(?)))
+                GROUP BY F.ProductID
+            ),
+            Proporciones AS
+            (
+                SELECT
+                    F.ComponenteID AS producto_id,
+                    CAST(AVG(
+                        CAST(F.CantidadComp AS DECIMAL(18,8)) /
+                        NULLIF(B.cantidad_base, 0)
+                    ) AS DECIMAL(18,8)) AS cantidad_por_kilo
+                FROM dbo.zvwFormulasListasPCocinar AS F
+                INNER JOIN BasesFormula AS B ON B.formula_id = F.ProductID
+                WHERE CAST(F.CantidadComp AS DECIMAL(18,8)) > 0
+                GROUP BY F.ComponenteID
+            )
             SELECT TOP (500)
                 P.ProductID AS product_id,
                 P.ProductName AS producto,
-                ISNULL(P.Unit, 'KILO') AS unidad
+                ISNULL(P.Unit, 'KILO') AS unidad,
+                ISNULL(Proporcion.cantidad_por_kilo, 0) AS cantidad_por_kilo
             FROM dbo.orgProduct AS P
+            LEFT JOIN Proporciones AS Proporcion
+                ON Proporcion.producto_id = P.ProductID
             WHERE P.DiscontinuedOn IS NULL
               AND (
                     UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
@@ -2764,7 +3060,7 @@ class BaseDatos(ComandosBaseDatos):
                   )
             ORDER BY P.ProductName
             """,
-            (str(linea).strip(),),
+            (str(linea).strip(), str(linea).strip()),
         )
 
     def buscar_formula_producto_configuracion(
@@ -2916,13 +3212,6 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (datos.linea, datos.nombre, datos.linea, datos.nombre),
         )
-        if not producto_resultante_id:
-            raise ValueError(
-                'El nombre de la transformación debe coincidir con un '
-                'producto existente de la línea en SSM.'
-            )
-        producto_resultante_id = int(producto_resultante_id)
-
         componentes_ids = [
             int(componente.producto_id)
             for componente in datos.componentes
@@ -2957,18 +3246,31 @@ class BaseDatos(ComandosBaseDatos):
             raise ValueError(
                 'El componente marcado como base no pertenece a la línea.'
             )
+        if not producto_resultante_id:
+            sugerencia = self.buscar_base_sugerida_configuracion(
+                datos.linea, datos.nombre
+            )
+            producto_resultante_id = (
+                sugerencia.get('producto_resultante_id')
+                if sugerencia else None
+            )
+        producto_resultante_id = int(
+            producto_resultante_id or producto_base_id
+        )
         if self.fetchone(
             """SELECT TOP 1 T.id_transformacion_usuario
                FROM dbo.TransformacionesUsuario T
-               INNER JOIN dbo.TransformacionesUsuarioDetalle D
-                 ON D.id_transformacion_usuario=T.id_transformacion_usuario
-                AND D.activa=1
+               INNER JOIN dbo.orgProduct Base
+                 ON Base.ProductID=T.producto_origen
                WHERE T.activa=1
-                 AND D.producto_resultante=?""",
-            (producto_resultante_id,),
+                 AND UPPER(LTRIM(RTRIM(T.nombre_transformacion))) =
+                     UPPER(LTRIM(RTRIM(?)))
+                 AND UPPER(LTRIM(RTRIM(ISNULL(Base.Category1, '')))) =
+                     UPPER(LTRIM(RTRIM(?)))""",
+            (datos.nombre, datos.linea),
         ):
             raise ValueError(
-                'Ya existe una configuración activa para este producto resultante.'
+                'Ya existe una configuración activa con ese nombre en la línea.'
             )
 
         componentes = [

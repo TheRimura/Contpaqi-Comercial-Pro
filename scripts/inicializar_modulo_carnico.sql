@@ -212,6 +212,22 @@ BEGIN TRY
         );
     END;
 
+    IF OBJECT_ID('dbo.ModuloCarnicoCatalogoOculto', 'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.ModuloCarnicoCatalogoOculto
+        (
+            product_id INT NOT NULL
+                CONSTRAINT PK_ModuloCarnicoCatalogoOculto PRIMARY KEY,
+            nombre NVARCHAR(250) NOT NULL,
+            linea NVARCHAR(100) NULL,
+            activo BIT NOT NULL
+                CONSTRAINT DF_MCCO_activo DEFAULT 1,
+            usuario_id BIGINT NULL,
+            fecha DATETIME2 NOT NULL
+                CONSTRAINT DF_MCCO_fecha DEFAULT SYSUTCDATETIME()
+        );
+    END;
+
     IF NOT EXISTS (
         SELECT 1 FROM sys.indexes
         WHERE object_id = OBJECT_ID('dbo.TransformacionesUsuario')

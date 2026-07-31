@@ -4,12 +4,37 @@ from fastapi.encoders import jsonable_encoder
 from app.schemas.configuracion import (
     CrearConfiguracionTransformacion,
     EventoAuditoriaConfiguracion,
+    OcultarProductoCatalogo,
 )
 from app.utils.base_de_datos import BaseDatos, obtener_base_datos
 from app.utils.seguridad import seguridad_sesion
 
 
 router = APIRouter(prefix='/api/configuracion', tags=['Configuración'])
+
+
+@router.post('/catalogo/ocultar')
+def ocultar_producto_catalogo(
+    datos: OcultarProductoCatalogo,
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    sesion = seguridad_sesion.requerir_permiso(
+        request, 'eliminar_productos_catalogo'
+    )
+    try:
+        base_datos.ocultar_producto_catalogo(
+            producto_id=datos.producto_id,
+            es_configuracion=datos.es_configuracion,
+            transformacion_id=datos.transformacion_id,
+            nombre=datos.nombre,
+            linea=datos.linea,
+            usuario_id=int(sesion['user_id']),
+            usuario_nombre=str(sesion.get('usuario') or 'Usuario'),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {'mensaje': 'Producto ocultado correctamente.'}
 
 
 @router.get('/auditoria')
