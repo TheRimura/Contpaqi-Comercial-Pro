@@ -1,5 +1,7 @@
 import unicodedata
+import time
 from datetime import date
+from functools import lru_cache
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -64,17 +66,24 @@ def construir_catalogo_movimientos(base_datos: BaseDatos) -> list[dict]:
     return resultado
 
 
-@router.get('/catalogos')
-def consultar_catalogos(
-    request: Request,
-    base_datos: BaseDatos = Depends(obtener_base_datos),
-):
-    exigir_sesion(request)
-    return jsonable_encoder({
+@lru_cache(maxsize=2)
+def _catalogos_compartidos(periodo_cache: int) -> dict:
+    """Catálogos estables compartidos por un minuto entre solicitudes."""
+    base_datos = obtener_base_datos()
+    return {
         'movimientos': construir_catalogo_movimientos(base_datos),
         'proveedores': base_datos.obtener_proveedores_documentos(),
         'usuarios_fisicos': base_datos.obtener_usuarios_fisicos(),
-    })
+    }
+
+
+@router.get('/catalogos')
+def consultar_catalogos(
+    request: Request,
+):
+    exigir_sesion(request)
+    periodo_cache = int(time.monotonic() // 60)
+    return jsonable_encoder(_catalogos_compartidos(periodo_cache))
 
 
 @router.get('/transformacion/lineas')

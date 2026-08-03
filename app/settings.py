@@ -11,6 +11,8 @@ class AjustesModulo:
     transformaciones_por_pagina: int = 12
     productos_por_pagina: int = 12
     maximo_kilos_por_transformacion: float = 3_000.0
+    maximo_intentos_login: int = 5
+    ventana_intentos_login_segundos: int = 300
 
     def validar_ajustes_operativos(self) -> None:
         if not 0 <= self.merma_tecnica_porcentaje < 100:
@@ -25,6 +27,10 @@ class AjustesModulo:
             )
         if self.maximo_kilos_por_transformacion <= 0:
             raise ValueError("El máximo de kilos debe ser mayor que cero.")
+        if self.maximo_intentos_login < 3:
+            raise ValueError("El límite de intentos de acceso debe ser al menos 3.")
+        if self.ventana_intentos_login_segundos < 60:
+            raise ValueError("La ventana de intentos debe ser al menos de 60 segundos.")
 
     @property
     def factor_rendimiento(self) -> float:
@@ -137,10 +143,10 @@ class PermisosModulo:
 
 PERMISOS_MODULO = PermisosModulo(
     grupos_acceso_modulo=frozenset({1,12}),
-    grupos_ver_configuracion=frozenset({1}),
-    grupos_ver_auditoria=frozenset({1}),
+    grupos_ver_configuracion=frozenset({1,12}),
+    grupos_ver_auditoria=frozenset({1,12}),
     grupos_ver_historial=frozenset({1,12}),
-    grupos_crear_configuracion=frozenset({1}),
+    grupos_crear_configuracion=frozenset({1,12}),
     grupos_registrar_transformaciones=frozenset({1,12}),
     grupos_eliminar_productos_catalogo=frozenset({1}),
 )

@@ -3,6 +3,8 @@ import io
 import os
 import re
 import unicodedata
+import time
+from threading import RLock
 from contextlib import redirect_stdout
 from difflib import SequenceMatcher
 
@@ -55,8 +57,35 @@ class BaseDatos(ComandosBaseDatos):
         with redirect_stdout(io.StringIO()):
             super().__init__(cadena_de_conexion=cadena_conexion)
         self.base_de_datos = None
+        self._cache_lecturas = {}
+        self._bloqueo_cache = RLock()
 
-    def fetchone(self, sql, params=()):
+    def _leer_cache(self, clave: str, segundos: int, cargar):
+        ahora = time.monotonic()
+        with self._bloqueo_cache:
+            registro = self._cache_lecturas.get(clave)
+            if registro and registro[0] > ahora:
+                return [dict(fila) for fila in registro[1]]
+            # Mantener el bloqueo durante la primera carga evita que varias
+            # solicitudes ejecuten simultáneamente la misma consulta pesada.
+            filas = cargar()
+            self._cache_lecturas[clave] = (ahora + segundos, filas)
+        return [dict(fila) for fila in filas]
+
+    def _invalidar_cache(self, prefijo: str = "") -> None:
+        with self._bloqueo_cache:
+            if not prefijo:
+                self._cache_lecturas.clear()
+                return
+            for clave in list(self._cache_lecturas):
+                if clave.startswith(prefijo):
+                    self._cache_lecturas.pop(clave, None)
+
+    def fetchone(
+        self,
+        sql: str,
+        params: tuple = (),
+    ) -> object | None:
         """Devuelve el primer valor aunque el lote tenga resultados intermedios."""
         cadena_conexion = next(
             valor
@@ -97,7 +126,7 @@ class BaseDatos(ComandosBaseDatos):
             )
 
         if not clave_firma:
-            clave_firma = str(self.fetchone(
+            valor_clave_firma = self.fetchone(
                 """
                 SET XACT_ABORT ON;
                 IF OBJECT_ID(
@@ -135,7 +164,16 @@ class BaseDatos(ComandosBaseDatos):
                 WHERE id_configuracion = 1;
                 """,
                 (),
-            ))
+            )
+            if not isinstance(valor_clave_firma, str):
+                raise RuntimeError(
+                    "SQL Server no devolvió una clave de firma de sesión válida."
+                )
+            clave_firma = valor_clave_firma.strip()
+            if not clave_firma:
+                raise RuntimeError(
+                    "La clave de firma almacenada en SQL Server está vacía."
+                )
 
         return {
             "clave_firma": clave_firma,
@@ -463,7 +501,10 @@ class BaseDatos(ComandosBaseDatos):
 
     def listar_transformaciones_disponibles(self) -> list[dict]:
         self.asegurar_tabla_catalogo_oculto()
-        return self.fetchall(
+        return self._leer_cache(
+            "transformaciones_disponibles",
+            20,
+            lambda: self.fetchall(
             """
             SELECT
                 P.ProductID AS transformacion_id,
@@ -513,6 +554,7 @@ class BaseDatos(ComandosBaseDatos):
             ORDER BY P.Category1, P.Category2, P.ProductName
             """,
             (),
+            ),
         )
 
     @staticmethod
@@ -587,8 +629,12 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (int(producto_resultante_id),),
         )
-        if formula_directa:
-            return int(formula_directa)
+        if formula_directa is not None:
+            if not isinstance(formula_directa, int):
+                raise RuntimeError(
+                    "SSM devolvió un identificador de fórmula inválido."
+                )
+            return formula_directa
 
         candidatos = self.fetchall(
             """
@@ -1221,8 +1267,12 @@ class BaseDatos(ComandosBaseDatos):
                 int(usuario_erp),
             ),
         )
-        if not relation_id:
+        if relation_id is None:
             return None
+        if not isinstance(relation_id, int):
+            raise RuntimeError(
+                "SSM devolvió un identificador de relación inválido."
+            )
         filas = self.fetchall(
             """
             SELECT
@@ -1237,8 +1287,9 @@ class BaseDatos(ComandosBaseDatos):
                 ON E.DocumentID = R.DestinationDocumentID
             WHERE R.DocumentWarehouseRelationID = ?
             """,
-            (int(relation_id),),
+            (relation_id,),
         )
+        self._invalidar_cache("historial:")
         return filas[0] if filas else None
 
     def obtener_proveedores_documentos(self) -> list[dict]:
@@ -1271,6 +1322,43 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def listar_historial_transformaciones(
+        self,
+        limite: int = 100,
+        fecha_desde: str = '',
+        fecha_hasta: str = '',
+        linea: str = '',
+        transformacion: str = '',
+        tablajero: str = '',
+        folio: str = '',
+        estado: str = '',
+        nivel_merma: str = '',
+    ) -> list[dict]:
+        parametros = (
+            int(limite), fecha_desde, fecha_hasta, linea,
+            transformacion, tablajero, folio, estado, nivel_merma,
+        )
+        clave = "historial:" + json.dumps(
+            parametros,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        return self._leer_cache(
+            clave,
+            3,
+            lambda: self._consultar_historial_transformaciones(
+                limite=limite,
+                fecha_desde=fecha_desde,
+                fecha_hasta=fecha_hasta,
+                linea=linea,
+                transformacion=transformacion,
+                tablajero=tablajero,
+                folio=folio,
+                estado=estado,
+                nivel_merma=nivel_merma,
+            ),
+        )
+
+    def _consultar_historial_transformaciones(
         self,
         limite: int = 100,
         fecha_desde: str = '',
@@ -2073,7 +2161,11 @@ class BaseDatos(ComandosBaseDatos):
                 usuario_id,
             )
 
-            if id_configuracion:
+            if id_configuracion is not None:
+                if not isinstance(id_configuracion, int):
+                    raise ValueError(
+                        "El identificador de la configuración debe ser entero."
+                    )
                 self.command(
                     """
                     UPDATE dbo.ModuloCarnicoProductoConfigurado
@@ -2092,7 +2184,7 @@ class BaseDatos(ComandosBaseDatos):
                         fecha_actualizacion = SYSUTCDATETIME()
                     WHERE id_producto_carnico = ?
                     """,
-                    (*parametros, int(id_configuracion)),
+                    [*parametros, id_configuracion],
                 )
             else:
                 self.command(
@@ -2754,6 +2846,7 @@ class BaseDatos(ComandosBaseDatos):
             valores_anteriores={'visible': True, 'linea': linea},
             valores_nuevos={'visible': False},
         )
+        self._invalidar_cache("transformaciones_disponibles")
 
     def buscar_productos_resultantes_configuracion(
         self, linea: str, termino: str = ''
@@ -3129,7 +3222,9 @@ class BaseDatos(ComandosBaseDatos):
                 ISNULL(P.Unit, 'KILO') AS unidad,
                 ISNULL(P.Category1, '') AS linea
             FROM dbo.zvwFormulasListasPCocinar AS F
-            LEFT JOIN dbo.orgProduct AS P ON P.ProductID = F.ComponenteID
+            INNER JOIN dbo.orgProduct AS P
+                ON P.ProductID = F.ComponenteID
+               AND P.DiscontinuedOn IS NULL
             WHERE F.ProductID = ?
             ORDER BY F.IDComp, F.ComponenteID
             """,
@@ -3375,6 +3470,7 @@ class BaseDatos(ComandosBaseDatos):
         except Exception:
             self.eliminar_configuraciones_incompletas([transformacion_id])
             raise
+        self._invalidar_cache()
         return transformacion_id
 
     def eliminar_configuraciones_incompletas(

@@ -12,6 +12,7 @@ from app.utils.base_de_datos import obtener_base_datos
 
 
 class SeguridadSesion:
+    NOMBRE_COOKIE_CSRF = "cayal_csrf"
     def __init__(self, base_datos):
         self._base_datos = base_datos
 
@@ -139,6 +140,19 @@ class SeguridadSesion:
                 detail="Sesion no valida",
             )
 
+        if request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
+            token_sesion = str(sesion.get("csrf") or "")
+            token_peticion = request.headers.get("X-CSRF-Token", "")
+            if (
+                not token_sesion
+                or not token_peticion
+                or not hmac.compare_digest(token_sesion, token_peticion)
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="La validación de seguridad de la solicitud falló.",
+                )
+
         return sesion
 
     def requerir_permiso(self, request: Request, permiso: str):
@@ -167,11 +181,26 @@ class SeguridadSesion:
             samesite="lax",
             path="/",
         )
+        response.set_cookie(
+            key=self.NOMBRE_COOKIE_CSRF,
+            value=str(datos_usuario["csrf"]),
+            max_age=int(self._configuracion["duracion_sesion_segundos"]),
+            httponly=False,
+            secure=usar_https,
+            samesite="lax",
+            path="/",
+        )
 
     def eliminar_cookie(self, response: Response):
         response.delete_cookie(
             key=self._configuracion["nombre_cookie"],
             httponly=True,
+            samesite="lax",
+            path="/",
+        )
+        response.delete_cookie(
+            key=self.NOMBRE_COOKIE_CSRF,
+            httponly=False,
             samesite="lax",
             path="/",
         )

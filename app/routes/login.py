@@ -1,9 +1,13 @@
 import bcrypt
+import secrets
+import time
+from collections import defaultdict, deque
+from threading import Lock
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
-from app.settings import PERMISOS_MODULO
+from app.settings import AJUSTES_MODULO, PERMISOS_MODULO
 from app.utils.base_de_datos import obtener_base_datos
 from app.utils.seguridad import seguridad_sesion
 
@@ -121,6 +125,47 @@ class Autenticador:
 autenticador = Autenticador(obtener_base_datos())
 
 
+class LimiteIntentosAcceso:
+    """Limita intentos fallidos por dirección y usuario dentro del proceso."""
+
+    def __init__(self):
+        self._intentos = defaultdict(deque)
+        self._bloqueo = Lock()
+
+    @staticmethod
+    def _clave(request: Request, usuario: str) -> tuple[str, str]:
+        ip = request.client.host if request.client else "desconocida"
+        return ip, usuario.strip().upper()
+
+    def _limpiar_vencidos(self, intentos: deque, ahora: float) -> None:
+        limite = ahora - AJUSTES_MODULO.ventana_intentos_login_segundos
+        while intentos and intentos[0] <= limite:
+            intentos.popleft()
+
+    def esta_bloqueado(self, request: Request, usuario: str) -> bool:
+        clave = self._clave(request, usuario)
+        ahora = time.monotonic()
+        with self._bloqueo:
+            intentos = self._intentos[clave]
+            self._limpiar_vencidos(intentos, ahora)
+            return len(intentos) >= AJUSTES_MODULO.maximo_intentos_login
+
+    def registrar_fallo(self, request: Request, usuario: str) -> None:
+        clave = self._clave(request, usuario)
+        ahora = time.monotonic()
+        with self._bloqueo:
+            intentos = self._intentos[clave]
+            self._limpiar_vencidos(intentos, ahora)
+            intentos.append(ahora)
+
+    def limpiar(self, request: Request, usuario: str) -> None:
+        with self._bloqueo:
+            self._intentos.pop(self._clave(request, usuario), None)
+
+
+limite_intentos_acceso = LimiteIntentosAcceso()
+
+
 @router.get("/sesion")
 def consultar_sesion(request: Request):
     sesion = seguridad_sesion.requerir_sesion(request)
@@ -140,9 +185,20 @@ def iniciar_sesion(
     request: Request,
     response: Response,
 ):
+    if limite_intentos_acceso.esta_bloqueado(request, credenciales.usuario):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiados intentos. Espera antes de volver a ingresar.",
+            headers={
+                "Retry-After": str(
+                    AJUSTES_MODULO.ventana_intentos_login_segundos
+                )
+            },
+        )
     sesion = autenticador.autenticar(credenciales)
 
     if not sesion:
+        limite_intentos_acceso.registrar_fallo(request, credenciales.usuario)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuario o contraseña incorrectos",
@@ -159,6 +215,8 @@ def iniciar_sesion(
             ),
         )
 
+    limite_intentos_acceso.limpiar(request, credenciales.usuario)
+    sesion["csrf"] = secrets.token_urlsafe(32)
     seguridad_sesion.guardar_cookie(
         response,
         sesion,
@@ -173,7 +231,8 @@ def iniciar_sesion(
 
 
 @router.post("/logout")
-def cerrar_sesion(response: Response):
+def cerrar_sesion(request: Request, response: Response):
+    seguridad_sesion.requerir_sesion(request)
     seguridad_sesion.eliminar_cookie(response)
 
     return {

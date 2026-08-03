@@ -2173,9 +2173,19 @@ async function exportarHistorialExcel() {
 }
 
 async function solicitarJson(url, opciones = {}) {
+    const csrf = document.cookie
+        .split("; ")
+        .find((cookie) => cookie.startsWith("cayal_csrf="))
+        ?.split("=")
+        .slice(1)
+        .join("=");
     const respuesta = await fetch(url, {
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json", ...(opciones.headers || {}) },
+        headers: {
+            "Content-Type": "application/json",
+            ...(csrf ? { "X-CSRF-Token": decodeURIComponent(csrf) } : {}),
+            ...(opciones.headers || {}),
+        },
         ...opciones,
     });
     let datos = {};

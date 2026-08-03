@@ -270,6 +270,18 @@ BEGIN TRY
         CREATE INDEX IX_MCCA_fecha
             ON dbo.ModuloCarnicoConfiguracionAuditoria(fecha DESC);
 
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID('dbo.docDocumentWarehouseRelation')
+          AND name = 'IX_MC_DocumentRelation_CreatedOn'
+    )
+        CREATE INDEX IX_MC_DocumentRelation_CreatedOn
+            ON dbo.docDocumentWarehouseRelation(CreatedOn DESC)
+            INCLUDE (
+                SourceDocumentID, DestinationDocumentID,
+                PhysicalUserID, ERPUserID, MovementDate
+            );
+
     COMMIT TRANSACTION;
 END TRY
 BEGIN CATCH
