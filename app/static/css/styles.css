@@ -54,10 +54,52 @@ h1, h2, h3, p { margin-top: 0; }
 .hidden { display: none !important; }
 
 /* Acceso: se conserva el flujo y la verificación existentes. */
-.login-body { display: grid; place-items: center; padding: 24px; background: linear-gradient(135deg, #fff, var(--blue-soft) 62%, var(--red-soft)); }
-.login-container { width: min(100%, 430px); }
-.login-card { position: relative; overflow: hidden; padding: 32px 34px 34px; border: 1px solid var(--line); border-top: 4px solid var(--red); border-radius: 20px; background: #fff; box-shadow: 0 18px 46px rgba(13, 32, 126, .13); }
-.login-card::before { position: absolute; top: 0; right: 0; width: 38%; height: 4px; background: var(--blue); content: ""; }
+.login-body {
+    position: relative;
+    isolation: isolate;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    padding: 24px;
+    background:
+        radial-gradient(circle at 18% 18%, rgba(255, 255, 255, .16) 0 8%, transparent 8.2%),
+        linear-gradient(135deg, #ffffff 0%, #0d207e 48%, #b6001f 100%);
+}
+.login-body::before,
+.login-body::after {
+    position: fixed;
+    z-index: -1;
+    border-radius: 50%;
+    content: "";
+    pointer-events: none;
+}
+.login-body::before {
+    width: min(52vw, 700px);
+    height: min(52vw, 700px);
+    right: -18vw;
+    top: -28vw;
+    border: clamp(40px, 6vw, 90px) solid rgba(255, 255, 255, .08);
+}
+.login-body::after {
+    width: min(38vw, 520px);
+    height: min(38vw, 520px);
+    left: -14vw;
+    bottom: -22vw;
+    background: rgba(226, 0, 38, .28);
+    box-shadow: 0 0 90px rgba(226, 0, 38, .18);
+}
+.login-container { position: relative; z-index: 1; width: min(100%, 430px); }
+.login-card {
+    position: relative;
+    overflow: hidden;
+    padding: 32px 34px 34px;
+    border: 1px solid rgba(255, 255, 255, .72);
+    border-top: 5px solid var(--red);
+    border-radius: 20px;
+    background: rgba(255, 255, 255, .97);
+    box-shadow: 0 24px 65px rgba(5, 13, 64, .34);
+}
+.login-card::before { position: absolute; top: 0; right: 0; width: 42%; height: 5px; background: var(--blue); content: ""; }
 .login-logo { display: block; width: 112px; height: 112px; margin: 0 auto 18px; border-radius: 50%; object-fit: contain; }
 .login-card h2 { margin-bottom: 10px; color: var(--blue-dark); font-size: 1.35rem; text-align: center; }
 .login-card > p { margin-bottom: 24px; color: var(--muted); text-align: center; }

@@ -144,9 +144,9 @@ class PermisosModulo:
 PERMISOS_MODULO = PermisosModulo(
     grupos_acceso_modulo=frozenset({1,12}),
     grupos_ver_configuracion=frozenset({1,12}),
-    grupos_ver_auditoria=frozenset({1,12}),
+    grupos_ver_auditoria=frozenset({1,}),
     grupos_ver_historial=frozenset({1,12}),
-    grupos_crear_configuracion=frozenset({1,12}),
+    grupos_crear_configuracion=frozenset({1,}),
     grupos_registrar_transformaciones=frozenset({1,12}),
     grupos_eliminar_productos_catalogo=frozenset({1}),
 )
