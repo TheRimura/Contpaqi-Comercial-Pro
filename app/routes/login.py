@@ -231,8 +231,9 @@ def iniciar_sesion(
 
 
 @router.post("/logout")
-def cerrar_sesion(request: Request, response: Response):
-    seguridad_sesion.requerir_sesion(request)
+def cerrar_sesion(response: Response):
+    # Cerrar sesión no modifica información operativa. Debe funcionar
+    # incluso con cookies antiguas o vencidas para no atrapar al usuario.
     seguridad_sesion.eliminar_cookie(response)
 
     return {

@@ -1,4 +1,5 @@
 from datetime import datetime
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -158,7 +159,14 @@ def mostrar_dashboard(request: Request):
         return RedirectResponse('/', status_code=303)
 
     permisos = seguridad_sesion.permisos_publicos(sesion)
-    lineas = []
+    # Las tres líneas forman parte del contrato funcional del módulo. Se
+    # renderizan sin consultar SSM para que la pantalla siga disponible aun
+    # cuando el catálogo de productos esté ocupado.
+    lineas = [
+        {'Category1': 'CERDO'},
+        {'Category1': 'POLLO'},
+        {'Category1': 'RES LOCAL'},
+    ]
     transformaciones = []
     historial = []
     resumen_historial = {
@@ -167,23 +175,11 @@ def mostrar_dashboard(request: Request):
         'merma_acumulada': 0.0,
         'rendimiento': 0.0,
     }
-    if permisos['configuracion'] or permisos['historial']:
-        base_datos = obtener_base_datos()
-        if permisos['configuracion']:
-            lineas = base_datos.listar_lineas_transformacion()
-            for linea in lineas:
-                transformaciones.extend(
-                    base_datos.listar_transformaciones_precargadas(
-                        linea.get('Category1', '')
-                    )
-                )
-        if permisos['historial']:
-            registros = base_datos.listar_historial_transformaciones(
-                limite=500
-            )
-            historial, resumen_historial = preparar_historial(registros)
+    # Los catálogos, configuraciones y el historial se consultan bajo
+    # demanda desde JavaScript. La pantalla principal no debe depender de
+    # consultas pesadas de SSM para poder mostrarse.
 
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request=request,
         name='dashboard.html',
         context={
@@ -196,6 +192,16 @@ def mostrar_dashboard(request: Request):
             'resumen_historial': resumen_historial,
         },
     )
+    if not sesion.get('csrf'):
+        sesion_actualizada = dict(sesion)
+        sesion_actualizada.pop('exp', None)
+        sesion_actualizada['csrf'] = secrets.token_urlsafe(32)
+        seguridad_sesion.guardar_cookie(
+            response,
+            sesion_actualizada,
+            usar_https=request.url.scheme == 'https',
+        )
+    return response
 
 
 @app.get('/salud', tags=['Sistema'])
