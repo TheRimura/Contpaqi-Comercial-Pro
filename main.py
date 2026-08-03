@@ -1,4 +1,3 @@
-from datetime import datetime
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -25,6 +24,12 @@ from app.utils.inicializador_base_datos import (
 from app.utils.seguridad import seguridad_sesion
 
 
+# Créditos internos del proyecto. No se exponen en la interfaz del módulo.
+__author__ = "Abraham"
+__credits__ = ("Abraham — diseño, análisis funcional y creación del módulo",)
+__version__ = "1.2.2"
+
+
 BASE_DIR = Path(__file__).resolve().parent
 APP_DIR = BASE_DIR / 'app'
 STATIC_DIR = APP_DIR / 'static'
@@ -45,7 +50,7 @@ async def ciclo_vida_aplicacion(aplicacion: FastAPI):
 
 app = FastAPI(
     title='CAYAL - Relación de documentos de almacén',
-    version='1.0.0',
+    version=__version__,
     lifespan=ciclo_vida_aplicacion,
 )
 
@@ -67,71 +72,6 @@ templates = Jinja2Templates(directory=APP_DIR / 'templates')
 app.include_router(login_router)
 app.include_router(relacion_router)
 app.include_router(configuracion_router)
-
-
-def preparar_historial(registros: list[dict]) -> tuple[list[dict], dict]:
-    """Calcula los valores del historial antes de enviarlos a la plantilla."""
-    hoy = datetime.now()
-    historial = []
-    registros_mes = []
-
-    for registro_original in registros:
-        registro = dict(registro_original)
-        cantidad_base = float(registro.get('cantidad_base') or 0)
-        cantidad_resultante = float(
-            registro.get('cantidad_resultante') or 0
-        )
-        merma = max(cantidad_base - cantidad_resultante, 0.0)
-        porcentaje_merma = (
-            merma / cantidad_base * 100
-            if cantidad_base > 0 else 0.0
-        )
-        fecha_hora = registro.get('fecha_hora') or registro.get('fecha')
-
-        registro.update({
-            'fecha_texto': (
-                fecha_hora.strftime('%d/%m/%Y')
-                if fecha_hora else 'Sin fecha'
-            ),
-            'hora_texto': (
-                fecha_hora.strftime('%H:%M')
-                if fecha_hora else ''
-            ),
-            'cantidad_base_numero': cantidad_base,
-            'cantidad_resultante_numero': cantidad_resultante,
-            'merma_numero': merma,
-            'porcentaje_merma': porcentaje_merma,
-        })
-        historial.append(registro)
-
-        if (
-            getattr(fecha_hora, 'year', None) == hoy.year
-            and getattr(fecha_hora, 'month', None) == hoy.month
-        ):
-            registros_mes.append(registro)
-
-    kilos_procesados = sum(
-        registro['cantidad_base_numero']
-        for registro in registros_mes
-    )
-    kilos_resultantes = sum(
-        registro['cantidad_resultante_numero']
-        for registro in registros_mes
-    )
-    merma_acumulada = sum(
-        registro['merma_numero']
-        for registro in registros_mes
-    )
-    resumen = {
-        'transformaciones': len(registros_mes),
-        'kilos_procesados': kilos_procesados,
-        'merma_acumulada': merma_acumulada,
-        'rendimiento': (
-            kilos_resultantes / kilos_procesados * 100
-            if kilos_procesados > 0 else 0.0
-        ),
-    }
-    return historial, resumen
 
 
 @app.exception_handler(RuntimeError)
@@ -215,6 +155,7 @@ def comprobar_salud():
 
     return {
         'aplicacion': 'Módulo Cárnico CAYAL',
+        'version': __version__,
         'api': True,
         'base_de_datos': conexion,
         'detalle': detalle,

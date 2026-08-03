@@ -1,67 +1,88 @@
-# Inicialización de la base de datos
+# Módulo de transformación cárnica CAYAL
 
-El módulo ejecuta automáticamente la inicialización al arrancar FastAPI.
-También puede ejecutarse manualmente antes de desplegar:
+Aplicación web para configurar y registrar transformaciones cárnicas,
+calcular merma e insumos, generar la relación de documentos de almacén y
+consultar el historial operativo en SSM.
+
+## Estructura
+
+- `app/routes`: endpoints de acceso, configuración y transformación.
+- `app/schemas`: contratos de entrada y validaciones de la API.
+- `app/static`: estilos, imágenes y comportamiento del navegador.
+- `app/templates`: las dos vistas del módulo (`login` y `dashboard`).
+- `app/utils`: acceso a SQL Server, seguridad e inicialización.
+- `scripts`: consultas de soporte e instalación idempotente de la base.
+- `main.py`: arranque de FastAPI y composición del módulo.
+- `app/settings.py`: ajustes operativos y permisos editables.
+
+## Instalación local
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\inicializar_base_datos.py
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn main:app --reload
 ```
 
-## Conexión al servidor de la empresa
+Abra `http://127.0.0.1:8000`. El estado de la aplicación y de SQL Server se
+puede consultar en `http://127.0.0.1:8000/salud`.
 
-El módulo usa `cayal.comandos_base_datos.ComandosBaseDatos`, pero permite
-indicar el destino sin modificar código. Antes de instalar, configure estas
-variables en el servidor (o en el archivo `.env` del servicio):
+## Conexión al servidor
+
+El módulo usa `cayal.comandos_base_datos.ComandosBaseDatos`. Configure el
+destino mediante variables de entorno:
 
 ```env
-CAYAL_DB_SERVER=SERVIDOR_SQL\\INSTANCIA
+CAYAL_DB_SERVER=SERVIDOR_SQL\INSTANCIA
 CAYAL_DB_NAME=ComercialSP
 ```
 
-Con esas dos variables se utiliza la autenticación integrada de Windows. La
-cuenta que ejecuta el servicio debe tener acceso a SQL Server. Si la empresa
-usa autenticación SQL, agregue:
+Con estas variables se utiliza autenticación integrada de Windows. La cuenta
+que ejecute el servicio debe tener acceso a SQL Server. Para autenticación SQL:
 
 ```env
 CAYAL_DB_USER=usuario_modulo
 CAYAL_DB_PASSWORD=contraseña_segura
 ```
 
-También se puede definir una cadena completa mediante
-`CAYAL_DB_CONNECTION_STRING`; cuando existe, tiene prioridad sobre las demás
-variables. No guarde credenciales reales dentro del repositorio.
+También puede proporcionar `CAYAL_DB_CONNECTION_STRING`, que tiene prioridad
+sobre las variables anteriores. Nunca almacene credenciales reales dentro del
+repositorio.
+
+## Inicialización de la base de datos
+
+La validación se ejecuta al arrancar FastAPI. También puede iniciarse de forma
+manual antes de un despliegue:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\inicializar_base_datos.py
+```
 
 El proceso:
 
 1. Comprueba la conexión y obtiene el servidor y la base activa.
-2. Valida los objetos nativos de SSM que consume el módulo.
-3. Reutiliza las tablas compatibles que ya existen.
-4. Crea únicamente las tablas propias del módulo que falten.
-5. Agrega columnas e índices administrados que todavía no existan.
-6. Verifica la estructura final y cancela el arranque si falta una
-   dependencia o la estructura quedó incompleta.
+2. Valida los objetos nativos de SSM utilizados por el módulo.
+3. Reutiliza las tablas compatibles existentes.
+4. Crea solamente las tablas propias que hagan falta.
+5. Agrega las columnas e índices administrados pendientes.
+6. Verifica la estructura final antes de habilitar el módulo.
 
-Para comprobar un despliegue, ejecute el inicializador dos veces. La primera
-puede crear o actualizar objetos; la segunda debe informar cero tablas creadas
-y todas las tablas como reutilizadas. Después compruebe:
+El inicializador es idempotente: puede ejecutarse varias veces sin duplicar
+tablas, columnas, índices ni configuraciones de seguridad. Los objetos nativos
+de SSM no se crean artificialmente; si falta alguno, el proceso se detiene para
+evitar una instalación incompatible.
+
+La primera instalación requiere permisos para consultar metadatos y, cuando
+sea necesario, crear o modificar tablas e índices. El servidor necesita
+Microsoft ODBC Driver 17 u 18 para SQL Server.
+
+## Validación antes de publicar
 
 ```powershell
-Invoke-RestMethod http://localhost:8000/salud
+.\.venv\Scripts\python.exe -m compileall -q main.py app scripts
+node --check app\static\js\app.js
+git diff --check
 ```
 
-El script es idempotente: se puede ejecutar varias veces sin duplicar tablas,
-columnas, índices ni la configuración de seguridad.
-
-## Permisos de despliegue
-
-La cuenta utilizada durante la primera instalación debe poder consultar
-metadatos y, cuando sea necesario, crear o modificar tablas e índices. Después
-de instalar, el servicio puede usar una cuenta con los permisos operativos
-habituales del módulo.
-
-Los objetos nativos de SSM no se crean artificialmente. Si falta alguno, el
-proceso se detiene indicando su nombre para evitar instalar una estructura
-incompatible con el servidor de la empresa.
-
-La máquina del servicio necesita Microsoft ODBC Driver 17 u 18 for SQL Server.
-El paquete `cayal` selecciona automáticamente el controlador disponible.
+No se deben versionar `.env`, secretos de sesión, entornos virtuales, cachés de
+Python ni archivos temporales de pruebas.
