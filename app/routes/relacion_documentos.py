@@ -233,7 +233,7 @@ def consultar_historial(
     folio: str = Query(default='', max_length=50),
     estado: str = Query(default='', max_length=30),
     nivel_merma: str = Query(default='', max_length=30),
-    limite: int = Query(default=500, ge=1, le=500),
+    limite: int = Query(default=100, ge=1, le=500),
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
     seguridad_sesion.requerir_permiso(request, 'ver_historial')

@@ -1945,7 +1945,7 @@ async function actualizarHistorialDesdeServidor() {
 }
 
 function parametrosFiltrosHistorial() {
-    const parametros = new URLSearchParams({ limite: "500" });
+    const parametros = new URLSearchParams({ limite: "100" });
     const desdeVisual = document.getElementById("historial-fecha-desde")?.value;
     const hastaVisual = document.getElementById("historial-fecha-hasta")?.value;
     const transformacion = document.getElementById("historial-transformacion")?.value?.trim();

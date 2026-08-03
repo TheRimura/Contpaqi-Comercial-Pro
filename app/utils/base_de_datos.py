@@ -1352,7 +1352,7 @@ class BaseDatos(ComandosBaseDatos):
         )
         return self._leer_cache(
             clave,
-            3,
+            30,
             lambda: self._consultar_historial_transformaciones(
                 limite=limite,
                 fecha_desde=fecha_desde,
@@ -1381,19 +1381,70 @@ class BaseDatos(ComandosBaseDatos):
         limite = min(max(int(limite), 1), 500)
         filas = self.fetchall(
             """
-            SELECT TOP (?)
-                R.DocumentWarehouseRelationID AS relacion_id,
-                S.DocumentID AS documento_salida_id,
-                E.DocumentID AS documento_entrada_id,
+            WITH RelacionesFiltradas AS
+            (
+                SELECT TOP (?)
+                    R.DocumentWarehouseRelationID AS relacion_id,
+                    R.SourceDocumentID AS documento_salida_id,
+                    R.DestinationDocumentID AS documento_entrada_id,
+                    R.MovementDate AS fecha_movimiento,
+                    R.CreatedOn AS fecha_hora,
+                    R.PhysicalUserID AS tablajero_id,
+                    R.ERPUserID AS usuario_id,
+                    ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '') AS folio_salida,
+                    ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '') AS folio_entrada
+                FROM dbo.docDocumentWarehouseRelation AS R
+                INNER JOIN dbo.docDocument AS S
+                    ON S.DocumentID = R.SourceDocumentID
+                   AND S.ModuleID = 203
+                INNER JOIN dbo.docDocument AS E
+                    ON E.DocumentID = R.DestinationDocumentID
+                   AND E.ModuleID = 202
+                WHERE S.DeletedOn IS NULL
+                  AND E.DeletedOn IS NULL
+                  AND TRY_CONVERT(INT, S.CustomCbo) = 2
+                  AND TRY_CONVERT(INT, E.CustomCbo) = 5
+                  AND (? = '' OR R.CreatedOn >= TRY_CONVERT(DATE, ?))
+                  AND (
+                        ? = ''
+                        OR R.CreatedOn < DATEADD(DAY, 1, TRY_CONVERT(DATE, ?))
+                      )
+                  AND (
+                        ? = ''
+                        OR EXISTS
+                        (
+                            SELECT 1
+                            FROM dbo.docDocumentItem AS DIFiltro
+                            INNER JOIN dbo.orgProduct AS PFiltro
+                                ON PFiltro.ProductID = DIFiltro.ProductID
+                            WHERE DIFiltro.DocumentID = E.DocumentID
+                              AND DIFiltro.DeletedOn IS NULL
+                              AND UPPER(ISNULL(PFiltro.ProductName, '')) LIKE
+                                  '%' + UPPER(?) + '%'
+                        )
+                      )
+                  AND (
+                        ? = ''
+                        OR UPPER(
+                            ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '')
+                            + ' '
+                            + ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '')
+                        ) LIKE '%' + UPPER(?) + '%'
+                      )
+                ORDER BY R.CreatedOn DESC,
+                         R.DocumentWarehouseRelationID DESC
+            )
+            SELECT
+                RF.relacion_id,
+                RF.documento_salida_id,
+                RF.documento_entrada_id,
                 COALESCE(
-                    R.MovementDate,
-                    CAST(R.CreatedOn AS DATE)
+                    RF.fecha_movimiento,
+                    CAST(RF.fecha_hora AS DATE)
                 ) AS fecha,
-                R.CreatedOn AS fecha_hora,
-                ISNULL(S.FolioPrefix, '') +
-                    ISNULL(S.Folio, '') AS folio_salida,
-                ISNULL(E.FolioPrefix, '') +
-                    ISNULL(E.Folio, '') AS folio_entrada,
+                RF.fecha_hora,
+                RF.folio_salida,
+                RF.folio_entrada,
                 ISNULL(U.UserName, '') AS usuario,
                 ISNULL(Empleado.OfficialName, '') AS tablajero,
                 ISNULL(Base.ProductName, '') AS producto_base,
@@ -1402,20 +1453,14 @@ class BaseDatos(ComandosBaseDatos):
                 ISNULL(Resultado.ProductName, '') AS producto_resultante,
                 ISNULL(Resultado.Quantity, 0) AS cantidad_resultante,
                 ISNULL(Partidas.total_partidas, 0) AS total_partidas_salida
-            FROM dbo.docDocumentWarehouseRelation AS R
-            INNER JOIN dbo.docDocument AS S
-                ON S.DocumentID = R.SourceDocumentID
-               AND S.ModuleID = 203
-            INNER JOIN dbo.docDocument AS E
-                ON E.DocumentID = R.DestinationDocumentID
-               AND E.ModuleID = 202
+            FROM RelacionesFiltradas AS RF
             LEFT JOIN dbo.engUser AS U
-                ON U.UserID = R.ERPUserID
+                ON U.UserID = RF.usuario_id
             OUTER APPLY
             (
                 SELECT TOP 1 EMP.OfficialName
                 FROM dbo.zvwEmpleadosCayalMenu AS EMP
-                WHERE EMP.UserID = R.PhysicalUserID
+                WHERE EMP.UserID = RF.tablajero_id
                 ORDER BY EMP.OfficialName
             ) AS Empleado
             OUTER APPLY
@@ -1424,7 +1469,7 @@ class BaseDatos(ComandosBaseDatos):
                 FROM dbo.docDocumentItem AS DI
                 INNER JOIN dbo.orgProduct AS P
                     ON P.ProductID = DI.ProductID
-                WHERE DI.DocumentID = S.DocumentID
+                WHERE DI.DocumentID = RF.documento_salida_id
                   AND DI.DeletedOn IS NULL
                 ORDER BY
                     CASE WHEN DI.Comments LIKE 'Producto base%'
@@ -1437,7 +1482,7 @@ class BaseDatos(ComandosBaseDatos):
                 FROM dbo.docDocumentItem AS DI
                 INNER JOIN dbo.orgProduct AS P
                     ON P.ProductID = DI.ProductID
-                WHERE DI.DocumentID = E.DocumentID
+                WHERE DI.DocumentID = RF.documento_entrada_id
                   AND DI.DeletedOn IS NULL
                 ORDER BY DI.DocumentItemID
             ) AS Resultado
@@ -1445,21 +1490,10 @@ class BaseDatos(ComandosBaseDatos):
             (
                 SELECT COUNT(*) AS total_partidas
                 FROM dbo.docDocumentItem AS DI
-                WHERE DI.DocumentID = S.DocumentID
+                WHERE DI.DocumentID = RF.documento_salida_id
                   AND DI.DeletedOn IS NULL
             ) AS Partidas
-            WHERE S.DeletedOn IS NULL
-              AND E.DeletedOn IS NULL
-              AND TRY_CONVERT(INT, S.CustomCbo) = 2
-              AND TRY_CONVERT(INT, E.CustomCbo) = 5
-              AND (? = '' OR CAST(R.CreatedOn AS DATE) >= TRY_CONVERT(DATE, ?))
-              AND (? = '' OR CAST(R.CreatedOn AS DATE) <= TRY_CONVERT(DATE, ?))
-              AND (? = '' OR UPPER(ISNULL(Base.Category1, '')) = UPPER(?))
-              AND (
-                    ? = ''
-                    OR UPPER(ISNULL(Resultado.ProductName, '')) LIKE
-                       '%' + UPPER(?) + '%'
-                  )
+            WHERE (? = '' OR UPPER(ISNULL(Base.Category1, '')) = UPPER(?))
               AND (
                     ? = ''
                     OR UPPER(ISNULL(Empleado.OfficialName, '')) LIKE
@@ -1467,11 +1501,8 @@ class BaseDatos(ComandosBaseDatos):
                   )
               AND (
                     ? = ''
-                    OR UPPER(
-                        ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '')
-                        + ' '
-                        + ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '')
-                    ) LIKE '%' + UPPER(?) + '%'
+                    OR UPPER(RF.folio_salida + ' ' + RF.folio_entrada)
+                       LIKE '%' + UPPER(?) + '%'
                   )
               AND (? = '' OR UPPER(?) = 'RELACIONADO')
               AND (
@@ -1506,15 +1537,16 @@ class BaseDatos(ComandosBaseDatos):
                     )
                   )
             ORDER BY
-                R.CreatedOn DESC,
-                R.DocumentWarehouseRelationID DESC
+                RF.fecha_hora DESC,
+                RF.relacion_id DESC
             """,
             (
                 limite,
                 fecha_desde, fecha_desde,
                 fecha_hasta, fecha_hasta,
-                linea, linea,
                 transformacion, transformacion,
+                folio, folio,
+                linea, linea,
                 tablajero, tablajero,
                 folio, folio,
                 estado, estado,
