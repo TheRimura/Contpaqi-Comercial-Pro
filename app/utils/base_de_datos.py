@@ -12,7 +12,7 @@ import pyodbc
 
 from functools import cache
 from platform import node
-from typing import Optional
+from typing import Any, Callable, Optional, cast
 
 from cayal.comandos_base_datos import ComandosBaseDatos
 
@@ -57,10 +57,18 @@ class BaseDatos(ComandosBaseDatos):
         with redirect_stdout(io.StringIO()):
             super().__init__(cadena_de_conexion=cadena_conexion)
         self.base_de_datos = None
-        self._cache_lecturas = {}
+        self._cache_lecturas: dict[
+            str,
+            tuple[float, list[dict[str, Any]]],
+        ] = {}
         self._bloqueo_cache = RLock()
 
-    def _leer_cache(self, clave: str, segundos: int, cargar):
+    def _leer_cache(
+        self,
+        clave: str,
+        segundos: int,
+        cargar: Callable[[], list[dict[str, Any]]],
+    ) -> list[dict[str, Any]]:
         ahora = time.monotonic()
         with self._bloqueo_cache:
             registro = self._cache_lecturas.get(clave)
@@ -85,7 +93,7 @@ class BaseDatos(ComandosBaseDatos):
         self,
         sql: str,
         params: tuple = (),
-    ) -> object | None:
+    ) -> Any | None:
         """Devuelve el primer valor aunque el lote tenga resultados intermedios."""
         cadena_conexion = next(
             valor
@@ -3287,7 +3295,7 @@ class BaseDatos(ComandosBaseDatos):
             {
                 **formula,
                 'componentes': self.buscar_formula_producto_configuracion(
-                    int(formula['formula_id'])
+                    int(cast(Any, formula['formula_id']))
                 ),
             }
             for formula in formulas
@@ -3376,7 +3384,7 @@ class BaseDatos(ComandosBaseDatos):
                 if sugerencia else None
             )
         producto_resultante_id = int(
-            producto_resultante_id or producto_base_id
+            cast(Any, producto_resultante_id or producto_base_id)
         )
         if self.fetchone(
             """SELECT TOP 1 T.id_transformacion_usuario

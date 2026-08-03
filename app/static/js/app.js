@@ -221,7 +221,7 @@ async function abrirDetalleProductoCatalogo(producto) {
         });
         const formulas = Array.isArray(detalle)
             ? [...formulasAgrupadas.values()]
-            : (detalle.formulas || []);
+            : (detalle["formulas"] || []);
         document.getElementById("mensaje-detalle-producto").textContent = formulas.length
             ? `${formulas.length} fórmula${formulas.length === 1 ? "" : "s"} propia${formulas.length === 1 ? "" : "s"} registrada${formulas.length === 1 ? "" : "s"} en SSM.`
             : "Este producto no tiene ingredientes registrados.";
@@ -301,12 +301,12 @@ function renderizarPaginaCatalogo() {
             fila.append(nombre, unidad);
             fila.addEventListener("click", async () => {
                 if (modoEliminacionCatalogo) {
-                    const motivo = await solicitarConfirmacionEliminarProductoCatalogo(
+                    const confirmado = await solicitarConfirmacionEliminarProductoCatalogo(
                         producto
                     );
-                    if (motivo) {
+                    if (confirmado) {
                         try {
-                            await ocultarProductoCatalogo(producto, motivo);
+                            await ocultarProductoCatalogo(producto);
                         } catch (error) {
                             mensajeConfiguracion(error.message);
                         }
@@ -319,7 +319,9 @@ function renderizarPaginaCatalogo() {
                 });
             });
             fila.addEventListener("dblclick", () => {
-                if (!modoEliminacionCatalogo) abrirDetalleProductoCatalogo(producto);
+                if (!modoEliminacionCatalogo) {
+                    void abrirDetalleProductoCatalogo(producto);
+                }
             });
             lista.appendChild(fila);
         });
@@ -398,7 +400,7 @@ function alternarFiltrosCatalogo() {
     boton.setAttribute("aria-expanded", String(abrir));
 }
 
-async function cargarProductosCatalogo(linea, termino = "") {
+async function cargarProductosCatalogo(linea) {
     lineaCatalogoActual = linea;
     const panel = document.getElementById("catalogo-productos");
     const lista = document.getElementById("lista-productos-catalogo");
@@ -412,10 +414,9 @@ async function cargarProductosCatalogo(linea, termino = "") {
         boton.classList.toggle("active", boton.dataset.linea === linea);
     });
     try {
-        const productos = await solicitarJson(
+        productosCatalogoSinFiltrar = await solicitarJson(
             `${API_CONFIGURACION}/productos-base?linea=${encodeURIComponent(linea)}`
         );
-        productosCatalogoSinFiltrar = productos;
         productoCatalogoSeleccionadoId = 0;
         actualizarUnidadesCatalogo();
         aplicarFiltrosCatalogo();
@@ -427,7 +428,7 @@ async function cargarProductosCatalogo(linea, termino = "") {
     }
 }
 
-async function ocultarProductoCatalogo(producto, motivo) {
+async function ocultarProductoCatalogo(producto) {
     const productoId = Number(producto?.product_id);
     if (!modoEliminacionCatalogo || !productoId) return;
     await solicitarJson(`${API_CONFIGURACION}/catalogo/ocultar`, {
@@ -465,18 +466,17 @@ function solicitarConfirmacionEliminarProductoCatalogo(producto) {
         const modal = document.getElementById("modal-confirmar-eliminacion-producto");
         const botonConfirmar = document.getElementById("confirmar-eliminacion-producto");
         const botonCancelar = document.getElementById("cancelar-eliminacion-producto");
-        const nombre = limpiarNombreProducto(producto?.producto) || "Producto seleccionado";
+        document.getElementById("nombre-producto-a-eliminar").textContent =
+            limpiarNombreProducto(producto?.producto) || "Producto seleccionado";
 
-        document.getElementById("nombre-producto-a-eliminar").textContent = nombre;
-
-        const cerrar = (motivo = null) => {
+        const cerrar = (confirmado = false) => {
             modal.classList.add("hidden");
             document.body.classList.remove("modal-open");
             botonConfirmar.removeEventListener("click", confirmar);
             botonCancelar.removeEventListener("click", cancelar);
-            resolve(motivo);
+            resolve(confirmado);
         };
-        const confirmar = () => cerrar("Producto ocultado desde el catálogo");
+        const confirmar = () => cerrar(true);
         const cancelar = () => cerrar();
 
         botonConfirmar.addEventListener("click", confirmar);
@@ -688,13 +688,15 @@ function activarEliminacionCatalogo() {
 
 function cancelarEliminacionCatalogo() {
     modoEliminacionCatalogo = false;
-    document.getElementById("catalogo-productos")?.classList.remove("delete-mode");
+    const panelCatalogo = document.getElementById("catalogo-productos");
+    if (panelCatalogo) panelCatalogo.classList.remove("delete-mode");
     const eliminar = document.getElementById("eliminar-producto-catalogo");
     if (eliminar) {
         eliminar.classList.remove("active");
         eliminar.textContent = "Eliminar";
     }
-    document.getElementById("cancelar-eliminacion-catalogo")?.classList.add("hidden");
+    const botonCancelar = document.getElementById("cancelar-eliminacion-catalogo");
+    if (botonCancelar) botonCancelar.classList.add("hidden");
     const ayuda = document.getElementById("ayuda-interaccion-catalogo");
     if (ayuda) ayuda.textContent = "Un clic selecciona el producto; doble clic muestra sus insumos.";
 }
@@ -1665,7 +1667,7 @@ function iniciarPaginaConfiguracion() {
     });
     document.getElementById("catalogo-pagina-anterior").addEventListener("click", () => cambiarPaginaCatalogo(-1));
     document.getElementById("catalogo-pagina-siguiente").addEventListener("click", () => cambiarPaginaCatalogo(1));
-    document.getElementById("buscar-producto-catalogo").addEventListener("input", (evento) => {
+    document.getElementById("buscar-producto-catalogo").addEventListener("input", () => {
         window.clearTimeout(temporizadorCatalogo);
         temporizadorCatalogo = window.setTimeout(() => {
             if (lineaCatalogoActual) aplicarFiltrosCatalogo();
@@ -1694,8 +1696,8 @@ function iniciarPaginaConfiguracion() {
 }
 
 function normalizarRegistroHistorial(registro) {
-    const entrada = Number(registro.cantidad_base || 0);
-    const salida = Number(registro.cantidad_resultante || 0);
+    const entrada = Number(registro["cantidad_base"] || 0);
+    const salida = Number(registro["cantidad_resultante"] || 0);
     const merma = Math.max(entrada - salida, 0);
     const porcentajeMerma = entrada > 0 ? merma / entrada * 100 : 0;
     return { ...registro, entrada, salida, merma, porcentajeMerma };
@@ -1705,10 +1707,10 @@ function crearFilaHistorial(registroOriginal) {
     const registro = normalizarRegistroHistorial(registroOriginal);
     const fila = document.createElement("tr");
     fila.className = "history-row";
-    fila.dataset.relacionId = String(registro.relacion_id);
+    fila.dataset.relacionId = String(registro["relacion_id"]);
     fila.tabIndex = 0;
     fila.title = "Ver documentos relacionados";
-    const fecha = registro.fecha_hora ? new Date(registro.fecha_hora) : null;
+    const fecha = registro["fecha_hora"] ? new Date(registro["fecha_hora"]) : null;
     const fechaTexto = fecha && !Number.isNaN(fecha.getTime())
         ? fecha.toLocaleDateString("es-MX")
         : "Sin fecha";
@@ -1718,7 +1720,7 @@ function crearFilaHistorial(registroOriginal) {
     fila.innerHTML = `
         <td><span class="history-date"></span><small></small></td>
         <td><strong></strong><small></small></td>
-        <td><strong></strong>${Number(registro.total_insumos || 0) ? `<small>${Number(registro.total_insumos)} insumos</small>` : ""}</td>
+        <td><strong></strong>${Number(registro["total_insumos"] || 0) ? `<small>${Number(registro["total_insumos"])} insumos</small>` : ""}</td>
         <td class="history-number">${registro.entrada.toFixed(2)} kg</td>
         <td class="history-number">${registro.salida.toFixed(2)} kg</td>
         <td class="history-number"><strong>${registro.merma.toFixed(2)} kg</strong><small>${registro.porcentajeMerma.toFixed(1)}%</small></td>
@@ -1727,12 +1729,12 @@ function crearFilaHistorial(registroOriginal) {
         <td><span class="history-status">Relacionado</span></td>`;
     fila.children[0].querySelector("span").textContent = fechaTexto;
     fila.children[0].querySelector("small").textContent = horaTexto;
-    fila.children[1].querySelector("strong").textContent = registro.tablajero || "No registrado";
-    fila.children[1].querySelector("small").textContent = registro.usuario || "Sin usuario";
-    fila.children[2].querySelector("strong").textContent = limpiarNombreProducto(registro.producto_base) || "No disponible";
-    fila.children[6].querySelector("strong").textContent = limpiarNombreProducto(registro.producto_resultante) || "No disponible";
-    fila.children[7].querySelector("span").textContent = `${registro.folio_salida || "Sin folio"} → ${registro.folio_entrada || "Sin folio"}`;
-    const abrir = () => abrirDetalleHistorial(Number(registro.relacion_id));
+    fila.children[1].querySelector("strong").textContent = registro["tablajero"] || "No registrado";
+    fila.children[1].querySelector("small").textContent = registro["usuario"] || "Sin usuario";
+    fila.children[2].querySelector("strong").textContent = limpiarNombreProducto(registro["producto_base"]) || "No disponible";
+    fila.children[6].querySelector("strong").textContent = limpiarNombreProducto(registro["producto_resultante"]) || "No disponible";
+    fila.children[7].querySelector("span").textContent = `${registro["folio_salida"] || "Sin folio"} → ${registro["folio_entrada"] || "Sin folio"}`;
+    const abrir = () => void abrirDetalleHistorial(Number(registro["relacion_id"]));
     fila.addEventListener("click", abrir);
     fila.addEventListener("keydown", (evento) => {
         if (evento.key === "Enter" || evento.key === " ") {
@@ -1858,12 +1860,12 @@ function conectarControlesHistorial() {
     document.getElementById("filtros-historial")?.addEventListener("submit", (evento) => {
         evento.preventDefault();
         if (!rangoFechasHistorialValido()) return;
-        consultarHistorialFiltrado();
+        void consultarHistorialFiltrado();
     });
     document.getElementById("limpiar-filtros-historial")?.addEventListener("click", () => {
         document.getElementById("filtros-historial").reset();
         configurarRangoFechasHistorial();
-        consultarHistorialFiltrado();
+        void consultarHistorialFiltrado();
     });
 }
 
@@ -2037,7 +2039,7 @@ async function exportarHistorialExcel() {
         );
         const relacionesVisibles = new Set(
             registrosHistorialActual.map(
-                (registro) => Number(registro.relacion_id)
+                (registro) => Number(registro["relacion_id"])
             )
         );
         const partidas = historialCargadoDesdeServidor
@@ -2046,7 +2048,8 @@ async function exportarHistorialExcel() {
             )
             : partidasDisponibles;
         if (!Array.isArray(partidas) || !partidas.length) {
-            throw new Error("No hay documentos relacionados para exportar.");
+            mostrarMensaje("No hay documentos relacionados para exportar.");
+            return;
         }
 
         const relaciones = new Map();
@@ -2065,12 +2068,15 @@ async function exportarHistorialExcel() {
             relaciones.get(id).partidas.push(partida);
         });
 
+        const atributoEstilo = "ss:StyleID";
+        const atributoCombinacion = "ss:MergeAcross";
+        const atributoTipo = "ss:Type";
         const celdaTexto = (valor, estilo = "Dato", combinadas = 0) =>
-            `<Cell ss:StyleID="${estilo}"${combinadas ? ` ss:MergeAcross="${combinadas}"` : ""}><Data ss:Type="String">${escaparXml(valor)}</Data></Cell>`;
+            `<Cell ${atributoEstilo}="${estilo}"${combinadas ? ` ${atributoCombinacion}="${combinadas}"` : ""}><Data ${atributoTipo}="String">${escaparXml(valor)}</Data></Cell>`;
         const celdaNumero = (valor, estilo = "Cantidad") =>
-            `<Cell ss:StyleID="${estilo}"><Data ss:Type="Number">${Number(valor || 0).toFixed(2)}</Data></Cell>`;
+            `<Cell ${atributoEstilo}="${estilo}"><Data ${atributoTipo}="Number">${Number(valor || 0).toFixed(2)}</Data></Cell>`;
         const celdaVacia = (estilo = "Dato") =>
-            `<Cell ss:StyleID="${estilo}"><Data ss:Type="String"></Data></Cell>`;
+            `<Cell ${atributoEstilo}="${estilo}"><Data ${atributoTipo}="String"></Data></Cell>`;
         const fechaTexto = (valor) => {
             const fecha = valor ? new Date(valor) : null;
             return fecha && !Number.isNaN(fecha.getTime())
@@ -2188,7 +2194,7 @@ async function solicitarJson(url, opciones = {}) {
         },
         ...opciones,
     });
-    let datos = {};
+    let datos;
     try { datos = await respuesta.json(); } catch (_) { datos = {}; }
     if (respuesta.status === 401 && !document.getElementById("loginPage")) {
         window.location.assign("/");
@@ -2310,7 +2316,7 @@ async function cargarMarcas() {
         categorias.map((categoria) => solicitarJson(`${API_RELACIONES}/marcas?categoria=${encodeURIComponent(categoria)}`)),
     );
     const mapa = new Map();
-    respuestas.flat().forEach((marca) => mapa.set(Number(marca.BrandID), marca));
+    respuestas.flat().forEach((marca) => mapa.set(Number(marca["BrandID"]), marca));
     const lista = document.getElementById("lista-marcas");
     lista.replaceChildren();
     [...mapa.values()].forEach((marca) => {
@@ -2459,13 +2465,13 @@ function calcularInsumosTransformacion() {
         return;
     }
     const componentes = detalleTransformacionSeleccionada.componentes || [];
-    const baseReceta = componentes.find((componente) => componente.es_producto_base);
+    const baseReceta = componentes.find((componente) => componente["es_producto_base"]);
     const kilos = Number(document.getElementById("cantidad-base-transformacion").value || 0);
     const factor = Number(baseReceta?.cantidad || 0) > 0
         ? kilos / Number(baseReceta.cantidad)
         : 1;
     insumosTransformacionCalculados = componentes
-        .filter((componente) => !componente.es_producto_base)
+        .filter((componente) => !componente["es_producto_base"])
         .map((componente) => ({
             ...componente,
             cantidad_calculada: Number(componente.cantidad || 0) * factor,
@@ -2498,7 +2504,6 @@ function actualizarMermaTransformacion() {
 }
 
 async function localizarDocumentosTransformacion() {
-    const transformacionConfigId = Number(document.getElementById("transformacion-precargada").value || 0);
     const baseId = Number(document.getElementById("base-transformacion").value || 0);
     const resultanteId = Number(document.getElementById("resultante-transformacion").value || 0);
     const cantidadBase = Number(document.getElementById("cantidad-base-transformacion").value || 0);
@@ -3012,12 +3017,6 @@ async function guardarRelacion(evento) {
     const opcionMovimiento = document.getElementById("tipo-movimiento").selectedOptions[0];
     const esAnalisis = Number(opcionMovimiento?.dataset.entrada || 0) === 24
         && Number(opcionMovimiento?.dataset.salida || 0) === 21;
-    const fechaRegistro = new Date();
-    const fechaAutomatica = [
-        fechaRegistro.getFullYear(),
-        String(fechaRegistro.getMonth() + 1).padStart(2, "0"),
-        String(fechaRegistro.getDate()).padStart(2, "0"),
-    ].join("-");
     const payload = registrandoTransformacion ? {
         transformacion_config_id: Number(document.getElementById("transformacion-precargada").value),
         linea: document.getElementById("linea-transformacion").value,
@@ -3107,7 +3106,8 @@ function mostrarAccesoDenegado() {
 }
 
 function cerrarAccesoDenegado() {
-    document.getElementById("modal-acceso-denegado")?.classList.add("hidden");
+    const modal = document.getElementById("modal-acceso-denegado");
+    if (modal) modal.classList.add("hidden");
     document.body.classList.remove("modal-open");
     document.getElementById("usuario")?.focus();
 }
@@ -3148,10 +3148,13 @@ function mostrarVistaModulo(vista) {
         else boton.removeAttribute("aria-current");
     });
 
-    document.getElementById("boton-Configuracion")?.classList.toggle(
-        "current-section",
-        ["configuracion", "auditoria"].includes(vista)
-    );
+    const botonConfiguracion = document.getElementById("boton-Configuracion");
+    if (botonConfiguracion) {
+        botonConfiguracion.classList.toggle(
+            "current-section",
+            ["configuracion", "auditoria"].includes(vista)
+        );
+    }
     const hash = vista === "inicio" ? "#inicio" : `#${vista}`;
     window.history.replaceState(null, "", hash);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -3177,7 +3180,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("nav-inicio")?.addEventListener("click", () => mostrarVistaModulo("inicio"));
     document.getElementById("nav-historial")?.addEventListener("click", () => {
         mostrarVistaModulo("historial");
-        actualizarHistorialDesdeServidor();
+        void actualizarHistorialDesdeServidor();
     });
     conectarControlesHistorial();
     document.getElementById("cerrar-detalle-historial")?.addEventListener("click", () => {
@@ -3221,12 +3224,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
     document.getElementById("tablajero-transformacion").addEventListener("change", () => {
-        if (detalleTransformacionSeleccionada) localizarDocumentosTransformacion();
+        if (detalleTransformacionSeleccionada) {
+            void localizarDocumentosTransformacion();
+        }
     });
     const vistaSolicitada = window.location.hash.replace("#", "");
     if (["historial", "configuracion", "auditoria"].includes(vistaSolicitada)) {
         mostrarVistaModulo(vistaSolicitada);
-        if (vistaSolicitada === "historial") actualizarHistorialDesdeServidor();
-        if (vistaSolicitada === "auditoria") abrirAuditoriaConfiguracion();
+        if (vistaSolicitada === "historial") {
+            void actualizarHistorialDesdeServidor();
+        }
+        if (vistaSolicitada === "auditoria") {
+            void abrirAuditoriaConfiguracion();
+        }
     }
 });

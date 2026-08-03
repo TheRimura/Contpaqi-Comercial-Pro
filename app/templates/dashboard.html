@@ -22,7 +22,7 @@
         </div>
         <nav class="primary-nav" aria-label="Navegación principal">
             <button id="nav-inicio" class="active" type="button" aria-current="page">Inicio</button>
-            {% if permisos.historial %}<button id="nav-historial" type="button">Historial</button>{% endif %}
+            {% if permisos.historial%}<button id="nav-historial" type="button">Historial</button>{% endif %}
         </nav>
         <div class="app-session">
             <div>
@@ -41,7 +41,7 @@
         <section id="panel-inicio" class="page-heading landing-card">
             <div class="landing-card-content">
                 <img class="landing-illustration"
-                     src="/static/images/meat-cut.png"
+                     src="../static/images/meat-cut.png"
                      alt=""
                      aria-hidden="true">
                 <p class="eyebrow">Nueva operación</p>
@@ -72,7 +72,9 @@
                     </div>
                 </div>
                 <div class="hidden" aria-hidden="true">
+                    <label for="linea-transformacion">Línea</label>
                     <select id="linea-transformacion"><option value="">Línea</option></select>
+                    <label for="transformacion-precargada">Transformación</label>
                     <select id="transformacion-precargada"><option value="">Transformación</option></select>
                     <div class="field">
                         <label for="base-transformacion">Producto base</label>
@@ -82,6 +84,7 @@
                         <label for="resultante-transformacion">Producto resultante</label>
                         <select id="resultante-transformacion" disabled><option value="">Se completará automáticamente</option></select>
                     </div>
+                    <label for="cantidad-resultante-transformacion">Cantidad resultante</label>
                     <input id="cantidad-resultante-transformacion" type="number" value="{{ '%.2f'|format(ajustes.factor_rendimiento) }}" readonly>
                 </div>
                 <div class="transformation-operation-layout">
@@ -189,6 +192,7 @@
                 </div>
 
                 <div class="form-grid">
+                    <label for="tipo-movimiento" class="hidden">Tipo de movimiento</label>
                     <select id="tipo-movimiento" class="hidden" required aria-hidden="true" tabindex="-1">
                         <option value="">Selecciona el movimiento</option>
                     </select>
@@ -223,13 +227,13 @@
     </main>
 
     <!-- =================== VISTA: HISTORIAL ================== -->
-    {% if permisos.historial %}
+    {% if permisos.historial%}
     <main id="vista-historial" class="workspace history-workspace hidden">
         <section class="history-panel">
             <div class="history-kpis" aria-label="Resumen de transformaciones del mes">
                 <article class="history-kpi">
                     <small>Transformaciones del mes</small>
-                    <strong id="historial-kpi-transformaciones">{{ resumen_historial.transformaciones }}</strong>
+                    <strong id="historial-kpi-transformaciones">{{resumen_historial. transformaciones}}</strong>
                 </article>
                 <article class="history-kpi">
                     <small>Kilos procesados</small>
@@ -527,6 +531,7 @@
                         </div>
                     </div>
                     <div class="catalog-search">
+                        <label for="buscar-producto-catalogo" class="hidden">Buscar producto por nombre</label>
                         <input id="buscar-producto-catalogo" type="search" placeholder="Buscar producto por nombre">
                         <button id="mostrar-filtros-catalogo" type="button" class="button-outline catalog-filter-toggle" aria-controls="filtros-catalogo" aria-expanded="false">
                             Filtros
@@ -580,7 +585,7 @@
                             <div>
                                 <small>Configuración</small>
                                 <strong>{{ transformacion.nombre_transformacion }}</strong>
-                                {% if transformacion.proveedor %}<small class="configuration-supplier">Proveedor: {{ transformacion.proveedor }}</small>{% endif %}
+                                {% if transformacion.proveedor%}<small class="configuration-supplier">Proveedor: {{ transformacion.proveedor}}</small>{% endif %}
                             </div>
                         </article>
                         {% else %}
