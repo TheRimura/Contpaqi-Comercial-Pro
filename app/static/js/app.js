@@ -2067,8 +2067,10 @@ async function exportarHistorialExcel() {
 
         const celdaTexto = (valor, estilo = "Dato", combinadas = 0) =>
             `<Cell ss:StyleID="${estilo}"${combinadas ? ` ss:MergeAcross="${combinadas}"` : ""}><Data ss:Type="String">${escaparXml(valor)}</Data></Cell>`;
-        const celdaNumero = (valor) =>
-            `<Cell ss:StyleID="Cantidad"><Data ss:Type="Number">${Number(valor || 0).toFixed(2)}</Data></Cell>`;
+        const celdaNumero = (valor, estilo = "Cantidad") =>
+            `<Cell ss:StyleID="${estilo}"><Data ss:Type="Number">${Number(valor || 0).toFixed(2)}</Data></Cell>`;
+        const celdaVacia = (estilo = "Dato") =>
+            `<Cell ss:StyleID="${estilo}"><Data ss:Type="String"></Data></Cell>`;
         const fechaTexto = (valor) => {
             const fecha = valor ? new Date(valor) : null;
             return fecha && !Number.isNaN(fecha.getTime())
@@ -2077,16 +2079,41 @@ async function exportarHistorialExcel() {
         };
 
         const bloques = [...relaciones.values()].map((relacion) => {
-            const filasPartidas = relacion.partidas.map((partida) =>
-                `<Row>${celdaTexto(partida.tipo_documento, partida.tipo_documento === "SALIDA" ? "Salida" : "Entrada")}${celdaTexto(partida.folio_documento)}${celdaTexto(limpiarNombreProducto(partida.producto) || "Producto")}${celdaNumero(partida.cantidad)}${celdaTexto("kg", "DatoCentrado")}</Row>`
-            ).join("");
+            const salidas = relacion.partidas.filter(
+                (partida) => String(partida.tipo_documento).toUpperCase() === "SALIDA"
+            );
+            const entradas = relacion.partidas.filter(
+                (partida) => String(partida.tipo_documento).toUpperCase() === "ENTRADA"
+            );
+            const totalFilas = Math.max(salidas.length, entradas.length);
+            const totalSalida = salidas.reduce(
+                (total, partida) => total + Number(partida.cantidad || 0), 0
+            );
+            const totalEntrada = entradas.reduce(
+                (total, partida) => total + Number(partida.cantidad || 0), 0
+            );
+            const merma = totalSalida - totalEntrada;
+            const porcentajeMerma = totalSalida > 0
+                ? merma / totalSalida * 100
+                : 0;
+            const filasPartidas = Array.from({ length: totalFilas }, (_, indice) => {
+                const salida = salidas[indice];
+                const entrada = entradas[indice];
+                const celdasSalida = salida
+                    ? `${celdaTexto(salida.folio_documento || relacion.folio_salida, "DatoCentrado")}${celdaTexto(limpiarNombreProducto(salida.producto) || "Producto", "Dato")}${celdaNumero(salida.cantidad)}${celdaTexto("kg", "DatoCentrado")}`
+                    : Array.from({ length: 4 }, () => celdaVacia()).join("");
+                const celdasEntrada = entrada
+                    ? `${celdaTexto(entrada.folio_documento || relacion.folio_entrada, "DatoCentrado")}${celdaTexto(limpiarNombreProducto(entrada.producto) || "Producto", "Dato")}${celdaNumero(entrada.cantidad)}${celdaTexto("kg", "DatoCentrado")}`
+                    : Array.from({ length: 4 }, () => celdaVacia()).join("");
+                return `<Row ss:Height="18">${celdasSalida}${celdaVacia("Separador")}${celdasEntrada}</Row>`;
+            }).join("");
             return `
-   <Row ss:Height="23">${celdaTexto(`RELACIÓN DOCUMENTAL ${relacion.folio_salida} → ${relacion.folio_entrada}`, "Relacion", 4)}</Row>
-   <Row>${celdaTexto("Fecha", "Etiqueta")}${celdaTexto(fechaTexto(relacion.fecha_hora), "Dato", 1)}${celdaTexto("Responsable", "Etiqueta")}${celdaTexto(relacion.tablajero || "No registrado")}</Row>
-   <Row>${celdaTexto("Usuario", "Etiqueta")}${celdaTexto(relacion.usuario || "No registrado", "Dato", 1)}${celdaTexto("Documentos", "Etiqueta")}${celdaTexto(`${relacion.folio_salida} → ${relacion.folio_entrada}`)}</Row>
-   <Row>${["TIPO DE DOCUMENTO", "FOLIO", "PRODUCTO / PARTIDA", "CANTIDAD", "UNIDAD"].map((valor) => celdaTexto(valor, "Encabezado")).join("")}</Row>
-   ${filasPartidas}
-   <Row ss:Height="10"/>`;
+   <Row ss:Height="21">${celdaTexto(`RELACIÓN: ${relacion.folio_salida} → ${relacion.folio_entrada}   |   Fecha: ${fechaTexto(relacion.fecha_hora)}   |   Responsable: ${relacion.tablajero || "No registrado"}`, "Relacion", 8)}</Row>
+   <Row ss:Height="18">${["FOLIO REF.", "MATERIA PRIMA (SALIDA)", "CANT.", "UND."].map((valor) => celdaTexto(valor, "EncabezadoSalida")).join("")}${celdaVacia("Separador")}${["FOLIO REF.", "PRODUCTO RESULTANTE (ENTRADA)", "CANT.", "UND."].map((valor) => celdaTexto(valor, "EncabezadoEntrada")).join("")}</Row>
+    ${filasPartidas}
+   <Row ss:Height="19">${celdaTexto("TOTAL:", "TotalEtiqueta", 1)}${celdaNumero(totalSalida, "TotalCantidad")}${celdaTexto("kg", "TotalUnidad")}${celdaVacia("Separador")}${celdaTexto("TOTAL:", "TotalEtiqueta", 1)}${celdaNumero(totalEntrada, "TotalCantidad")}${celdaTexto("kg", "TotalUnidad")}</Row>
+   <Row ss:Height="17">${celdaTexto(`Merma / desperdicio del proceso: ${merma.toFixed(2)} kg (${porcentajeMerma.toFixed(1)}%)`, "NotaMerma", 8)}</Row>
+   <Row ss:Height="11"/>`;
         }).join("");
 
         const xml = `<?xml version="1.0"?>
@@ -2096,26 +2123,31 @@ async function exportarHistorialExcel() {
  xmlns:x="urn:schemas-microsoft-com:office:excel"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
  <Styles>
-  <Style ss:ID="Titulo"><Font ss:Bold="1" ss:Size="16" ss:Color="#FFFFFF"/><Interior ss:Color="#E6002D" ss:Pattern="Solid"/><Alignment ss:Vertical="Center"/></Style>
-  <Style ss:ID="Subtitulo"><Font ss:Color="#263A78"/><Alignment ss:Vertical="Center"/></Style>
-  <Style ss:ID="Relacion"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#263A78" ss:Pattern="Solid"/><Alignment ss:Vertical="Center"/></Style>
-  <Style ss:ID="Encabezado"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#172033" ss:Pattern="Solid"/><Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
-  <Style ss:ID="Etiqueta"><Font ss:Bold="1" ss:Color="#263A78"/><Interior ss:Color="#EEF2FA" ss:Pattern="Solid"/></Style>
-  <Style ss:ID="Dato"><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D8E0EA"/></Borders><Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
-  <Style ss:ID="DatoCentrado"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style>
-  <Style ss:ID="Cantidad"><NumberFormat ss:Format="0.00"/><Alignment ss:Horizontal="Right" ss:Vertical="Center"/></Style>
-  <Style ss:ID="Salida"><Font ss:Bold="1" ss:Color="#B51223"/><Interior ss:Color="#FFF0F1" ss:Pattern="Solid"/></Style>
-  <Style ss:ID="Entrada"><Font ss:Bold="1" ss:Color="#08776C"/><Interior ss:Color="#EAF8F0" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="Default" ss:Name="Normal"><Font ss:FontName="Segoe UI" ss:Size="9" ss:Color="#334155"/><Alignment ss:Vertical="Center"/></Style>
+  <Style ss:ID="Marca"><Font ss:FontName="Segoe UI" ss:Bold="1" ss:Size="12" ss:Color="#0F172A"/></Style>
+  <Style ss:ID="TituloReporte"><Font ss:FontName="Segoe UI" ss:Bold="1" ss:Size="10" ss:Color="#64748B"/><Alignment ss:Horizontal="Right"/></Style>
+  <Style ss:ID="Subtitulo"><Font ss:FontName="Segoe UI" ss:Size="8" ss:Color="#64748B"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/></Borders></Style>
+  <Style ss:ID="Relacion"><Font ss:FontName="Segoe UI" ss:Bold="1" ss:Size="9" ss:Color="#0F172A"/><Interior ss:Color="#F8FAFC" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders></Style>
+  <Style ss:ID="EncabezadoSalida"><Font ss:FontName="Segoe UI" ss:Bold="1" ss:Size="8" ss:Color="#991B1B"/><Interior ss:Color="#FEF2F2" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders><Alignment ss:WrapText="1"/></Style>
+  <Style ss:ID="EncabezadoEntrada"><Font ss:FontName="Segoe UI" ss:Bold="1" ss:Size="8" ss:Color="#065F46"/><Interior ss:Color="#ECFDF5" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders><Alignment ss:WrapText="1"/></Style>
+  <Style ss:ID="Dato"><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders><Alignment ss:Vertical="Center" ss:WrapText="1"/></Style>
+  <Style ss:ID="DatoCentrado"><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style>
+  <Style ss:ID="Cantidad"><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/></Borders><NumberFormat ss:Format="#,##0.00"/><Alignment ss:Horizontal="Right"/></Style>
+  <Style ss:ID="Separador"><Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/></Style>
+  <Style ss:ID="TotalEtiqueta"><Font ss:Bold="1" ss:Color="#0F172A"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/><Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="2" ss:Color="#0F172A"/></Borders><Alignment ss:Horizontal="Right"/></Style>
+  <Style ss:ID="TotalCantidad"><Font ss:Bold="1" ss:Color="#0F172A"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/><Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="2" ss:Color="#0F172A"/></Borders><NumberFormat ss:Format="#,##0.00"/><Alignment ss:Horizontal="Right"/></Style>
+  <Style ss:ID="TotalUnidad"><Font ss:Bold="1" ss:Color="#0F172A"/><Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/><Border ss:Position="Bottom" ss:LineStyle="Double" ss:Weight="2" ss:Color="#0F172A"/></Borders><Alignment ss:Horizontal="Center"/></Style>
+  <Style ss:ID="NotaMerma"><Font ss:FontName="Segoe UI" ss:Italic="1" ss:Size="8" ss:Color="#64748B"/><Alignment ss:Horizontal="Right"/></Style>
  </Styles>
- <Worksheet ss:Name="Documentos relacionados">
+ <Worksheet ss:Name="Historial Trazabilidad">
   <Table>
-   <Column ss:Width="110"/><Column ss:Width="105"/><Column ss:Width="270"/><Column ss:Width="85"/><Column ss:Width="65"/>
-   <Row ss:Height="30">${celdaTexto("CARNES CAYAL · REGISTRO DE DOCUMENTOS RELACIONADOS", "Titulo", 4)}</Row>
-   <Row>${celdaTexto(`Generado: ${new Date().toLocaleString("es-MX")} · ${relaciones.size} relaciones`, "Subtitulo", 4)}</Row>
+   <Column ss:Width="105"/><Column ss:Width="190"/><Column ss:Width="72"/><Column ss:Width="45"/><Column ss:Width="15"/><Column ss:Width="105"/><Column ss:Width="190"/><Column ss:Width="72"/><Column ss:Width="45"/>
+   <Row ss:Height="23">${celdaTexto("CARNES CAYAL", "Marca", 3)}<Cell ss:Index="6" ss:StyleID="TituloReporte" ss:MergeAcross="3"><Data ss:Type="String">HISTORIAL DE TRAZABILIDAD</Data></Cell></Row>
+   <Row ss:Height="18">${celdaTexto(`Reporte de transformación cárnica · Generado el ${new Date().toLocaleDateString("es-MX")} · ${relaciones.size} relaciones`, "Subtitulo", 8)}</Row>
    <Row ss:Height="10"/>
    ${bloques}
   </Table>
-  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><Selected/><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions>
+  <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><Selected/><FreezePanes/><FrozenNoSplit/><SplitHorizontal>2</SplitHorizontal><TopRowBottomPane>2</TopRowBottomPane><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions>
  </Worksheet>
 </Workbook>`;
         const archivo = new Blob(
@@ -2125,7 +2157,7 @@ async function exportarHistorialExcel() {
         const enlace = document.createElement("a");
         const fecha = new Date().toISOString().slice(0, 10);
         enlace.href = URL.createObjectURL(archivo);
-        enlace.download = `documentos_relacionados_${fecha}.xls`;
+        enlace.download = `trazabilidad_transformaciones_${fecha}.xls`;
         enlace.click();
         window.setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
     } catch (error) {
