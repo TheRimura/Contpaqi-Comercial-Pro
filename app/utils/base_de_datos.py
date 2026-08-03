@@ -2747,7 +2747,7 @@ class BaseDatos(ComandosBaseDatos):
         self.registrar_auditoria_configuracion(
             configuracion_id=configuracion_id,
             configuracion_nombre=nombre,
-            accion='ELIMINO',
+            accion='ELIMINAR',
             usuario_id=usuario_id,
             usuario_nombre=usuario_nombre,
             motivo='Producto ocultado desde el catálogo',

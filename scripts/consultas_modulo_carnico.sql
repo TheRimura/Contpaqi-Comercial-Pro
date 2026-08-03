@@ -156,3 +156,61 @@ WHERE T.activa = 1
 ORDER BY
     P.Category1,
     T.nombre_transformacion;
+
+
+/* ================================================================
+   4. PRODUCTO BASE E INSUMOS DE CADA CONFIGURACIÓN
+   ================================================================ */
+SELECT
+    T.id_transformacion_usuario AS TransformacionID,
+    T.nombre_transformacion AS Transformacion,
+    P.ProductName AS ProductoOInsumo,
+    CASE
+        WHEN C.es_producto_base = 1 THEN 'PRODUCTO BASE'
+        ELSE 'INSUMO'
+    END AS Tipo,
+    CAST(ROUND(C.cantidad, 3) AS DECIMAL(18,3)) AS Cantidad,
+    C.unidad AS Unidad,
+    C.orden AS Orden
+FROM dbo.TransformacionesUsuario AS T
+INNER JOIN dbo.TransformacionesUsuarioComponente AS C
+    ON C.id_transformacion_usuario = T.id_transformacion_usuario
+   AND C.activa = 1
+INNER JOIN dbo.orgProduct AS P
+    ON P.ProductID = C.producto_componente
+WHERE T.activa = 1
+ORDER BY
+    T.nombre_transformacion,
+    C.orden;
+
+
+/* ================================================================
+   5. PRODUCTOS OCULTOS DEL CATÁLOGO DEL MÓDULO
+   ================================================================ */
+SELECT
+    O.product_id AS ProductID,
+    O.nombre AS Producto,
+    O.linea AS Linea,
+    O.activo AS Oculto,
+    O.usuario_id AS UsuarioID,
+    CONVERT(DATETIME2(0), O.fecha) AS Fecha
+FROM dbo.ModuloCarnicoCatalogoOculto AS O
+WHERE O.activo = 1
+ORDER BY O.fecha DESC;
+
+
+/* ================================================================
+   6. AUDITORÍA DE CONFIGURACIONES
+   ================================================================ */
+SELECT
+    A.id_auditoria AS AuditoriaID,
+    CONVERT(DATETIME2(0), A.fecha) AS Fecha,
+    A.usuario_nombre AS Usuario,
+    A.accion AS Accion,
+    A.configuracion_nombre AS Configuracion,
+    A.valores_anteriores_json AS ValoresAnteriores,
+    A.valores_nuevos_json AS ValoresNuevos
+FROM dbo.ModuloCarnicoConfiguracionAuditoria AS A
+ORDER BY
+    A.fecha DESC,
+    A.id_auditoria DESC;

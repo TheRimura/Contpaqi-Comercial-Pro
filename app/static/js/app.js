@@ -2158,7 +2158,9 @@ async function exportarHistorialExcel() {
         const fecha = new Date().toISOString().slice(0, 10);
         enlace.href = URL.createObjectURL(archivo);
         enlace.download = `trazabilidad_transformaciones_${fecha}.xls`;
+        document.body.appendChild(enlace);
         enlace.click();
+        enlace.remove();
         window.setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
     } catch (error) {
         mostrarMensaje(error.message);

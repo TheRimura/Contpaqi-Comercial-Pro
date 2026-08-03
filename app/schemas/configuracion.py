@@ -71,7 +71,14 @@ class EventoAuditoriaConfiguracion(BaseModel):
     @classmethod
     def validar_accion(cls, valor: str) -> str:
         accion = valor.strip().upper()
-        if accion not in {'CREO', 'EDITO', 'ELIMINO', 'REACTIVO'}:
+        alias = {
+            'CREO': 'CREAR',
+            'EDITO': 'EDITAR',
+            'ELIMINO': 'ELIMINAR',
+            'REACTIVO': 'REACTIVAR',
+        }
+        accion = alias.get(accion, accion)
+        if accion not in {'CREAR', 'EDITAR', 'ELIMINAR', 'REACTIVAR'}:
             raise ValueError('La acción de auditoría no es válida.')
         return accion
 
