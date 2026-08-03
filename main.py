@@ -24,9 +24,6 @@ from app.utils.inicializador_base_datos import (
 from app.utils.seguridad import seguridad_sesion
 
 
-# Metadatos internos. No se muestran en la interfaz del módulo.
-__author__ = "Abraham"
-__credits__ = ("Abraham — diseño, análisis funcional y creación del módulo",)
 __version__ = "1.2.2"
 
 

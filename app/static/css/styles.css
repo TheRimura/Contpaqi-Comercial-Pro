@@ -144,19 +144,19 @@ h1, h2, h3, p { margin-top: 0; }
 
 .landing-card {
     position: relative;
-    width: min(380px, calc(100vw - 36px));
+    width: min(320px, calc(100vw - 36px));
     min-height: 0;
-    aspect-ratio: 1.08 / 1;
+    aspect-ratio: 1.12 / 1;
     align-items: center;
     justify-content: center;
     flex-direction: column;
-    gap: 26px;
-    margin: clamp(34px, 7vh, 70px) auto 18px;
-    padding: 38px;
+    gap: 18px;
+    margin: clamp(24px, 5vh, 48px) auto 18px;
+    padding: 27px;
     overflow: hidden;
     border: 1px solid #d8deef;
     border-top: 5px solid var(--red);
-    border-radius: 24px;
+    border-radius: 20px;
     background:
         radial-gradient(circle at 100% 100%, rgba(23, 41, 131, .10), transparent 44%),
         linear-gradient(145deg, #fff 30%, #fafbff);
@@ -166,11 +166,11 @@ h1, h2, h3, p { margin-top: 0; }
 
 .landing-card::after {
     position: absolute;
-    right: -42px;
-    bottom: -48px;
-    width: 150px;
-    height: 150px;
-    border: 22px solid rgba(226, 0, 38, .045);
+    right: -34px;
+    bottom: -38px;
+    width: 115px;
+    height: 115px;
+    border: 17px solid rgba(226, 0, 38, .045);
     border-radius: 50%;
     content: "";
     pointer-events: none;
@@ -184,34 +184,34 @@ h1, h2, h3, p { margin-top: 0; }
 }
 
 .landing-illustration {
-    width: 82px;
-    height: 82px;
-    margin-bottom: 15px;
+    width: 62px;
+    height: 62px;
+    margin-bottom: 10px;
     object-fit: contain;
     filter: drop-shadow(0 9px 12px rgba(23, 41, 131, .16));
 }
 
 .landing-card h2 {
-    max-width: 290px;
-    margin: 6px 0 10px;
-    font-size: clamp(1.65rem, 2.5vw, 2.05rem);
+    max-width: 250px;
+    margin: 4px 0 8px;
+    font-size: clamp(1.45rem, 2.2vw, 1.7rem);
     line-height: 1.08;
 }
 
 .landing-card .landing-description {
-    max-width: 270px;
+    max-width: 240px;
     margin: 0;
     color: var(--muted);
-    font-size: .86rem;
-    line-height: 1.5;
+    font-size: .8rem;
+    line-height: 1.4;
 }
 
 .landing-card > button {
     position: relative;
     z-index: 1;
-    width: min(210px, 100%);
+    width: min(190px, 100%);
     min-width: 0;
-    min-height: 43px;
+    min-height: 40px;
     border-radius: 12px;
     box-shadow: 0 12px 24px rgba(226, 0, 38, .2);
 }
