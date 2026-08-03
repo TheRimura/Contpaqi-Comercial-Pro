@@ -336,9 +336,14 @@ def registrar_transformacion(
         ) from error
     cantidad_resultante_esperada = round(
         datos.cantidad_base * (1 - porcentaje_merma / 100),
-        3,
+        2,
     )
-    if abs(datos.cantidad_resultante - cantidad_resultante_esperada) > 0.001:
+    # La interfaz captura y presenta kilos con dos decimales. Validar con la
+    # misma precisión evita rechazar valores correctos por residuos internos
+    # del punto flotante (por ejemplo, 7.61 kg al 8% produce 7.0012 kg y se
+    # registra correctamente como 7.00 kg).
+    cantidad_resultante_recibida = round(datos.cantidad_resultante, 2)
+    if cantidad_resultante_recibida != cantidad_resultante_esperada:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(

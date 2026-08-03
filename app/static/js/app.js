@@ -2447,7 +2447,7 @@ function limpiarVistaPreviaTransformacion() {
     document.getElementById("resumen-registro-transformacion").classList.add("hidden");
 }
 
-async function prepararMovimientoSeleccionado() {
+function aplicarPresentacionMovimientoSeleccionado() {
     const transformacion = esTransformacion();
     const opcion = document.getElementById("tipo-movimiento").selectedOptions[0];
     const esAnalisis = Number(opcion?.dataset.entrada || 0) === 24
@@ -2465,6 +2465,11 @@ async function prepararMovimientoSeleccionado() {
     document.getElementById("boton-guardar").textContent = transformacion
         ? "Registrar transformación"
         : "Relacionar documentos";
+    return transformacion;
+}
+
+async function prepararMovimientoSeleccionado() {
+    const transformacion = aplicarPresentacionMovimientoSeleccionado();
     if (!transformacion) return;
     limpiarVistaPreviaTransformacion();
     const lineas = await solicitarJson(`${API_RELACIONES}/transformacion/lineas`);
@@ -2977,6 +2982,13 @@ async function seleccionarTransformacionAlternativa(seleccionada) {
 }
 
 function volverAlInicio() {
+    eliminarLocal(CLAVE_BORRADOR_TRANSFORMACION);
+    window.clearTimeout(temporizadorVistaPreviaTransformacion);
+    detalleTransformacionSeleccionada = null;
+    insumosTransformacionCalculados = [];
+    transformacionPreparada = false;
+    transformacionCatalogoActualId = "";
+    lineaTransformacionSeleccionada = "";
     document.getElementById("form-relacion").classList.add("hidden");
     const inicio = document.getElementById("panel-inicio");
     inicio.classList.remove("hidden");
@@ -3238,8 +3250,13 @@ function abrirConfiguracion() {
 
 
 async function cerrarSesion() {
-    try { await solicitarJson("/login/logout", { method: "POST" }); }
-    finally { window.location.assign("/"); }
+    try {
+        await solicitarJson("/login/logout", { method: "POST" });
+    } finally {
+        eliminarLocal(CLAVE_BORRADOR_TRANSFORMACION);
+        eliminarLocal(CLAVE_BORRADOR_CONFIGURACION);
+        window.location.assign("/");
+    }
 }
 
 function restaurarBorradorConfiguracion() {
@@ -3283,6 +3300,8 @@ async function restaurarBorradorTransformacion() {
         document.getElementById("panel-inicio").classList.add("hidden");
         document.getElementById("form-relacion").classList.remove("hidden");
         document.getElementById("tipo-movimiento").value = borrador.movimiento || "TRANSFORMACIÓN";
+        actualizarCamposAnalisis();
+        aplicarPresentacionMovimientoSeleccionado();
         document.getElementById("linea-transformacion").value = lineaTransformacionSeleccionada;
         llenarSelect(
             "base-transformacion",
@@ -3367,6 +3386,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("linea-transformacion").addEventListener("change", cargarBasesTransformacion);
     document.getElementById("transformacion-precargada").addEventListener("change", cargarTransformacionPrecargada);
     document.getElementById("cantidad-base-transformacion").addEventListener("input", () => {
+        limpiarMensaje();
         limpiarVistaPreviaTransformacion();
         if (!validarKilosTransformacion(false)) {
             actualizarMermaTransformacion();
