@@ -68,7 +68,6 @@ def construir_catalogo_movimientos(base_datos: BaseDatos) -> list[dict]:
 
 @lru_cache(maxsize=2)
 def _catalogos_compartidos(periodo_cache: int) -> dict:
-    """Catálogos estables compartidos por un minuto entre solicitudes."""
     base_datos = obtener_base_datos()
     return {
         'movimientos': construir_catalogo_movimientos(base_datos),
@@ -287,7 +286,6 @@ def consultar_proveedores_productos(
         ),
     })
 
-
 @router.post(
     '/transformacion/registrar',
     response_model=RespuestaRelacionDocumentos,
@@ -338,10 +336,7 @@ def registrar_transformacion(
         datos.cantidad_base * (1 - porcentaje_merma / 100),
         2,
     )
-    # La interfaz captura y presenta kilos con dos decimales. Validar con la
-    # misma precisión evita rechazar valores correctos por residuos internos
-    # del punto flotante (por ejemplo, 7.61 kg al 8% produce 7.0012 kg y se
-    # registra correctamente como 7.00 kg).
+
     cantidad_resultante_recibida = round(datos.cantidad_resultante, 2)
     if cantidad_resultante_recibida != cantidad_resultante_esperada:
         raise HTTPException(

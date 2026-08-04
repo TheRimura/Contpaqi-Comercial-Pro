@@ -248,7 +248,7 @@ async function abrirDetalleProductoCatalogo(producto) {
     const modal = document.getElementById("modal-detalle-producto");
     const cuerpo = document.getElementById("detalle-producto-componentes");
     document.getElementById("titulo-detalle-producto").textContent = limpiarNombreProducto(producto.producto);
-    document.getElementById("mensaje-detalle-producto").textContent = "Consultando ingredientes en SSM...";
+    document.getElementById("mensaje-detalle-producto").textContent = "Cargando ingredientes...";
     cuerpo.replaceChildren();
     modal.classList.remove("hidden");
     try {
@@ -283,7 +283,7 @@ async function abrirDetalleProductoCatalogo(producto) {
             ? [...formulasAgrupadas.values()]
             : (detalle["formulas"] || []);
         document.getElementById("mensaje-detalle-producto").textContent = formulas.length
-            ? `${formulas.length} fórmula${formulas.length === 1 ? "" : "s"} propia${formulas.length === 1 ? "" : "s"} registrada${formulas.length === 1 ? "" : "s"} en SSM.`
+            ? `${formulas.length} fórmula${formulas.length === 1 ? "" : "s"} propia${formulas.length === 1 ? "" : "s"} registrada${formulas.length === 1 ? "" : "s"} en el sistema.`
             : "Este producto no tiene ingredientes registrados.";
         formulas.forEach((formula) => {
             const encabezado = document.createElement("tr");
@@ -468,7 +468,7 @@ async function cargarProductosCatalogo(linea) {
     document.getElementById("configuraciones-guardadas").classList.add("hidden");
     document.getElementById("catalogo-productos-titulo").textContent = linea;
     document.getElementById("catalogo-productos-total").textContent = "";
-    lista.innerHTML = '<p class="catalog-loading">Consultando productos en SSM...</p>';
+    lista.innerHTML = '<p class="catalog-loading">Consultando productos...</p>';
     document.getElementById("paginacion-productos-catalogo").classList.add("hidden");
     document.querySelectorAll(".configuration-line").forEach((boton) => {
         boton.classList.toggle("active", boton.dataset.linea === linea);
@@ -572,7 +572,7 @@ function renderizarProductosOcultos(productos) {
         const referencia = document.createElement("span");
         referencia.textContent = [
             producto.linea || "Sin línea",
-            producto.es_configuracion ? "Transformación configurada" : "Producto de SSM",
+            producto.es_configuracion ? "Transformación configurada" : "Producto en el sistema",
         ].join(" · ");
         detalle.append(nombre, referencia);
         const boton = document.createElement("button");
@@ -979,7 +979,7 @@ function recalcularCantidadesInsumosConfiguracion() {
         campoCantidad.readOnly = true;
         campoCantidad.placeholder = tieneProporcion
             ? "Según los kilos"
-            : (productoSeleccionado ? "Sin proporción en SSM" : "Selecciona un insumo");
+            : (productoSeleccionado ? "Sin proporción en el sistema" : "Selecciona un insumo");
         if (tieneProporcion) {
             campoCantidad.value = cantidadVisual.cantidad.replace(/,/g, "");
         } else {
@@ -1074,7 +1074,7 @@ async function cargarComponentesParaAsignacion() {
             "Selecciona un producto o insumo"
         );
         if (!productosConfiguracionDisponibles.length) {
-            mensajeConfiguracion("Esta línea no tiene productos disponibles en SSM.");
+            mensajeConfiguracion("Esta línea no tiene productos disponibles en el sistema.");
             return false;
         }
         limpiarMensajeConfiguracion();
@@ -1289,7 +1289,7 @@ function agregarComponenteConfiguracion() {
             !producto
                 ? "Selecciona un producto o insumo."
                 : cantidadFormula <= 0 && cantidadPorKilo <= 0
-                ? "El insumo seleccionado no tiene una proporción registrada en SSM para esta transformación."
+                ? "El insumo seleccionado no tiene una proporción registrada en el sistema para esta transformación."
                 : "Selecciona un insumo y captura kilos válidos para la transformación."
         );
         return;
@@ -2079,7 +2079,7 @@ function parametrosFiltrosHistorial() {
 async function consultarHistorialFiltrado() {
     const cuerpo = document.getElementById("filas-historial");
     if (!cuerpo) return;
-    cuerpo.innerHTML = '<tr><td colspan="9" class="history-empty">Consultando historial en SSM...</td></tr>';
+    cuerpo.innerHTML = '<tr><td colspan="9" class="history-empty">Consultando Movimentos...</td></tr>';
     try {
         const parametros = parametrosFiltrosHistorial();
         registrosHistorialActual = await solicitarJson(
