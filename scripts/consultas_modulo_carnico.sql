@@ -1,3 +1,12 @@
+/* Ejecutar las consultas sobre la misma base configurada en el módulo. */
+USE [ComercialSP];
+GO
+
+SET NOCOUNT ON;
+
+IF OBJECT_ID(N'dbo.docDocumentWarehouseRelation', N'U') IS NULL
+    THROW 50001, 'No existe dbo.docDocumentWarehouseRelation en ComercialSP.', 1;
+
 /* ================================================================
    1. RELACIONES DE DOCUMENTOS DE TRANSFORMACIÓN
    FechaRegistro se presenta sin fracciones de segundo.

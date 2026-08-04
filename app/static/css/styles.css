@@ -127,6 +127,8 @@ h1, h2, h3, p { margin-top: 0; }
 .app-brand small, .eyebrow { margin: 0 0 3px; color: var(--red); font-size: .72rem; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
 .app-brand h1 { margin: 0; color: var(--blue-dark); font-size: clamp(1.05rem, 2vw, 1.35rem); }
 .app-session { text-align: right; }
+.app-session > div { min-width: 118px; }
+.app-session strong { display: block; white-space: nowrap; }
 .app-session span { display: block; color: var(--muted); font-size: .72rem; }
 .app-header.with-primary-nav { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
 .app-header.with-primary-nav .app-session { justify-self: end; }
@@ -645,10 +647,34 @@ tbody tr:hover { background: var(--red-soft); }
 .history-detail-connector span { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #c7d2ee; border-radius: 50%; background: var(--blue-soft); font-size: 1.1rem; font-weight: 900; box-shadow: 0 5px 14px rgba(13, 32, 126, .09); }
 .history-detail-connector small { color: var(--muted); font-size: .6rem; font-weight: 800; text-transform: uppercase; }
 
+@media (max-width: 1120px) {
+    .app-header.with-primary-nav {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas:
+            "brand session"
+            "navigation navigation";
+        row-gap: 8px;
+    }
+    .app-header.with-primary-nav .app-brand { grid-area: brand; min-width: 0; }
+    .app-header.with-primary-nav .primary-nav { grid-area: navigation; justify-self: center; }
+    .app-header.with-primary-nav .app-session {
+        grid-area: session;
+        justify-self: end;
+        gap: 12px;
+    }
+}
+
 @media (max-width: 900px) {
     .app-header, .page-heading, .capture-toolbar { align-items: flex-start; }
     .app-header { position: static; flex-direction: column; }
-    .app-header.with-primary-nav { display: grid; grid-template-columns: 1fr; }
+    .app-header.with-primary-nav {
+        display: grid;
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "brand"
+            "navigation"
+            "session";
+    }
     .app-header.with-primary-nav .app-session { justify-self: stretch; }
     .primary-nav { justify-self: stretch; }
     .primary-nav a, .primary-nav button { flex: 1; }
