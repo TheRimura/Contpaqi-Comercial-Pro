@@ -8,10 +8,10 @@ class AjustesModulo:
         "MOLIDA",
         "MOLIDO",
     )
-    transformaciones_por_pagina: int = 12
-    productos_por_pagina: int = 12
+    transformaciones_por_pagina: int = 10
+    productos_por_pagina: int = 10
     maximo_kilos_por_transformacion: float = 3_000.0
-    maximo_intentos_login: int = 5
+    maximo_intentos_login: int = 3
     ventana_intentos_login_segundos: int = 300
 
     def validar_ajustes_operativos(self) -> None:
