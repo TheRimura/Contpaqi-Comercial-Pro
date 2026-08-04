@@ -5,6 +5,7 @@ from app.schemas.configuracion import (
     CrearConfiguracionTransformacion,
     EventoAuditoriaConfiguracion,
     OcultarProductoCatalogo,
+    RestaurarProductoCatalogo,
 )
 from app.utils.base_de_datos import BaseDatos, obtener_base_datos
 from app.utils.seguridad import seguridad_sesion
@@ -35,6 +36,43 @@ def ocultar_producto_catalogo(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return {'mensaje': 'Producto ocultado correctamente.'}
+
+
+@router.get('/catalogo/ocultos')
+def consultar_productos_ocultos_catalogo(
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    seguridad_sesion.requerir_permiso(
+        request, 'restaurar_productos_catalogo'
+    )
+    return jsonable_encoder(
+        base_datos.listar_productos_ocultos_catalogo()
+    )
+
+
+@router.post('/catalogo/restaurar')
+def restaurar_producto_catalogo(
+    datos: RestaurarProductoCatalogo,
+    request: Request,
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    sesion = seguridad_sesion.requerir_permiso(
+        request, 'restaurar_productos_catalogo'
+    )
+    try:
+        base_datos.restaurar_producto_catalogo(
+            producto_id=datos.producto_id,
+            es_configuracion=datos.es_configuracion,
+            transformacion_id=datos.transformacion_id,
+            nombre=datos.nombre,
+            linea=datos.linea,
+            usuario_id=int(sesion['user_id']),
+            usuario_nombre=str(sesion.get('usuario') or 'Usuario'),
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {'mensaje': 'Producto restaurado correctamente.'}
 
 
 @router.get('/auditoria')

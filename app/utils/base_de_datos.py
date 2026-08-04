@@ -2888,6 +2888,95 @@ class BaseDatos(ComandosBaseDatos):
         )
         self._invalidar_cache("transformaciones_disponibles")
 
+    def listar_productos_ocultos_catalogo(self) -> list[dict]:
+        self.asegurar_tabla_catalogo_oculto()
+        return self.fetchall(
+            """
+            SELECT
+                O.product_id,
+                O.nombre AS producto,
+                ISNULL(NULLIF(O.linea, ''), P.Category1) AS linea,
+                CAST(0 AS BIT) AS es_configuracion,
+                CAST(NULL AS INT) AS transformacion_id,
+                O.fecha
+            FROM dbo.ModuloCarnicoCatalogoOculto AS O
+            LEFT JOIN dbo.orgProduct AS P
+                ON P.ProductID = O.product_id
+            WHERE O.activo = 1
+
+            UNION ALL
+
+            SELECT
+                -T.id_transformacion_usuario AS product_id,
+                T.nombre_transformacion AS producto,
+                Base.Category1 AS linea,
+                CAST(1 AS BIT) AS es_configuracion,
+                T.id_transformacion_usuario AS transformacion_id,
+                T.fecha_creacion AS fecha
+            FROM dbo.TransformacionesUsuario AS T
+            INNER JOIN dbo.orgProduct AS Base
+                ON Base.ProductID = T.producto_origen
+               AND Base.DiscontinuedOn IS NULL
+            WHERE T.activa = 0
+
+            ORDER BY linea, producto
+            """,
+            (),
+        )
+
+    def restaurar_producto_catalogo(
+        self,
+        producto_id: int,
+        es_configuracion: bool,
+        transformacion_id: int | None,
+        nombre: str,
+        linea: str,
+        usuario_id: int,
+        usuario_nombre: str,
+    ) -> None:
+        self.asegurar_tabla_catalogo_oculto()
+        if es_configuracion:
+            if not transformacion_id:
+                raise ValueError('La configuración seleccionada no es válida.')
+            restaurado = self.fetchone(
+                """
+                UPDATE dbo.TransformacionesUsuario
+                SET activa = 1
+                OUTPUT INSERTED.id_transformacion_usuario
+                WHERE id_transformacion_usuario = ?
+                  AND activa = 0
+                """,
+                (int(transformacion_id),),
+            )
+            configuracion_id = int(transformacion_id)
+        else:
+            if int(producto_id) <= 0:
+                raise ValueError('El producto seleccionado no es válido.')
+            restaurado = self.fetchone(
+                """
+                UPDATE dbo.ModuloCarnicoCatalogoOculto
+                SET activo = 0, usuario_id = ?, fecha = SYSUTCDATETIME()
+                OUTPUT INSERTED.product_id
+                WHERE product_id = ?
+                  AND activo = 1
+                """,
+                (int(usuario_id), int(producto_id)),
+            )
+            configuracion_id = None
+        if restaurado is None:
+            raise ValueError('El producto ya fue restaurado o no está disponible.')
+        self.registrar_auditoria_configuracion(
+            configuracion_id=configuracion_id,
+            configuracion_nombre=nombre,
+            accion='REACTIVAR',
+            usuario_id=usuario_id,
+            usuario_nombre=usuario_nombre,
+            motivo='Producto restaurado al catálogo',
+            valores_anteriores={'visible': False, 'linea': linea},
+            valores_nuevos={'visible': True, 'linea': linea},
+        )
+        self._invalidar_cache("transformaciones_disponibles")
+
     def buscar_productos_resultantes_configuracion(
         self, linea: str, termino: str = ''
     ) -> list[dict]:

@@ -99,3 +99,7 @@ class OcultarProductoCatalogo(BaseModel):
     @classmethod
     def limpiar_texto_ocultamiento(cls, valor: str) -> str:
         return ' '.join(valor.split())
+
+
+class RestaurarProductoCatalogo(OcultarProductoCatalogo):
+    """Identifica un producto o configuración ocultos para reactivarlos."""

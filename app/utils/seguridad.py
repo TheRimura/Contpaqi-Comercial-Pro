@@ -129,6 +129,9 @@ class SeguridadSesion:
             "eliminar_productos_catalogo": self.tiene_permiso(
                 sesion, "eliminar_productos_catalogo"
             ),
+            "restaurar_productos_catalogo": self.tiene_permiso(
+                sesion, "restaurar_productos_catalogo"
+            ),
         }
 
     def requerir_sesion(self, request: Request):
