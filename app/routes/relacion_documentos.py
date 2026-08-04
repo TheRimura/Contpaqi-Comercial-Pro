@@ -264,7 +264,7 @@ def consultar_detalle_historial(
     if not detalle:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail='La relación seleccionada ya no está disponible en SSM.',
+            detail='La relación seleccionada ya no está disponible en la base de datos.',
         )
     return jsonable_encoder(detalle)
 
@@ -402,7 +402,7 @@ def registrar_transformacion(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                'SSM no tiene una equivalencia válida entre la entrada '
+                'El sistema no tiene una equivalencia válida entre la entrada '
                 'y la salida del movimiento Transformación.'
             ),
         )
@@ -421,7 +421,7 @@ def registrar_transformacion(
     if not resultado:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail='SSM no devolvió los documentos creados.',
+            detail='El sistema no devolvió los documentos creados.',
         )
 
     return RespuestaRelacionDocumentos(

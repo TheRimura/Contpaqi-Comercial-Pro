@@ -640,7 +640,7 @@ class BaseDatos(ComandosBaseDatos):
         if formula_directa is not None:
             if not isinstance(formula_directa, int):
                 raise RuntimeError(
-                    "SSM devolvió un identificador de fórmula inválido."
+                    "el sistema devolvió un identificador de fórmula inválido."
                 )
             return formula_directa
 
@@ -1142,7 +1142,7 @@ class BaseDatos(ComandosBaseDatos):
                 SELECT @EntradaID = Documento FROM @Entrada;
 
                 IF ISNULL(@SalidaID, 0) = 0 OR ISNULL(@EntradaID, 0) = 0
-                    THROW 50101, 'SSM no pudo crear los documentos.', 1;
+                    THROW 50101, 'La base de datos no pudo crear los documentos.', 1;
 
                 INSERT INTO @ItemSalida
                 EXEC dbo.zvwInsertarProductoCayal
@@ -1279,7 +1279,7 @@ class BaseDatos(ComandosBaseDatos):
             return None
         if not isinstance(relation_id, int):
             raise RuntimeError(
-                "SSM devolvió un identificador de relación inválido."
+                "El sistema devolvió un identificador de relación inválido."
             )
         filas = self.fetchall(
             """
@@ -3484,7 +3484,7 @@ class BaseDatos(ComandosBaseDatos):
             (json.dumps(componentes_ids),),
         )
         if len(productos_validos) != len(componentes_ids):
-            raise ValueError('Uno de los insumos no existe o está inactivo en SSM.')
+            raise ValueError('Uno de los insumos no existe o está inactivo en el sistema.')
         producto_base = next(
             producto for producto in productos_validos
             if int(producto['ProductID']) == producto_base_id
