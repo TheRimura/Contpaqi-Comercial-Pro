@@ -97,7 +97,7 @@ def mostrar_dashboard(request: Request):
 
     permisos = seguridad_sesion.permisos_publicos(sesion)
     # Las tres líneas forman parte del contrato funcional del módulo. Se
-    # renderizan sin consultar en la base de datos  para que la pantalla siga disponible aun
+    # renderizan sin consultar SSM para que la pantalla siga disponible aun
     # cuando el catálogo de productos esté ocupado.
     lineas = [
         {'Category1': 'CERDO'},
@@ -114,7 +114,7 @@ def mostrar_dashboard(request: Request):
     }
     # Los catálogos, configuraciones y el historial se consultan bajo
     # demanda desde JavaScript. La pantalla principal no debe depender de
-    # consultas pesadas de en la base de datos para poder mostrarse.
+    # consultas pesadas de SSM para poder mostrarse.
 
     response = templates.TemplateResponse(
         request=request,

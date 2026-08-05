@@ -382,7 +382,6 @@
             <div>
                 <p class="eyebrow">Configuración</p>
                 <h2>Relaciones de entrada y salida</h2>
-                <p>Define el producto base, sus insumos consumibles y el producto resultante.</p>
             </div>
             {% if permisos.crear_configuracion or permisos.auditoria %}
             <div class="configuration-toolbar-actions">
@@ -587,7 +586,7 @@
                             <div>
                                 <small>Configuración</small>
                                 <strong>{{ transformacion.nombre_transformacion }}</strong>
-                                {% if transformacion.proveedor%}<small class="configuration-supplier">Proveedor: {{ transformacion.proveedor}}</small>{% endif %}
+                                {% if transformacion.proveedor%}<small class="configuration-supplier">Proveedor: {{ transformación. proveedor}}</small>{% endif %}
                             </div>
                         </article>
                         {% else %}
