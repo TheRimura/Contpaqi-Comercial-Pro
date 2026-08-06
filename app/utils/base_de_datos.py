@@ -3602,50 +3602,6 @@ class BaseDatos(ComandosBaseDatos):
         self._invalidar_cache()
         return transformacion_id
 
-    def eliminar_configuraciones_incompletas(
-        self,
-        transformaciones_ids: list[int],
-    ) -> None:
-        """Revierte configuraciones de un lote que no terminó correctamente."""
-        ids = [int(valor) for valor in transformaciones_ids if int(valor) > 0]
-        if not ids:
-            return
-        self.command(
-            """
-            SET XACT_ABORT ON;
-            BEGIN TRANSACTION;
-            BEGIN TRY
-                DECLARE @Ids TABLE (id INT PRIMARY KEY);
-                INSERT @Ids (id)
-                SELECT TRY_CONVERT(INT, [value])
-                FROM OPENJSON(?)
-                WHERE TRY_CONVERT(INT, [value]) IS NOT NULL;
-
-                DELETE A
-                FROM dbo.ModuloCarnicoConfiguracionAuditoria AS A
-                INNER JOIN @Ids AS I ON I.id = A.configuracion_id;
-                DELETE C
-                FROM dbo.TransformacionesUsuarioComponente AS C
-                INNER JOIN @Ids AS I
-                    ON I.id = C.id_transformacion_usuario;
-                DELETE D
-                FROM dbo.TransformacionesUsuarioDetalle AS D
-                INNER JOIN @Ids AS I
-                    ON I.id = D.id_transformacion_usuario;
-                DELETE T
-                FROM dbo.TransformacionesUsuario AS T
-                INNER JOIN @Ids AS I
-                    ON I.id = T.id_transformacion_usuario;
-                COMMIT TRANSACTION;
-            END TRY
-            BEGIN CATCH
-                IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
-                THROW;
-            END CATCH
-            """,
-            (json.dumps(ids),),
-        )
-
 
 @cache
 def obtener_base_datos() -> BaseDatos:

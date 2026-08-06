@@ -65,7 +65,7 @@ class PermisosModulo:
     grupos_crear_configuracion: frozenset[int]
     grupos_registrar_transformaciones: frozenset[int]
     grupos_eliminar_productos_catalogo: frozenset[int]
-    grupos_restaurar_productos_catalogo: frozenset[int]
+
 
     def validar_coherencia_de_permisos(self) -> None:
         if not self.grupos_acceso_modulo:
@@ -80,7 +80,7 @@ class PermisosModulo:
             | self.grupos_crear_configuracion
             | self.grupos_registrar_transformaciones
             | self.grupos_eliminar_productos_catalogo
-            | self.grupos_restaurar_productos_catalogo
+
         )
         if not grupos_con_permisos_internos.issubset(
             self.grupos_acceso_modulo
@@ -111,13 +111,6 @@ class PermisosModulo:
                 "Un grupo que elimina productos del catálogo también debe "
                 "poder ver Configuración."
             )
-        if not self.grupos_restaurar_productos_catalogo.issubset(
-            self.grupos_ver_configuracion
-        ):
-            raise ValueError(
-                "Un grupo que restaura productos del catálogo también debe "
-                "poder ver Configuración."
-            )
 
     def grupo_tiene_permiso(
         self,
@@ -136,9 +129,7 @@ class PermisosModulo:
             "eliminar_productos_catalogo": (
                 self.grupos_eliminar_productos_catalogo
             ),
-            "restaurar_productos_catalogo": (
-                self.grupos_restaurar_productos_catalogo
-            ),
+
         }
         if nombre_permiso not in grupos_autorizados_por_permiso:
             raise ValueError(
@@ -161,6 +152,5 @@ PERMISOS_MODULO = PermisosModulo(
     grupos_crear_configuracion=frozenset({1,}),
     grupos_registrar_transformaciones=frozenset({1,12}),
     grupos_eliminar_productos_catalogo=frozenset({1}),
-    grupos_restaurar_productos_catalogo=frozenset({1}),
 )
 PERMISOS_MODULO.validar_coherencia_de_permisos()
