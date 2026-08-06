@@ -228,7 +228,6 @@ BEGIN TRY
         );
     END;
 
-    -- Índices secundarios omitidos intencionalmente.
 
     COMMIT TRANSACTION;
 END TRY

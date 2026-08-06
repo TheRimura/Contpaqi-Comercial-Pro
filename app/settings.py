@@ -141,8 +141,6 @@ class PermisosModulo:
 
 
 # PERMISOS EDITABLES
-# Para autorizar otro grupo, agréguelo dentro de las llaves.
-# Ejemplo: frozenset({1, 3})
 
 PERMISOS_MODULO = PermisosModulo(
     grupos_acceso_modulo=frozenset({1,12}),
