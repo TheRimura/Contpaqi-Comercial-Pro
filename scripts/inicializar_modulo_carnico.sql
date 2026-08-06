@@ -228,59 +228,7 @@ BEGIN TRY
         );
     END;
 
-    IF NOT EXISTS (
-        SELECT 1 FROM sys.indexes
-        WHERE object_id = OBJECT_ID('dbo.TransformacionesUsuario')
-          AND name = 'IX_TransformacionesUsuario_producto_origen'
-    )
-        CREATE INDEX IX_TransformacionesUsuario_producto_origen
-            ON dbo.TransformacionesUsuario(producto_origen, activa);
-
-    IF NOT EXISTS (
-        SELECT 1 FROM sys.indexes
-        WHERE object_id = OBJECT_ID('dbo.TransformacionesUsuario')
-          AND name = 'IX_TransformacionesUsuario_usuario_fecha'
-    )
-        CREATE INDEX IX_TransformacionesUsuario_usuario_fecha
-            ON dbo.TransformacionesUsuario(usuario_creacion, fecha_creacion);
-
-    IF NOT EXISTS (
-        SELECT 1 FROM sys.indexes
-        WHERE object_id = OBJECT_ID('dbo.TransformacionesUsuarioDetalle')
-          AND name = 'IX_TransformacionesUsuarioDetalle_encabezado'
-    )
-        CREATE INDEX IX_TransformacionesUsuarioDetalle_encabezado
-            ON dbo.TransformacionesUsuarioDetalle
-                (id_transformacion_usuario, orden, producto_resultante);
-
-    IF NOT EXISTS (
-        SELECT 1 FROM sys.indexes
-        WHERE object_id = OBJECT_ID('dbo.TransformacionesUsuarioComponente')
-          AND name = 'IX_TUC_transformacion_activa'
-    )
-        CREATE INDEX IX_TUC_transformacion_activa
-            ON dbo.TransformacionesUsuarioComponente
-                (id_transformacion_usuario, activa, orden);
-
-    IF NOT EXISTS (
-        SELECT 1 FROM sys.indexes
-        WHERE object_id = OBJECT_ID('dbo.ModuloCarnicoConfiguracionAuditoria')
-          AND name = 'IX_MCCA_fecha'
-    )
-        CREATE INDEX IX_MCCA_fecha
-            ON dbo.ModuloCarnicoConfiguracionAuditoria(fecha DESC);
-
-    IF NOT EXISTS (
-        SELECT 1 FROM sys.indexes
-        WHERE object_id = OBJECT_ID('dbo.docDocumentWarehouseRelation')
-          AND name = 'IX_MC_DocumentRelation_CreatedOn'
-    )
-        CREATE INDEX IX_MC_DocumentRelation_CreatedOn
-            ON dbo.docDocumentWarehouseRelation(CreatedOn DESC)
-            INCLUDE (
-                SourceDocumentID, DestinationDocumentID,
-                PhysicalUserID, ERPUserID, MovementDate
-            );
+    -- Índices secundarios omitidos intencionalmente.
 
     COMMIT TRANSACTION;
 END TRY

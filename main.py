@@ -15,7 +15,7 @@ except ImportError:
 
 from app.routes.login import router as login_router
 from app.routes.relacion_documentos import router as relacion_router
-from app.routes.configuraciones import router as configuracion_router
+from app.routes.configuraciones_carnicas import router as configuracion_router
 from app.settings import AJUSTES_MODULO
 from app.utils.base_de_datos import obtener_base_datos
 from app.utils.inicializador_base_datos import (
