@@ -1,6 +1,7 @@
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
+from turtledemo.penrose import star
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
