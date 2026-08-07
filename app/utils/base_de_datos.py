@@ -2910,6 +2910,7 @@ class BaseDatos(ComandosBaseDatos):
                 """,
                 (int(usuario_id), int(producto_id)),
             )
+
             configuracion_id = None
         if restaurado is None:
             raise ValueError('El producto ya fue restaurado o no está disponible.')

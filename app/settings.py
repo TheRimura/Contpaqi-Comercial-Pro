@@ -53,7 +53,6 @@ class AjustesModulo:
 AJUSTES_MODULO = AjustesModulo()
 AJUSTES_MODULO.validar_ajustes_operativos()
 
-
 @dataclass(frozen=True)
 class PermisosModulo:
     """Grupos autorizados para cada operación del módulo."""

@@ -166,6 +166,7 @@ def _validar_dependencias_nativas(base_datos: BaseDatos) -> None:
         )
 
 
+
 def _validar_columnas_modulo(base_datos: BaseDatos) -> None:
     faltantes = []
     for tabla, columnas in COLUMNAS_ESENCIALES_MODULO.items():
