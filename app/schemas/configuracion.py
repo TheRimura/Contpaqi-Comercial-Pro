@@ -92,8 +92,8 @@ class OcultarProductoCatalogo(BaseModel):
     producto_id: int
     es_configuracion: bool = False
     transformacion_id: int | None = Field(default=None, gt=0)
-    nombre: str = Field(min_length=1, max_length=250)
-    linea: str = Field(min_length=1, max_length=100)
+    nombre: str = Field(min_length=1, max_length=350)
+    linea: str = Field(min_length=1, max_length=200)
 
     @field_validator('nombre', 'linea')
     @classmethod

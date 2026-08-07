@@ -2910,7 +2910,6 @@ class BaseDatos(ComandosBaseDatos):
                 """,
                 (int(usuario_id), int(producto_id)),
             )
-
             configuracion_id = None
         if restaurado is None:
             raise ValueError('El producto ya fue restaurado o no está disponible.')
@@ -3545,7 +3544,7 @@ class BaseDatos(ComandosBaseDatos):
                 },
             )
         except Exception:
-            self.eliminar_configuraciones_incompletas([transformacion_id])
+            self.eliminar_comfiguraciones_imcompletas([transformacion_id])
             raise
         return transformacion_id
 
