@@ -3,8 +3,6 @@ import io
 import os
 import re
 import unicodedata
-import time
-from threading import RLock
 from contextlib import redirect_stdout
 from difflib import SequenceMatcher
 
@@ -12,7 +10,7 @@ import pyodbc
 
 from functools import cache
 from platform import node
-from typing import Any, Callable, Optional, cast
+from typing import Any, Optional, cast
 
 from cayal.comandos_base_datos import ComandosBaseDatos
 
@@ -57,42 +55,11 @@ class BaseDatos(ComandosBaseDatos):
         with redirect_stdout(io.StringIO()):
             super().__init__(cadena_de_conexion=cadena_conexion)
         self.base_de_datos = None
-        self._cache_lecturas: dict[
-            str,
-            tuple[float, list[dict[str, Any]]],
-        ] = {}
-        self._bloqueo_cache = RLock()
-
-    def _leer_cache(
-        self,
-        clave: str,
-        segundos: int,
-        cargar: Callable[[], list[dict[str, Any]]],
-    ) -> list[dict[str, Any]]:
-        ahora = time.monotonic()
-        with self._bloqueo_cache:
-            registro = self._cache_lecturas.get(clave)
-            if registro and registro[0] > ahora:
-                return [dict(fila) for fila in registro[1]]
-            # Mantener el bloqueo durante la primera carga evita que varias
-            # solicitudes ejecuten simultáneamente la misma consulta pesada.
-            filas = cargar()
-            self._cache_lecturas[clave] = (ahora + segundos, filas)
-        return [dict(fila) for fila in filas]
-
-    def _invalidar_cache(self, prefijo: str = "") -> None:
-        with self._bloqueo_cache:
-            if not prefijo:
-                self._cache_lecturas.clear()
-                return
-            for clave in list(self._cache_lecturas):
-                if clave.startswith(prefijo):
-                    self._cache_lecturas.pop(clave, None)
 
     def fetchone(
-        self,
-        sql: str,
-        params: tuple = (),
+            self,
+            sql: str,
+            params: tuple = (),
     ) -> Any | None:
         """Devuelve el primer valor aunque el lote tenga resultados intermedios."""
         cadena_conexion = next(
@@ -191,8 +158,8 @@ class BaseDatos(ComandosBaseDatos):
 
     # ------------------------------ LOGIN ------------------------------
     def buscar_info_usuario_user_name(
-        self,
-        user_name: str,
+            self,
+            user_name: str,
     ) -> list[dict]:
         return self.fetchall(
             """
@@ -255,8 +222,8 @@ class BaseDatos(ComandosBaseDatos):
 
     # ------------------------- DOCUMENTOS ERP -------------------------
     def documento_previamente_relacionado(
-        self,
-        document_id: int,
+            self,
+            document_id: int,
     ) -> bool:
         valor = self.fetchone(
             """
@@ -290,8 +257,8 @@ class BaseDatos(ComandosBaseDatos):
         return str(valor or "")
 
     def buscar_tipo_movimiento_documento(
-        self,
-        document_id: int,
+            self,
+            document_id: int,
     ) -> int:
         valor = self.fetchone(
             """
@@ -306,9 +273,9 @@ class BaseDatos(ComandosBaseDatos):
         return int(valor or 0)
 
     def buscar_tipo_movimiento_modulo(
-        self,
-        module_id: int,
-        incluir_todos: bool = False,
+            self,
+            module_id: int,
+            incluir_todos: bool = False,
     ) -> list[dict]:
         module_id = int(module_id or 0)
 
@@ -367,8 +334,8 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def buscar_documentos_disponibles(
-        self,
-        module_id: int,
+            self,
+            module_id: int,
     ) -> list[dict]:
         module_id = int(module_id or 0)
 
@@ -404,8 +371,8 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def buscar_documentos_relacionables(
-        self,
-        module_id: int,
+            self,
+            module_id: int,
     ) -> list[dict]:
         """
         Compatibilidad con el módulo puro.
@@ -509,10 +476,7 @@ class BaseDatos(ComandosBaseDatos):
 
     def listar_transformaciones_disponibles(self) -> list[dict]:
         self.asegurar_tabla_catalogo_oculto()
-        return self._leer_cache(
-            "transformaciones_disponibles",
-            20,
-            lambda: self.fetchall(
+        return self.fetchall(
             """
             SELECT
                 P.ProductID AS transformacion_id,
@@ -562,7 +526,6 @@ class BaseDatos(ComandosBaseDatos):
             ORDER BY P.Category1, P.Category2, P.ProductName
             """,
             (),
-            ),
         )
 
     @staticmethod
@@ -624,10 +587,10 @@ class BaseDatos(ComandosBaseDatos):
         return max(coincidencia_texto, coincidencia_palabras)
 
     def buscar_producto_formula_relacionado(
-        self,
-        producto_resultante_id: int,
-        nombre_resultante: str,
-        linea: str,
+            self,
+            producto_resultante_id: int,
+            nombre_resultante: str,
+            linea: str,
     ) -> int:
         formula_directa = self.fetchone(
             """
@@ -684,8 +647,8 @@ class BaseDatos(ComandosBaseDatos):
                 nombre_resultante, candidato.get('Producto') or ''
             )
             coincidencia_suficiente = (
-                (len(comunes) >= 2 and cobertura >= 0.60)
-                or (comunes_distintivas and semejanza >= 0.40)
+                    (len(comunes) >= 2 and cobertura >= 0.60)
+                    or (comunes_distintivas and semejanza >= 0.40)
             )
             if coincidencia_suficiente:
                 coincidencias.append((
@@ -701,7 +664,7 @@ class BaseDatos(ComandosBaseDatos):
         return coincidencias[0][4]
 
     def obtener_transformacion_catalogo(
-        self, producto_resultante_id: int
+            self, producto_resultante_id: int
     ) -> Optional[dict]:
         self.asegurar_tabla_catalogo_oculto()
         disponibles = self.fetchall(
@@ -807,8 +770,8 @@ class BaseDatos(ComandosBaseDatos):
         if int(registro['producto_base_id']) == int(producto_resultante_id):
             return None
         if (
-            str(registro['producto_base']).strip(' .').upper()
-            == str(registro['producto_resultante']).strip(' .').upper()
+                str(registro['producto_base']).strip(' .').upper()
+                == str(registro['producto_resultante']).strip(' .').upper()
         ):
             return None
         producto_formula_id = self.buscar_producto_formula_relacionado(
@@ -874,8 +837,8 @@ class BaseDatos(ComandosBaseDatos):
         }
 
     def obtener_transformacion_precargada(
-        self,
-        transformacion_id: int,
+            self,
+            transformacion_id: int,
     ) -> Optional[dict]:
         encabezados = self.fetchall(
             """
@@ -899,7 +862,7 @@ class BaseDatos(ComandosBaseDatos):
             return None
         detalle = encabezados[0]
         if not AJUSTES_MODULO.transformacion_permite_merma_personalizada(
-            detalle['nombre_transformacion']
+                detalle['nombre_transformacion']
         ):
             detalle['porcentaje_merma'] = (
                 AJUSTES_MODULO.merma_tecnica_porcentaje
@@ -944,9 +907,9 @@ class BaseDatos(ComandosBaseDatos):
         return detalle
 
     def listar_productos_resultantes_transformacion(
-        self,
-        linea: str,
-        producto_base: str,
+            self,
+            linea: str,
+            producto_base: str,
     ) -> list[dict]:
         return self.fetchall(
             """
@@ -966,10 +929,10 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def sugerir_documento_por_producto(
-        self,
-        module_id: int,
-        product_id: int,
-        cantidad: Optional[float] = None,
+            self,
+            module_id: int,
+            product_id: int,
+            cantidad: Optional[float] = None,
     ) -> Optional[dict]:
         filas = self.fetchall(
             """
@@ -1004,10 +967,10 @@ class BaseDatos(ComandosBaseDatos):
         return filas[0] if filas else None
 
     def validar_productos_transformacion(
-        self,
-        linea: str,
-        producto_base_id: int,
-        producto_resultante_id: int,
+            self,
+            linea: str,
+            producto_base_id: int,
+            producto_resultante_id: int,
     ) -> Optional[dict]:
         filas = self.fetchall(
             """
@@ -1093,16 +1056,16 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def crear_documentos_transformacion(
-        self,
-        producto_base_id: int,
-        producto_resultante_id: int,
-        cantidad_base: float,
-        cantidad_resultante: float,
-        usuario_erp: int,
-        usuario_fisico_id: int,
-        tipo_movimiento_salida_id: int,
-        tipo_movimiento_entrada_id: int,
-        insumos: Optional[list[dict]] = None,
+            self,
+            producto_base_id: int,
+            producto_resultante_id: int,
+            cantidad_base: float,
+            cantidad_resultante: float,
+            usuario_erp: int,
+            usuario_fisico_id: int,
+            tipo_movimiento_salida_id: int,
+            tipo_movimiento_entrada_id: int,
+            insumos: Optional[list[dict]] = None,
     ) -> Optional[dict]:
         relation_id = self.fetchone(
             """
@@ -1297,7 +1260,6 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (relation_id,),
         )
-        self._invalidar_cache("historial:")
         return filas[0] if filas else None
 
     def obtener_proveedores_documentos(self) -> list[dict]:
@@ -1330,53 +1292,40 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def listar_historial_transformaciones(
-        self,
-        limite: int = 100,
-        fecha_desde: str = '',
-        fecha_hasta: str = '',
-        linea: str = '',
-        transformacion: str = '',
-        tablajero: str = '',
-        folio: str = '',
-        estado: str = '',
-        nivel_merma: str = '',
+            self,
+            limite: int = 100,
+            fecha_desde: str = '',
+            fecha_hasta: str = '',
+            linea: str = '',
+            transformacion: str = '',
+            tablajero: str = '',
+            folio: str = '',
+            estado: str = '',
+            nivel_merma: str = '',
     ) -> list[dict]:
-        parametros = (
-            int(limite), fecha_desde, fecha_hasta, linea,
-            transformacion, tablajero, folio, estado, nivel_merma,
-        )
-        clave = "historial:" + json.dumps(
-            parametros,
-            ensure_ascii=True,
-            separators=(",", ":"),
-        )
-        return self._leer_cache(
-            clave,
-            30,
-            lambda: self._consultar_historial_transformaciones(
-                limite=limite,
-                fecha_desde=fecha_desde,
-                fecha_hasta=fecha_hasta,
-                linea=linea,
-                transformacion=transformacion,
-                tablajero=tablajero,
-                folio=folio,
-                estado=estado,
-                nivel_merma=nivel_merma,
-            ),
+        return self._consultar_historial_transformaciones(
+            limite=limite,
+            fecha_desde=fecha_desde,
+            fecha_hasta=fecha_hasta,
+            linea=linea,
+            transformacion=transformacion,
+            tablajero=tablajero,
+            folio=folio,
+            estado=estado,
+            nivel_merma=nivel_merma,
         )
 
     def _consultar_historial_transformaciones(
-        self,
-        limite: int = 100,
-        fecha_desde: str = '',
-        fecha_hasta: str = '',
-        linea: str = '',
-        transformacion: str = '',
-        tablajero: str = '',
-        folio: str = '',
-        estado: str = '',
-        nivel_merma: str = '',
+            self,
+            limite: int = 100,
+            fecha_desde: str = '',
+            fecha_hasta: str = '',
+            linea: str = '',
+            transformacion: str = '',
+            tablajero: str = '',
+            folio: str = '',
+            estado: str = '',
+            nivel_merma: str = '',
     ) -> list[dict]:
         limite = min(max(int(limite), 1), 500)
         filas = self.fetchall(
@@ -1577,8 +1526,8 @@ class BaseDatos(ComandosBaseDatos):
         return filas
 
     def listar_documentos_relacionados_exportacion(
-        self,
-        limite: int = 500,
+            self,
+            limite: int = 500,
     ) -> list[dict]:
         limite = min(max(int(limite), 1), 500)
         return self.fetchall(
@@ -1686,8 +1635,8 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def obtener_detalle_historial_transformacion(
-        self,
-        relacion_id: int,
+            self,
+            relacion_id: int,
     ) -> Optional[dict]:
         relaciones = self.fetchall(
             """
@@ -1733,8 +1682,8 @@ class BaseDatos(ComandosBaseDatos):
         return relacion
 
     def obtener_relacion_documento(
-        self,
-        document_id: int,
+            self,
+            document_id: int,
     ) -> Optional[dict]:
         self.asegurar_tablas_relacion_documentos()
         filas = self.fetchall(
@@ -1795,19 +1744,19 @@ class BaseDatos(ComandosBaseDatos):
         return filas[0] if filas else None
 
     def relacionar_documentos_erp(
-        self,
-        source_document_id: int,
-        destination_document_id: int,
-        folio_source_document_id: str,
-        folio_destination_document_id: str,
-        tipo_movimiento_origen_id: int,
-        tipo_movimiento_destino_id: int,
-        proveedor_id: int,
-        usuario_fisico_id: int,
-        fecha_movimiento,
-        user_id_erp: int,
-        source_brand_id=None,
-        destination_brand_id=None,
+            self,
+            source_document_id: int,
+            destination_document_id: int,
+            folio_source_document_id: str,
+            folio_destination_document_id: str,
+            tipo_movimiento_origen_id: int,
+            tipo_movimiento_destino_id: int,
+            proveedor_id: int,
+            usuario_fisico_id: int,
+            fecha_movimiento,
+            user_id_erp: int,
+            source_brand_id=None,
+            destination_brand_id=None,
     ) -> None:
         self.command(
             """
@@ -1945,8 +1894,8 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def obtener_partidas_documento_erp(
-        self,
-        document_id: int,
+            self,
+            document_id: int,
     ) -> list[dict]:
         """
         Consulta directamente las partidas.
@@ -1987,9 +1936,9 @@ class BaseDatos(ComandosBaseDatos):
                 {
                     "ProductID": partida.get("ProductID"),
                     "Category": (
-                        partida.get("Category1")
-                        or partida.get("ProductCategory")
-                        or ""
+                            partida.get("Category1")
+                            or partida.get("ProductCategory")
+                            or ""
                     ),
                     "ProductKey": partida.get("ProductKey") or "",
                     "ProductName": partida.get("ProductName") or "",
@@ -2002,9 +1951,9 @@ class BaseDatos(ComandosBaseDatos):
         return resultado
 
     def buscar_document_id_por_folio(
-        self,
-        folio: str,
-        module_id: Optional[int] = None,
+            self,
+            folio: str,
+            module_id: Optional[int] = None,
     ) -> int:
         if not folio:
             return 0
@@ -2115,8 +2064,8 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def buscar_productos_carnicos_configurados(
-        self,
-        incluir_inactivos: bool = True,
+            self,
+            incluir_inactivos: bool = True,
     ) -> list[dict]:
         self.asegurar_tablas_modulo_carnico()
         filtro = "" if incluir_inactivos else "WHERE activo = 1"
@@ -2150,12 +2099,12 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def registrar_bitacora_productos_carnicos(
-        self,
-        accion: str,
-        usuario_id,
-        usuario_confirmacion_nombre: str,
-        detalle: str,
-        productos,
+            self,
+            accion: str,
+            usuario_id,
+            usuario_confirmacion_nombre: str,
+            detalle: str,
+            productos,
     ) -> None:
         self.command(
             """
@@ -2178,10 +2127,10 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def guardar_productos_carnicos_configurados(
-        self,
-        productos: list[dict],
-        usuario_id,
-        usuario_confirmacion_nombre: str,
+            self,
+            productos: list[dict],
+            usuario_id,
+            usuario_confirmacion_nombre: str,
     ) -> None:
         self.asegurar_tablas_modulo_carnico()
 
@@ -2256,8 +2205,8 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def buscar_bitacora_productos_carnicos(
-        self,
-        limite: int = 50,
+            self,
+            limite: int = 50,
     ) -> list[dict]:
         self.asegurar_tablas_modulo_carnico()
         return self.fetchall(
@@ -2277,8 +2226,8 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def buscar_producto_carnico_configurado(
-        self,
-        id_configuracion: int,
+            self,
+            id_configuracion: int,
     ) -> Optional[dict]:
         filas = self.fetchall(
             """
@@ -2293,9 +2242,9 @@ class BaseDatos(ComandosBaseDatos):
         return filas[0] if filas else None
 
     def registrar_transformacion_carnica(
-        self,
-        datos,
-        usuario_id,
+            self,
+            datos,
+            usuario_id,
     ) -> int:
         self.asegurar_tablas_modulo_carnico()
         salida = self.buscar_producto_carnico_configurado(
@@ -2355,8 +2304,8 @@ class BaseDatos(ComandosBaseDatos):
         return int(registro_id or 0)
 
     def buscar_transformaciones_carnicas(
-        self,
-        limite: int = 50,
+            self,
+            limite: int = 50,
     ) -> list[dict]:
         self.asegurar_tablas_modulo_carnico()
         return self.fetchall(
@@ -2382,8 +2331,8 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def obtener_marcas_por_categoria(
-        self,
-        categoria: str,
+            self,
+            categoria: str,
     ) -> list[dict]:
         categoria = str(categoria or "").strip()
 
@@ -2461,8 +2410,8 @@ class BaseDatos(ComandosBaseDatos):
         return int(valor or 0)
 
     def homologar_tipo_movimiento_documento(
-        self,
-        document_id: int,
+            self,
+            document_id: int,
     ) -> None:
         self.command(
             r"""
@@ -2660,15 +2609,15 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def registrar_auditoria_configuracion(
-        self,
-        configuracion_id,
-        configuracion_nombre: str,
-        accion: str,
-        usuario_id,
-        usuario_nombre: str,
-        motivo: str,
-        valores_anteriores=None,
-        valores_nuevos=None,
+            self,
+            configuracion_id,
+            configuracion_nombre: str,
+            accion: str,
+            usuario_id,
+            usuario_nombre: str,
+            motivo: str,
+            valores_anteriores=None,
+            valores_nuevos=None,
     ) -> int:
         self.asegurar_proveedor_transformaciones_usuario()
         return int(self.fetchone(
@@ -2700,8 +2649,8 @@ class BaseDatos(ComandosBaseDatos):
         ) or 0)
 
     def listar_auditoria_configuraciones(
-        self,
-        limite: int = 100,
+            self,
+            limite: int = 100,
     ) -> list[dict]:
         self.asegurar_proveedor_transformaciones_usuario()
         registros = self.fetchall(
@@ -2717,8 +2666,8 @@ class BaseDatos(ComandosBaseDatos):
         )
         for registro in registros:
             for campo in (
-                'valores_anteriores_json',
-                'valores_nuevos_json',
+                    'valores_anteriores_json',
+                    'valores_nuevos_json',
             ):
                 texto = registro.pop(campo, None)
                 try:
@@ -2730,7 +2679,7 @@ class BaseDatos(ComandosBaseDatos):
         return registros
 
     def buscar_productos_base_configuracion(
-        self, linea: str, termino: str = ''
+            self, linea: str, termino: str = ''
     ) -> list[dict]:
         self.asegurar_tabla_catalogo_oculto()
         texto = str(termino or '').strip()
@@ -2832,14 +2781,14 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def ocultar_producto_catalogo(
-        self,
-        producto_id: int,
-        es_configuracion: bool,
-        transformacion_id: int | None,
-        nombre: str,
-        linea: str,
-        usuario_id: int,
-        usuario_nombre: str,
+            self,
+            producto_id: int,
+            es_configuracion: bool,
+            transformacion_id: int | None,
+            nombre: str,
+            linea: str,
+            usuario_id: int,
+            usuario_nombre: str,
     ) -> None:
         if es_configuracion:
             if not transformacion_id:
@@ -2886,7 +2835,6 @@ class BaseDatos(ComandosBaseDatos):
             valores_anteriores={'visible': True, 'linea': linea},
             valores_nuevos={'visible': False},
         )
-        self._invalidar_cache("transformaciones_disponibles")
 
     def listar_productos_ocultos_catalogo(self) -> list[dict]:
         self.asegurar_tabla_catalogo_oculto()
@@ -2925,14 +2873,14 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def restaurar_producto_catalogo(
-        self,
-        producto_id: int,
-        es_configuracion: bool,
-        transformacion_id: int | None,
-        nombre: str,
-        linea: str,
-        usuario_id: int,
-        usuario_nombre: str,
+            self,
+            producto_id: int,
+            es_configuracion: bool,
+            transformacion_id: int | None,
+            nombre: str,
+            linea: str,
+            usuario_id: int,
+            usuario_nombre: str,
     ) -> None:
         self.asegurar_tabla_catalogo_oculto()
         if es_configuracion:
@@ -2975,10 +2923,9 @@ class BaseDatos(ComandosBaseDatos):
             valores_anteriores={'visible': False, 'linea': linea},
             valores_nuevos={'visible': True, 'linea': linea},
         )
-        self._invalidar_cache("transformaciones_disponibles")
 
     def buscar_productos_resultantes_configuracion(
-        self, linea: str, termino: str = ''
+            self, linea: str, termino: str = ''
     ) -> list[dict]:
         texto = str(termino or '').strip()
         return self.fetchall(
@@ -3002,7 +2949,7 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def buscar_base_sugerida_configuracion(
-        self, linea: str, nombre_transformacion: str
+            self, linea: str, nombre_transformacion: str
     ) -> Optional[dict]:
         nombre = str(nombre_transformacion or '').strip()
         if len(nombre) < 3:
@@ -3312,7 +3259,7 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def buscar_formula_producto_configuracion(
-        self, producto_id: int
+            self, producto_id: int
     ) -> list[dict]:
         formula_id = int(producto_id)
         tiene_formula_directa = self.fetchone(
@@ -3361,7 +3308,7 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def buscar_formulas_relacionadas_configuracion(
-        self, producto_id: int
+            self, producto_id: int
     ) -> list[dict]:
         formulas = self.fetchall(
             """
@@ -3407,8 +3354,8 @@ class BaseDatos(ComandosBaseDatos):
                     formulas = [{
                         'formula_id': int(formula_id),
                         'formula': (
-                            nombre_formula
-                            or producto[0]['ProductName']
+                                nombre_formula
+                                or producto[0]['ProductName']
                         ),
                     }]
 
@@ -3423,10 +3370,10 @@ class BaseDatos(ComandosBaseDatos):
         ]
 
     def crear_configuracion_transformacion(
-        self,
-        datos,
-        usuario_id: int,
-        usuario_nombre: str = 'Usuario',
+            self,
+            datos,
+            usuario_id: int,
+            usuario_nombre: str = 'Usuario',
     ) -> int:
         self.asegurar_proveedor_transformaciones_usuario()
         producto_resultante_id = self.fetchone(
@@ -3490,8 +3437,8 @@ class BaseDatos(ComandosBaseDatos):
             if int(producto['ProductID']) == producto_base_id
         )
         if (
-            str(producto_base.get('Category1') or '').strip().upper()
-            != datos.linea.strip().upper()
+                str(producto_base.get('Category1') or '').strip().upper()
+                != datos.linea.strip().upper()
         ):
             raise ValueError(
                 'El componente marcado como base no pertenece a la línea.'
@@ -3508,16 +3455,16 @@ class BaseDatos(ComandosBaseDatos):
             cast(Any, producto_resultante_id or producto_base_id)
         )
         if self.fetchone(
-            """SELECT TOP 1 T.id_transformacion_usuario
-               FROM dbo.TransformacionesUsuario T
-               INNER JOIN dbo.orgProduct Base
-                 ON Base.ProductID=T.producto_origen
-               WHERE T.activa=1
-                 AND UPPER(LTRIM(RTRIM(T.nombre_transformacion))) =
-                     UPPER(LTRIM(RTRIM(?)))
-                 AND UPPER(LTRIM(RTRIM(ISNULL(Base.Category1, '')))) =
-                     UPPER(LTRIM(RTRIM(?)))""",
-            (datos.nombre, datos.linea),
+                """SELECT TOP 1 T.id_transformacion_usuario
+                   FROM dbo.TransformacionesUsuario T
+                   INNER JOIN dbo.orgProduct Base
+                     ON Base.ProductID=T.producto_origen
+                   WHERE T.activa=1
+                     AND UPPER(LTRIM(RTRIM(T.nombre_transformacion))) =
+                         UPPER(LTRIM(RTRIM(?)))
+                     AND UPPER(LTRIM(RTRIM(ISNULL(Base.Category1, '')))) =
+                         UPPER(LTRIM(RTRIM(?)))""",
+                (datos.nombre, datos.linea),
         ):
             raise ValueError(
                 'Ya existe una configuración activa con ese nombre en la línea.'
@@ -3599,7 +3546,6 @@ class BaseDatos(ComandosBaseDatos):
         except Exception:
             self.eliminar_configuraciones_incompletas([transformacion_id])
             raise
-        self._invalidar_cache()
         return transformacion_id
 
 

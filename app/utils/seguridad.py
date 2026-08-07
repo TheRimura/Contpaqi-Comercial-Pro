@@ -211,3 +211,4 @@ def obtener_seguridad():
 
 
 seguridad_sesion = obtener_seguridad()
+
