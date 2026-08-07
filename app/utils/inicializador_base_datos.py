@@ -165,8 +165,6 @@ def _validar_dependencias_nativas(base_datos: BaseDatos) -> None:
             f"SSM: {detalle}. No se crearán sustitutos incompatibles."
         )
 
-
-
 def _validar_columnas_modulo(base_datos: BaseDatos) -> None:
     faltantes = []
     for tabla, columnas in COLUMNAS_ESENCIALES_MODULO.items():
@@ -212,7 +210,7 @@ def inicializar_base_datos_modulo(
     except Exception as error:
         raise RuntimeError(
             "No fue posible instalar o actualizar las tablas del módulo. "
-            "Verifique que la cuenta de SQL Server tenga permisos de "
+            "Verifique que la cuenta SQL Server tenga permisos de "
             "CREATE TABLE, ALTER y CREATE INDEX. "
             f"Detalle original: {error}"
         ) from error
