@@ -3,6 +3,7 @@ import os
 import re
 import unicodedata
 from difflib import SequenceMatcher
+from platform import node
 
 import pyodbc
 
@@ -14,7 +15,7 @@ from cayal.comandos_base_datos import ComandosBaseDatos
 from app.settings import AJUSTES_MODULO
 
 
-class BaseDatos:
+class BaseDatos(ComandosBaseDatos):
 
 
     MODULO_ENTRADA = 202
@@ -28,15 +29,18 @@ class BaseDatos:
     )
 
     def __init__(self):
-        servidor_configurado = (
-            AJUSTES_MODULO.servidor_base_datos.strip().casefold()
-        )
+        servidor_local = node().strip()
+        if not servidor_local:
+            raise RuntimeError(
+                'No fue posible identificar el servidor local.'
+            )
+        servidor_configurado = servidor_local.casefold()
         servidores_locales = {
             '.',
             '(local)',
             'localhost',
             '127.0.0.1',
-
+            node().strip().casefold(),
         }
         if (
             not AJUSTES_MODULO.permitir_servidor_base_datos_remoto
@@ -48,12 +52,12 @@ class BaseDatos:
             raise RuntimeError(
                 'Destino SQL remoto rechazado antes de abrir la conexión.'
             )
-        self.base_de_datos = ComandosBaseDatos(
-            servidor=AJUSTES_MODULO.servidor_base_datos,
+        super().__init__(
+            servidor=node(),
             base_de_datos=AJUSTES_MODULO.nombre_base_datos,
         )
         conexion_heredada = getattr(
-            self.base_de_datos,
+            self,
             '_BaseDatos__conexion_base_de_datos',
             None,
         )
@@ -62,7 +66,7 @@ class BaseDatos:
                 'El paquete cayal no inicializó una conexión válida.'
             )
         self._cadena_conexion_modulo: str = conexion_heredada
-        contexto = self.base_de_datos.fetchall(
+        contexto = super().fetchall(
             """
             SELECT
                 CONVERT(NVARCHAR(128), SERVERPROPERTY('MachineName'))
@@ -101,7 +105,7 @@ class BaseDatos:
             params: tuple = (),
     ) -> list[dict[str, Any]]:
 
-        return self.base_de_datos.fetchall(sql, params)
+        return super().fetchall(sql, params)
 
     def command(
             self,
@@ -109,7 +113,7 @@ class BaseDatos:
             params: tuple = (),
     ) -> int | None:
 
-        return self.base_de_datos.command(sql, params)
+        return super().command(sql, params)
 
     def fetchone(
             self,
