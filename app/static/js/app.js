@@ -148,7 +148,7 @@ function llenarConfigSelect(elemento, registros, placeholder) {
     registros.forEach((registro) => {
         const opcion = new Option(limpiarNombreProducto(registro.producto), String(registro.product_id));
         opcion.dataset.unidad = registro.unidad || "KILO";
-        elemento.add(opcion);
+        elemento.appendChild(opcion);
     });
     elemento.disabled = registros.length === 0;
 }
@@ -407,7 +407,7 @@ function actualizarUnidadesCatalogo() {
             .filter(Boolean)
     )].sort();
     selector.replaceChildren(new Option("Todas las unidades", ""));
-    unidades.forEach((unidad) => selector.add(new Option(unidad, unidad)));
+    unidades.forEach((unidad) => selector.appendChild(new Option(unidad, unidad)));
     selector.value = unidades.includes(seleccion) ? seleccion : "";
 }
 
@@ -522,7 +522,9 @@ async function ocultarProductoCatalogo(producto) {
 }
 
 function cerrarProductosOcultos() {
-    document.getElementById("modal-productos-ocultos")?.classList.add("hidden");
+    const modalProductosOcultos = document.getElementById("modal-productos-ocultos");
+    if (!modalProductosOcultos) return;
+    modalProductosOcultos.classList.add("hidden");
     document.body.classList.remove("modal-open");
 }
 
@@ -538,7 +540,7 @@ function solicitarConfirmacionRestaurarProducto(producto) {
             modal.classList.add("hidden");
             confirmar.removeEventListener("click", aceptar);
             cancelar.removeEventListener("click", rechazar);
-            if (document.getElementById("modal-productos-ocultos")?.classList.contains("hidden")) {
+            if (!document.querySelector("#modal-productos-ocultos:not(.hidden)")) {
                 document.body.classList.remove("modal-open");
             }
             resolve(aceptado);
@@ -2644,8 +2646,14 @@ async function cargarTransformacionPrecargada() {
         detalleTransformacionSeleccionada = detalle;
         llenarSelect("base-transformacion", [{ product_id_base: detalle.producto_base_id, producto_base: detalle.producto_base }], "product_id_base", "producto_base", "Producto base");
         document.getElementById("base-transformacion").value = String(detalle.producto_base_id);
-        llenarSelect("resultante-transformacion", detalle.resultantes, "product_id", "producto_resultante", "Producto resultante");
-        document.getElementById("resultante-transformacion").value = String(detalle.resultantes[0].product_id);
+        const resultantes = Array.isArray(detalle["resultantes"])
+            ? detalle["resultantes"]
+            : [];
+        if (!resultantes.length) {
+            throw new Error("La transformación no tiene productos resultantes configurados.");
+        }
+        llenarSelect("resultante-transformacion", resultantes, "product_id", "producto_resultante", "Producto resultante");
+        document.getElementById("resultante-transformacion").value = String(resultantes[0]["product_id"]);
         actualizarMermaTransformacion();
         calcularInsumosTransformacion();
         limpiarMensaje();
@@ -3072,7 +3080,7 @@ async function seleccionarTransformacionAlternativa(seleccionada) {
                 (opcion) => opcion.value === lineaDetalle
             )
         ) {
-            selectorLinea.add(new Option(lineaDetalle, lineaDetalle));
+            selectorLinea.appendChild(new Option(lineaDetalle, lineaDetalle));
         }
         selectorLinea.value = lineaDetalle;
         llenarSelect(
@@ -3081,11 +3089,17 @@ async function seleccionarTransformacionAlternativa(seleccionada) {
             "product_id_base", "producto_base", "Producto base"
         );
         document.getElementById("base-transformacion").value = String(detalle.producto_base_id);
+        const resultantes = Array.isArray(detalle["resultantes"])
+            ? detalle["resultantes"]
+            : [];
+        if (!resultantes.length) {
+            throw new Error("La transformación no tiene productos resultantes configurados.");
+        }
         llenarSelect(
-            "resultante-transformacion", detalle.resultantes,
+            "resultante-transformacion", resultantes,
             "product_id", "producto_resultante", "Producto resultante"
         );
-        document.getElementById("resultante-transformacion").value = String(detalle.resultantes[0].product_id);
+        document.getElementById("resultante-transformacion").value = String(resultantes[0]["product_id"]);
         const configuracionId = seleccionada.origen_catalogo
             ? 0
             : Number(seleccionada.transformacion_id);
@@ -3278,7 +3292,10 @@ async function guardarRelacion(evento) {
         if (registrandoTransformacion) {
             await actualizarHistorialDesdeServidor();
         }
-        mostrarMensaje(`${respuesta.mensaje} ${respuesta.folio_salida} → ${respuesta.folio_entrada}`, "success");
+        const mensaje = String(respuesta["mensaje"] || "Transformación registrada.");
+        const folioSalida = String(respuesta["folio_salida"] || "");
+        const folioEntrada = String(respuesta["folio_entrada"] || "");
+        mostrarMensaje(`${mensaje} ${folioSalida} → ${folioEntrada}`, "success");
     } catch (error) {
         mostrarMensaje(error.message);
     } finally {

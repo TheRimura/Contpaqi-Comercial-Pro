@@ -1,23 +1,22 @@
 import json
-import io
 import os
 import re
 import unicodedata
-from contextlib import redirect_stdout
 from difflib import SequenceMatcher
 
 import pyodbc
 
 from functools import cache
-from platform import node
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 from cayal.comandos_base_datos import ComandosBaseDatos
 
 from app.settings import AJUSTES_MODULO
 
 
-class BaseDatos(ComandosBaseDatos):
+class BaseDatos:
+
+
     MODULO_ENTRADA = 202
     MODULO_SALIDA = 203
 
@@ -29,45 +28,41 @@ class BaseDatos(ComandosBaseDatos):
     )
 
     def __init__(self):
-        servidor = os.getenv('CAYAL_DB_SERVER', '').strip() or node()
-        base_datos = os.getenv('CAYAL_DB_NAME', '').strip() or 'ComercialSP'
-        cadena_conexion = os.getenv(
-            'CAYAL_DB_CONNECTION_STRING', ''
-        ).strip()
-        usuario = os.getenv('CAYAL_DB_USER', '').strip()
-        contrasena = os.getenv('CAYAL_DB_PASSWORD', '')
+        self.base_de_datos = ComandosBaseDatos()
+        conexion_heredada = getattr(
+            self.base_de_datos,
+            '_BaseDatos__conexion_base_de_datos',
+            None,
+        )
+        if not isinstance(conexion_heredada, str) or not conexion_heredada:
+            raise RuntimeError(
+                'El paquete cayal no inicializó una conexión válida.'
+            )
+        self._cadena_conexion_modulo: str = conexion_heredada
 
-        if not cadena_conexion:
-            if usuario:
-                cadena_conexion = (
-                    f'Server={servidor};Database={base_datos};'
-                    f'UID={usuario};PWD={contrasena};'
-                    'TrustServerCertificate=Yes;'
-                )
-            else:
-                cadena_conexion = (
-                    f'Server={servidor};Database={base_datos};'
-                    'Trusted_Connection=Yes;TrustServerCertificate=Yes;'
-                )
+    def fetchall(
+            self,
+            sql: str,
+            params: tuple = (),
+    ) -> list[dict[str, Any]]:
 
-        # La versión actual del paquete cayal imprime la cadena ODBC. Se
-        # silencia para evitar exponer credenciales SQL en los logs.
-        with redirect_stdout(io.StringIO()):
-            super().__init__(cadena_de_conexion=cadena_conexion)
-        self.base_de_datos = None
+        return self.base_de_datos.fetchall(sql, params)
+
+    def command(
+            self,
+            sql: str,
+            params: tuple = (),
+    ) -> int | None:
+
+        return self.base_de_datos.command(sql, params)
 
     def fetchone(
             self,
             sql: str,
             params: tuple = (),
     ) -> Any | None:
-        """Devuelve el primer valor aunque el lote tenga resultados intermedios."""
-        cadena_conexion = next(
-            valor
-            for atributo, valor in vars(self).items()
-            if atributo.endswith('__conexion_base_de_datos')
-        )
-        with pyodbc.connect(cadena_conexion) as conexion:
+
+        with pyodbc.connect(self._cadena_conexion_modulo) as conexion:
             cursor = conexion.cursor()
             cursor.execute(sql, params)
             while True:
@@ -2173,7 +2168,7 @@ class BaseDatos(ComandosBaseDatos):
                         fecha_actualizacion = SYSUTCDATETIME()
                     WHERE id_producto_carnico = ?
                     """,
-                    [*parametros, id_configuracion],
+                    (*parametros, id_configuracion),
                 )
             else:
                 self.command(
@@ -2999,7 +2994,7 @@ class BaseDatos(ComandosBaseDatos):
             (
                 (
                     self._semejanza_nombre_producto(
-                        nombre, producto.get('ProductName')
+                        nombre, str(producto.get('ProductName') or '')
                     ),
                     producto,
                 )
@@ -3013,23 +3008,29 @@ class BaseDatos(ComandosBaseDatos):
             categoria_padre = resultado.get('Category2') or ''
             candidatos_base = []
             for producto in productos_linea:
-                if int(producto['ProductID']) == int(resultado['ProductID']):
+                if int(str(producto.get('ProductID') or 0)) == int(
+                    str(resultado.get('ProductID') or 0)
+                ):
                     continue
                 semejanza_categoria = self._semejanza_nombre_producto(
-                    categoria_padre, producto.get('ProductName')
+                    str(categoria_padre),
+                    str(producto.get('ProductName') or ''),
                 )
                 semejanza_autorreferencia = self._semejanza_nombre_producto(
-                    producto.get('Category2'), producto.get('ProductName')
+                    str(producto.get('Category2') or ''),
+                    str(producto.get('ProductName') or ''),
                 )
-                palabras_padre = self._palabras_clave_producto(categoria_padre)
+                palabras_padre = self._palabras_clave_producto(
+                    str(categoria_padre)
+                )
                 palabras_producto = self._palabras_clave_producto(
-                    producto.get('ProductName')
+                    str(producto.get('ProductName') or '')
                 )
                 if palabras_padre & palabras_producto:
                     candidatos_base.append((
                         semejanza_autorreferencia,
                         semejanza_categoria,
-                        -int(producto['ProductID']),
+                        -int(str(producto.get('ProductID') or 0)),
                         producto,
                     ))
             if candidatos_base:
@@ -3038,9 +3039,13 @@ class BaseDatos(ComandosBaseDatos):
                 )
                 base = candidatos_base[0][3]
                 return {
-                    'producto_resultante_id': int(resultado['ProductID']),
+                    'producto_resultante_id': int(
+                        str(resultado.get('ProductID') or 0)
+                    ),
                     'producto_resultante': resultado['ProductName'],
-                    'producto_base_id': int(base['ProductID']),
+                    'producto_base_id': int(
+                        str(base.get('ProductID') or 0)
+                    ),
                     'producto_base': base['ProductName'],
                     'unidad': base.get('unidad') or 'KILO',
                 }
@@ -3114,7 +3119,7 @@ class BaseDatos(ComandosBaseDatos):
         resultados_probables = []
         for candidato in candidatos:
             palabras_producto = self._palabras_clave_producto(
-                candidato.get('ProductName')
+                str(candidato.get('ProductName') or '')
             )
             comunes = palabras_buscadas & palabras_producto
             cobertura = (
@@ -3126,7 +3131,7 @@ class BaseDatos(ComandosBaseDatos):
                     cobertura,
                     len(comunes),
                     -len(palabras_producto - palabras_buscadas),
-                    -int(candidato['ProductID']),
+                    -int(str(candidato.get('ProductID') or 0)),
                     candidato,
                 ))
         if resultados_probables:
@@ -3136,14 +3141,14 @@ class BaseDatos(ComandosBaseDatos):
             )
             resultado = resultados_probables[0][4]
             producto_formula_id = self.buscar_producto_formula_relacionado(
-                int(resultado['ProductID']),
-                resultado['ProductName'],
+                int(str(resultado.get('ProductID') or 0)),
+                str(resultado.get('ProductName') or ''),
                 linea,
             )
             if producto_formula_id:
                 componentes_formula = (
                     self.buscar_formula_producto_configuracion(
-                        producto_formula_id
+                        int(str(producto_formula_id))
                     )
                 )
                 componentes_linea = [
@@ -3159,19 +3164,23 @@ class BaseDatos(ComandosBaseDatos):
                         ),
                     )
                     return {
-                        'producto_resultante_id': int(resultado['ProductID']),
+                        'producto_resultante_id': int(
+                            str(resultado.get('ProductID') or 0)
+                        ),
                         'producto_resultante': resultado['ProductName'],
-                        'producto_base_id': int(base_formula['product_id']),
+                        'producto_base_id': int(
+                            str(base_formula.get('product_id') or 0)
+                        ),
                         'producto_base': base_formula['producto'],
                         'unidad': base_formula.get('unidad') or 'KILO',
                     }
         bases_probables = []
         for candidato in candidatos:
             palabras_producto = self._palabras_clave_producto(
-                candidato.get('ProductName')
+                str(candidato.get('ProductName') or '')
             )
             palabras_categoria = self._palabras_clave_producto(
-                candidato.get('Category2')
+                str(candidato.get('Category2') or '')
             )
             comunes_nombre = palabras_buscadas & palabras_producto
             if not comunes_nombre or not palabras_producto:
@@ -3187,7 +3196,7 @@ class BaseDatos(ComandosBaseDatos):
                 semejanza_base,
                 len(comunes_nombre),
                 -len(palabras_producto - palabras_buscadas),
-                -int(candidato['ProductID']),
+                -int(str(candidato.get('ProductID') or 0)),
                 candidato,
             ))
         if not bases_probables:
@@ -3200,7 +3209,7 @@ class BaseDatos(ComandosBaseDatos):
         return {
             'producto_resultante_id': None,
             'producto_resultante': nombre,
-            'producto_base_id': int(base['ProductID']),
+            'producto_base_id': int(str(base.get('ProductID') or 0)),
             'producto_base': base['ProductName'],
             'unidad': base.get('unidad') or 'KILO',
         }
@@ -3363,12 +3372,60 @@ class BaseDatos(ComandosBaseDatos):
             {
                 **formula,
                 'componentes': self.buscar_formula_producto_configuracion(
-                    int(cast(Any, formula['formula_id']))
+                    int(str(formula.get('formula_id') or 0))
                 ),
             }
             for formula in formulas
         ]
 
+    def eliminar_configuraciones_incompletas(
+            self,
+            transformaciones_ids: list[int],
+    ) -> None:
+        """Revierte configuraciones nuevas cuando falla un guardado por lote."""
+        ids = sorted({
+            int(transformacion_id)
+            for transformacion_id in transformaciones_ids
+            if int(transformacion_id) > 0
+        })
+        if not ids:
+            return
+        ids_json = json.dumps(ids)
+        self.fetchone(
+            """
+            SET XACT_ABORT ON;
+            BEGIN TRANSACTION;
+            BEGIN TRY
+                DELETE A
+                FROM dbo.ModuloCarnicoConfiguracionAuditoria AS A
+                WHERE A.configuracion_id IN (
+                    SELECT TRY_CONVERT(INT, [value]) FROM OPENJSON(?)
+                );
+                DELETE C
+                FROM dbo.TransformacionesUsuarioComponente AS C
+                WHERE C.id_transformacion_usuario IN (
+                    SELECT TRY_CONVERT(INT, [value]) FROM OPENJSON(?)
+                );
+                DELETE D
+                FROM dbo.TransformacionesUsuarioDetalle AS D
+                WHERE D.id_transformacion_usuario IN (
+                    SELECT TRY_CONVERT(INT, [value]) FROM OPENJSON(?)
+                );
+                DELETE T
+                FROM dbo.TransformacionesUsuario AS T
+                WHERE T.id_transformacion_usuario IN (
+                    SELECT TRY_CONVERT(INT, [value]) FROM OPENJSON(?)
+                );
+                COMMIT TRANSACTION;
+                SELECT 1;
+            END TRY
+            BEGIN CATCH
+                IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+                THROW;
+            END CATCH
+            """,
+            (ids_json, ids_json, ids_json, ids_json),
+        )
     def crear_configuracion_transformacion(
             self,
             datos,
@@ -3452,7 +3509,7 @@ class BaseDatos(ComandosBaseDatos):
                 if sugerencia else None
             )
         producto_resultante_id = int(
-            cast(Any, producto_resultante_id or producto_base_id)
+            str(producto_resultante_id or producto_base_id)
         )
         if self.fetchone(
                 """SELECT TOP 1 T.id_transformacion_usuario
@@ -3544,7 +3601,7 @@ class BaseDatos(ComandosBaseDatos):
                 },
             )
         except Exception:
-            self.eliminar_comfiguraciones_imcompletas([transformacion_id])
+            self.eliminar_configuraciones_incompletas([transformacion_id])
             raise
         return transformacion_id
 
