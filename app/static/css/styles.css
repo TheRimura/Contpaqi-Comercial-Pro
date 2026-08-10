@@ -634,6 +634,8 @@ tbody tr:hover { background: var(--red-soft); }
 .detail-help { color: var(--muted); }
 .formula-group-row td { padding: 9px 10px; background: var(--blue-soft); color: var(--blue-dark); font-weight: 850; text-transform: uppercase; }
 .history-detail-content { display: grid; grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1fr); align-items: stretch; gap: 12px; }
+.history-batch-notice { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 13px; border: 1px solid #c7d2ee; border-radius: 10px; background: var(--blue-soft); color: var(--blue-dark); }
+.history-batch-notice span { color: var(--muted); font-size: .72rem; }
 .history-detail-document { min-width: 0; overflow: hidden; border: 1px solid var(--line-soft); border-top: 3px solid var(--red); border-radius: 13px; background: #fff; box-shadow: 0 9px 24px rgba(18, 27, 45, .07); }
 .history-detail-document.history-detail-in { border-top-color: var(--success); }
 .history-detail-document > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 66px; margin: 0; padding: 12px 14px; background: linear-gradient(135deg, #fff7f8 0%, #fff 100%); }

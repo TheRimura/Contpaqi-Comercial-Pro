@@ -321,19 +321,21 @@
                                 <strong>
                                     {{ registro.producto_base or 'No disponible' }}
                                 </strong>
-                                {% if registro.total_insumos %}
+                                {% if registro.es_documento_lote %}
+                                <small>Movimiento por lote</small>
+                                {% elif registro.total_insumos %}
                                 <small>{{ registro.total_insumos }} insumos</small>
                                 {% endif %}
                             </td>
                             <td class="history-number">
-                                {{ '%.2f'|format(registro.cantidad_base_numero) }} kg
+                                {% if registro.cantidad_base_numero >= 1000 %}{{ '%.2f'|format(registro.cantidad_base_numero / 1000) }} T{% elif registro.cantidad_base_numero > 0 and registro.cantidad_base_numero < 1 %}{{ '%.2f'|format(registro.cantidad_base_numero * 1000) }} gramos{% else %}{{ '%.2f'|format(registro.cantidad_base_numero) }} kg{% endif %}
                             </td>
                             <td class="history-number">
-                                {{ '%.2f'|format(registro.cantidad_resultante_numero) }} kg
+                                {% if registro.cantidad_resultante_numero >= 1000 %}{{ '%.2f'|format(registro.cantidad_resultante_numero / 1000) }} T{% elif registro.cantidad_resultante_numero > 0 and registro.cantidad_resultante_numero < 1 %}{{ '%.2f'|format(registro.cantidad_resultante_numero * 1000) }} gramos{% else %}{{ '%.2f'|format(registro.cantidad_resultante_numero) }} kg{% endif %}
                             </td>
                             <td class="history-number">
                                 <strong>
-                                    {{ '%.2f'|format(registro.merma_numero) }} kg
+                                    {% if registro.merma_numero >= 1000 %}{{ '%.2f'|format(registro.merma_numero / 1000) }} T{% elif registro.merma_numero > 0 and registro.merma_numero < 1 %}{{ '%.2f'|format(registro.merma_numero * 1000) }} gramos{% else %}{{ '%.2f'|format(registro.merma_numero) }} kg{% endif %}
                                 </strong>
                                 <small>
                                     {{ '%.1f'|format(registro.porcentaje_merma) }}%
@@ -831,4 +833,3 @@
     <script src="../static/js/app.js"></script>
 </body>
 </html>
-

@@ -1391,12 +1391,37 @@ class BaseDatos:
                 RF.folio_entrada,
                 ISNULL(U.UserName, '') AS usuario,
                 ISNULL(Empleado.OfficialName, '') AS tablajero,
-                ISNULL(Base.ProductName, '') AS producto_base,
+                CASE
+                    WHEN ISNULL(Partidas.total_partidas, 0) > 1
+                     AND ISNULL(PartidasEntrada.total_partidas, 0) > 1
+                    THEN CONCAT(Partidas.total_partidas, ' productos')
+                    ELSE ISNULL(Base.ProductName, '')
+                END AS producto_base,
                 ISNULL(Base.Category1, '') AS linea,
-                ISNULL(Base.Quantity, 0) AS cantidad_base,
-                ISNULL(Resultado.ProductName, '') AS producto_resultante,
-                ISNULL(Resultado.Quantity, 0) AS cantidad_resultante,
-                ISNULL(Partidas.total_partidas, 0) AS total_partidas_salida
+                CASE
+                    WHEN ISNULL(Partidas.total_partidas, 0) > 1
+                     AND ISNULL(PartidasEntrada.total_partidas, 0) > 1
+                    THEN ISNULL(Partidas.cantidad_total, 0)
+                    ELSE ISNULL(Base.Quantity, 0)
+                END AS cantidad_base,
+                CASE
+                    WHEN ISNULL(Partidas.total_partidas, 0) > 1
+                     AND ISNULL(PartidasEntrada.total_partidas, 0) > 1
+                    THEN CONCAT(ISNULL(PartidasEntrada.total_partidas, 0), ' productos')
+                    ELSE ISNULL(Resultado.ProductName, '')
+                END AS producto_resultante,
+                CASE
+                    WHEN ISNULL(Partidas.total_partidas, 0) > 1
+                     AND ISNULL(PartidasEntrada.total_partidas, 0) > 1
+                    THEN ISNULL(PartidasEntrada.cantidad_total, 0)
+                    ELSE ISNULL(Resultado.Quantity, 0)
+                END AS cantidad_resultante,
+                ISNULL(Partidas.total_partidas, 0) AS total_partidas_salida,
+                CASE
+                    WHEN ISNULL(Partidas.total_partidas, 0) > 1
+                     AND ISNULL(PartidasEntrada.total_partidas, 0) > 1
+                    THEN 1 ELSE 0
+                END AS es_documento_lote
             FROM RelacionesFiltradas AS RF
             LEFT JOIN dbo.engUser AS U
                 ON U.UserID = RF.usuario_id
@@ -1432,11 +1457,22 @@ class BaseDatos:
             ) AS Resultado
             OUTER APPLY
             (
-                SELECT COUNT(*) AS total_partidas
+                SELECT
+                    COUNT(*) AS total_partidas,
+                    SUM(ISNULL(DI.Quantity, 0)) AS cantidad_total
                 FROM dbo.docDocumentItem AS DI
                 WHERE DI.DocumentID = RF.documento_salida_id
                   AND DI.DeletedOn IS NULL
             ) AS Partidas
+            OUTER APPLY
+            (
+                SELECT
+                    COUNT(*) AS total_partidas,
+                    SUM(ISNULL(DI.Quantity, 0)) AS cantidad_total
+                FROM dbo.docDocumentItem AS DI
+                WHERE DI.DocumentID = RF.documento_entrada_id
+                  AND DI.DeletedOn IS NULL
+            ) AS PartidasEntrada
             WHERE (? = '' OR UPPER(ISNULL(Base.Category1, '')) = UPPER(?))
               AND (
                     ? = ''
@@ -1514,9 +1550,13 @@ class BaseDatos:
             fila['producto_resultante'] = patron_rango.sub(
                 '', str(fila.get('producto_resultante') or '')
             ).strip()
-            fila['total_insumos'] = max(
-                int(fila.pop('total_partidas_salida', 0) or 0) - 1,
-                0,
+            total_partidas = int(
+                fila.pop('total_partidas_salida', 0) or 0
+            )
+            es_documento_lote = bool(fila.get('es_documento_lote'))
+            fila['total_partidas'] = total_partidas
+            fila['total_insumos'] = (
+                0 if es_documento_lote else max(total_partidas - 1, 0)
             )
         return filas
 
@@ -1673,6 +1713,10 @@ class BaseDatos:
         )
         relacion['entrada'] = self.obtener_partidas_documento_erp(
             int(relacion['documento_entrada_id'])
+        )
+        relacion['es_documento_lote'] = (
+            len(relacion['salida']) > 1
+            and len(relacion['entrada']) > 1
         )
         return relacion
 
@@ -1902,7 +1946,8 @@ class BaseDatos:
             """
             SELECT
                 Partida.*,
-                ISNULL(Producto.Category1, '') AS ProductCategory
+                ISNULL(Producto.Category1, '') AS ProductCategory,
+                ISNULL(Producto.Unit, '') AS ProductUnit
             FROM [dbo].[zvwBuscarPartidasDocumentoCayal-DocumentID](?) AS Partida
             LEFT JOIN dbo.orgProduct AS Producto
                 ON Producto.ProductID = Partida.ProductID
@@ -1937,6 +1982,11 @@ class BaseDatos:
                     ),
                     "ProductKey": partida.get("ProductKey") or "",
                     "ProductName": partida.get("ProductName") or "",
+                    "Unit": (
+                        partida.get("Unit")
+                        or partida.get("ProductUnit")
+                        or "UNIDAD"
+                    ),
                     "Quantity": cantidad,
                     "CostPrice": costo,
                     "total": total,

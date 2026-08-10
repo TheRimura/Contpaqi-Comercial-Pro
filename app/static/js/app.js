@@ -143,6 +143,17 @@ function convertirCantidadParaMostrar(cantidad, unidad = "KILO", decimales = 2) 
     };
 }
 
+function formatearPesoHistorial(kilos) {
+    const valor = Math.max(Number(kilos || 0), 0);
+    if (valor >= 1000) {
+        return `${(valor / 1000).toFixed(2)} T`;
+    }
+    if (valor > 0 && valor < 1) {
+        return `${(valor * 1000).toFixed(2)} gramos`;
+    }
+    return `${valor.toFixed(2)} kg`;
+}
+
 function llenarConfigSelect(elemento, registros, placeholder) {
     elemento.replaceChildren(new Option(placeholder, ""));
     registros.forEach((registro) => {
@@ -1910,10 +1921,10 @@ function crearFilaHistorial(registroOriginal) {
     fila.innerHTML = `
         <td><span class="history-date"></span><small></small></td>
         <td><strong></strong><small></small></td>
-        <td><strong></strong>${Number(registro["total_insumos"] || 0) ? `<small>${Number(registro["total_insumos"])} insumos</small>` : ""}</td>
-        <td class="history-number">${registro.entrada.toFixed(2)} kg</td>
-        <td class="history-number">${registro.salida.toFixed(2)} kg</td>
-        <td class="history-number"><strong>${registro.merma.toFixed(2)} kg</strong><small>${registro.porcentajeMerma.toFixed(1)}%</small></td>
+        <td><strong></strong><small class="history-origin-detail"></small></td>
+        <td class="history-number">${formatearPesoHistorial(registro.entrada)}</td>
+        <td class="history-number">${formatearPesoHistorial(registro.salida)}</td>
+        <td class="history-number"><strong>${formatearPesoHistorial(registro.merma)}</strong><small>${registro.porcentajeMerma.toFixed(1)}%</small></td>
         <td><strong></strong></td>
         <td><span class="history-folios"></span></td>
         <td><span class="history-status">Relacionado</span></td>`;
@@ -1922,6 +1933,14 @@ function crearFilaHistorial(registroOriginal) {
     fila.children[1].querySelector("strong").textContent = registro["tablajero"] || "No registrado";
     fila.children[1].querySelector("small").textContent = registro["usuario"] || "Sin usuario";
     fila.children[2].querySelector("strong").textContent = limpiarNombreProducto(registro["producto_base"]) || "No disponible";
+    const detalleOrigen = fila.children[2].querySelector(".history-origin-detail");
+    if (registro["es_documento_lote"]) {
+        detalleOrigen.textContent = "Movimiento por lote";
+    } else if (Number(registro["total_insumos"] || 0)) {
+        detalleOrigen.textContent = `${Number(registro["total_insumos"])} insumos`;
+    } else {
+        detalleOrigen.remove();
+    }
     fila.children[6].querySelector("strong").textContent = limpiarNombreProducto(registro["producto_resultante"]) || "No disponible";
     fila.children[7].querySelector("span").textContent = `${registro["folio_salida"] || "Sin folio"} → ${registro["folio_entrada"] || "Sin folio"}`;
     const abrir = () => void abrirDetalleHistorial(Number(registro["relacion_id"]));
@@ -2105,7 +2124,7 @@ async function consultarHistorialFiltrado() {
     }
 }
 
-function crearDocumentoDetalleHistorial(titulo, folio, partidas, tipo) {
+function crearDocumentoDetalleHistorial(titulo, folio, partidas, tipo, esDocumentoLote = false) {
     const partidasDocumento = Array.isArray(partidas) ? partidas : [];
     const tarjeta = document.createElement("article");
     tarjeta.className = `history-detail-document history-detail-${tipo}`;
@@ -2137,7 +2156,10 @@ function crearDocumentoDetalleHistorial(titulo, folio, partidas, tipo) {
         const producto = document.createElement("td");
         producto.textContent = limpiarNombreProducto(partida.ProductName) || "Producto";
         const cantidad = document.createElement("td");
-        const cantidadVisual = convertirCantidadParaMostrar(partida.Quantity, "KILO");
+        const cantidadVisual = convertirCantidadParaMostrar(
+            partida.Quantity,
+            partida.Unit || "UNIDAD"
+        );
         cantidad.textContent = `${cantidadVisual.cantidad} ${cantidadVisual.unidad}`;
         fila.append(producto, cantidad);
         cuerpo.appendChild(fila);
@@ -2157,16 +2179,22 @@ function crearDocumentoDetalleHistorial(titulo, folio, partidas, tipo) {
     envoltura.appendChild(tabla);
     tarjeta.appendChild(envoltura);
 
-    const cantidadTotal = partidasDocumento.reduce(
-        (total, partida) => total + Number(partida.Quantity || 0),
-        0
-    );
     const total = document.createElement("footer");
     const etiquetaTotal = document.createElement("span");
-    etiquetaTotal.textContent = "Peso Total:";
+    etiquetaTotal.textContent = esDocumentoLote ? "Peso total del lote:" : "Total del documento:";
     const cantidadTotalElemento = document.createElement("strong");
-    const totalVisual = convertirCantidadParaMostrar(cantidadTotal, "KILO");
-    cantidadTotalElemento.textContent = `${totalVisual.cantidad} ${totalVisual.unidad}`;
+    const todasEnKilos = partidasDocumento.every((partida) =>
+        ["KILO", "KILOS", "KG"].includes(String(partida.Unit || "").trim().toUpperCase())
+    );
+    if (todasEnKilos) {
+        const cantidadTotal = partidasDocumento.reduce(
+            (acumulado, partida) => acumulado + Number(partida.Quantity || 0),
+            0
+        );
+        cantidadTotalElemento.textContent = formatearPesoHistorial(cantidadTotal);
+    } else {
+        cantidadTotalElemento.textContent = `${partidasDocumento.length} partidas con unidades diferentes`;
+    }
     total.append(etiquetaTotal, cantidadTotalElemento);
     tarjeta.appendChild(total);
     return tarjeta;
@@ -2193,11 +2221,19 @@ async function abrirDetalleHistorial(relacionId) {
         const detalle = await solicitarJson(`${API_RELACIONES}/historial/${relacionId}`);
         document.getElementById("titulo-detalle-historial").textContent =
             `${detalle.folio_salida} → ${detalle.folio_entrada}`;
-        contenido.replaceChildren(
-            crearDocumentoDetalleHistorial("Documento de salida", detalle.folio_salida, detalle.salida, "out"),
+        const elementos = [];
+        if (detalle.es_documento_lote) {
+            const aviso = document.createElement("div");
+            aviso.className = "history-batch-notice";
+            aviso.innerHTML = "<strong>Movimiento por lote</strong><span>El peso total se presenta en g, kg o T según corresponda.</span>";
+            elementos.push(aviso);
+        }
+        elementos.push(
+            crearDocumentoDetalleHistorial("Documento de salida", detalle.folio_salida, detalle.salida, "out", detalle.es_documento_lote),
             crearConexionDetalleHistorial(),
-            crearDocumentoDetalleHistorial("Documento de entrada", detalle.folio_entrada, detalle.entrada, "in")
+            crearDocumentoDetalleHistorial("Documento de entrada", detalle.folio_entrada, detalle.entrada, "in", detalle.es_documento_lote)
         );
+        contenido.replaceChildren(...elementos);
     } catch (error) {
         contenido.replaceChildren();
         const mensaje = document.createElement("p");
