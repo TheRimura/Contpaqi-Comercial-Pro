@@ -3,6 +3,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class AjustesModulo:
+    servidor_base_datos: str = "localhost"
+    nombre_base_datos: str = "ComercialSP"
+    permitir_servidor_base_datos_remoto: bool = False
     merma_tecnica_porcentaje: float = 8.0
     nombres_con_merma_configurable: tuple[str, ...] = (
         "MOLIDA",
@@ -15,6 +18,10 @@ class AjustesModulo:
     ventana_intentos_login_segundos: int = 300
 
     def validar_ajustes_operativos(self) -> None:
+        if not self.servidor_base_datos.strip():
+            raise ValueError("El servidor de base de datos no puede estar vacío.")
+        if not self.nombre_base_datos.strip():
+            raise ValueError("El nombre de la base de datos no puede estar vacío.")
         if not 0 <= self.merma_tecnica_porcentaje < 100:
             raise ValueError("La merma técnica debe estar entre 0 y 99.99%.")
         if not 4 <= self.transformaciones_por_pagina <= 60:

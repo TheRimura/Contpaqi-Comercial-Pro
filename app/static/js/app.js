@@ -154,6 +154,15 @@ function formatearPesoHistorial(kilos) {
     return `${valor.toFixed(2)} kg`;
 }
 
+function separarPesoHistorial(kilos) {
+    const texto = formatearPesoHistorial(kilos);
+    const separador = texto.lastIndexOf(" ");
+    return {
+        valor: texto.slice(0, separador),
+        unidad: texto.slice(separador + 1),
+    };
+}
+
 function llenarConfigSelect(elemento, registros, placeholder) {
     elemento.replaceChildren(new Option(placeholder, ""));
     registros.forEach((registro) => {
@@ -1975,10 +1984,14 @@ function actualizarResumenHistorial() {
     const salida = datos.reduce((total, registro) => total + registro.salida, 0);
     const merma = Math.max(kilos - salida, 0);
     const rendimiento = kilos > 0 ? salida / kilos * 100 : 0;
+    const pesoProcesado = separarPesoHistorial(kilos);
+    const mermaAcumulada = separarPesoHistorial(merma);
     const valores = {
         "historial-kpi-transformaciones": String(datos.length),
-        "historial-kpi-kilos": kilos.toFixed(2),
-        "historial-kpi-merma": merma.toFixed(2),
+        "historial-kpi-kilos": pesoProcesado.valor,
+        "historial-kpi-kilos-unidad": pesoProcesado.unidad,
+        "historial-kpi-merma": mermaAcumulada.valor,
+        "historial-kpi-merma-unidad": mermaAcumulada.unidad,
         "historial-kpi-rendimiento": rendimiento.toFixed(1),
     };
     Object.entries(valores).forEach(([id, valor]) => {
@@ -2225,7 +2238,7 @@ async function abrirDetalleHistorial(relacionId) {
         if (detalle.es_documento_lote) {
             const aviso = document.createElement("div");
             aviso.className = "history-batch-notice";
-            aviso.innerHTML = "<strong>Movimiento por lote</strong><span>El peso total se presenta en g, kg o T según corresponda.</span>";
+            aviso.innerHTML = "<strong>Movimiento por lote</strong>";
             elementos.push(aviso);
         }
         elementos.push(

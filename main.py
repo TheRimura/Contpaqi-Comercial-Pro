@@ -24,7 +24,7 @@ from app.utils.inicializador_base_datos import (
 from app.utils.seguridad import seguridad_sesion
 
 
-__version__ = "1.2.2"
+__version__ = "1.2.4"
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -96,9 +96,7 @@ def mostrar_dashboard(request: Request):
         return RedirectResponse('/', status_code=303)
 
     permisos = seguridad_sesion.permisos_publicos(sesion)
-    # Las tres líneas forman parte del contrato funcional del módulo. Se
-    # renderizan sin consultar SSM para que la pantalla siga disponible aun
-    # cuando el catálogo de productos esté ocupado.
+
     lineas = [
         {'Category1': 'CERDO'},
         {'Category1': 'POLLO'},
@@ -113,8 +111,6 @@ def mostrar_dashboard(request: Request):
         'rendimiento': 0.0,
     }
     # Los catálogos, configuraciones y el historial se consultan bajo
-    # demanda desde JavaScript. La pantalla principal no debe depender de
-    # consultas pesadas de SSM para poder mostrarse.
 
     response = templates.TemplateResponse(
         request=request,

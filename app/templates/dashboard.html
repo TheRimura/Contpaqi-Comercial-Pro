@@ -236,12 +236,28 @@
                     <strong id="historial-kpi-transformaciones">{{resumen_historial. transformaciones}}</strong>
                 </article>
                 <article class="history-kpi">
-                    <small>Kilos procesados</small>
-                    <strong><span id="historial-kpi-kilos" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.kilos_procesados) }}</span> <span>kg</span></strong>
+                    <small>Peso procesado</small>
+                    <strong>
+                        {% if resumen_historial.kilos_procesados >= 1000 %}
+                        <span id="historial-kpi-kilos" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.kilos_procesados / 1000) }}</span> <span id="historial-kpi-kilos-unidad">T</span>
+                        {% elif resumen_historial.kilos_procesados > 0 and resumen_historial.kilos_procesados < 1 %}
+                        <span id="historial-kpi-kilos" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.kilos_procesados * 1000) }}</span> <span id="historial-kpi-kilos-unidad">g</span>
+                        {% else %}
+                        <span id="historial-kpi-kilos" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.kilos_procesados) }}</span> <span id="historial-kpi-kilos-unidad">kg</span>
+                        {% endif %}
+                    </strong>
                 </article>
                 <article class="history-kpi">
                     <small>Merma acumulada</small>
-                    <strong><span id="historial-kpi-merma" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.merma_acumulada) }}</span> <span>kg</span></strong>
+                    <strong>
+                        {% if resumen_historial.merma_acumulada >= 1000 %}
+                        <span id="historial-kpi-merma" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.merma_acumulada / 1000) }}</span> <span id="historial-kpi-merma-unidad">T</span>
+                        {% elif resumen_historial.merma_acumulada > 0 and resumen_historial.merma_acumulada < 1 %}
+                        <span id="historial-kpi-merma" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.merma_acumulada * 1000) }}</span> <span id="historial-kpi-merma-unidad">g</span>
+                        {% else %}
+                        <span id="historial-kpi-merma" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.merma_acumulada) }}</span> <span id="historial-kpi-merma-unidad">kg</span>
+                        {% endif %}
+                    </strong>
                 </article>
                 <article class="history-kpi history-kpi-performance">
                     <small>Rendimiento</small>

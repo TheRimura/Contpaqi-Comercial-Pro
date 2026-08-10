@@ -28,7 +28,30 @@ class BaseDatos:
     )
 
     def __init__(self):
-        self.base_de_datos = ComandosBaseDatos()
+        servidor_configurado = (
+            AJUSTES_MODULO.servidor_base_datos.strip().casefold()
+        )
+        servidores_locales = {
+            '.',
+            '(local)',
+            'localhost',
+            '127.0.0.1',
+
+        }
+        if (
+            not AJUSTES_MODULO.permitir_servidor_base_datos_remoto
+            and servidor_configurado not in servidores_locales
+            and not servidor_configurado.startswith('localhost\\')
+            and not servidor_configurado.startswith('.\\')
+            and not servidor_configurado.startswith('msi\\')
+        ):
+            raise RuntimeError(
+                'Destino SQL remoto rechazado antes de abrir la conexión.'
+            )
+        self.base_de_datos = ComandosBaseDatos(
+            servidor=AJUSTES_MODULO.servidor_base_datos,
+            base_de_datos=AJUSTES_MODULO.nombre_base_datos,
+        )
         conexion_heredada = getattr(
             self.base_de_datos,
             '_BaseDatos__conexion_base_de_datos',
@@ -39,6 +62,38 @@ class BaseDatos:
                 'El paquete cayal no inicializó una conexión válida.'
             )
         self._cadena_conexion_modulo: str = conexion_heredada
+        contexto = self.base_de_datos.fetchall(
+            """
+            SELECT
+                CONVERT(NVARCHAR(128), SERVERPROPERTY('MachineName'))
+                    AS maquina,
+                DB_NAME() AS base_datos,
+                CONVERT(
+                    NVARCHAR(128),
+                    CONNECTIONPROPERTY('local_net_address')
+                ) AS direccion_servidor
+            """,
+            (),
+        )
+        if not contexto:
+            raise RuntimeError(
+                'No fue posible verificar el destino de la base de datos.'
+            )
+        destino = contexto[0]
+        direccion = str(destino.get('direccion_servidor') or '').strip()
+        base_actual = str(destino.get('base_datos') or '').strip()
+        if base_actual.casefold() != AJUSTES_MODULO.nombre_base_datos.casefold():
+            raise RuntimeError(
+                'La conexión apunta a una base de datos no autorizada.'
+            )
+        if (
+            not AJUSTES_MODULO.permitir_servidor_base_datos_remoto
+            and direccion not in {'', '127.0.0.1', '::1'}
+        ):
+            raise RuntimeError(
+                'Conexión remota bloqueada por seguridad. El módulo solo '
+                'puede usar la instancia SQL local configurada.'
+            )
 
     def fetchall(
             self,
@@ -369,11 +424,6 @@ class BaseDatos:
             self,
             module_id: int,
     ) -> list[dict]:
-        """
-        Compatibilidad con el módulo puro.
-
-        Recibe el módulo actual y devuelve documentos del módulo opuesto.
-        """
         module_id = int(module_id or 0)
 
         if module_id == self.MODULO_ENTRADA:
