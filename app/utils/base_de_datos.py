@@ -180,7 +180,7 @@ class BaseDatos(ComandosBaseDatos):
                 )
                 BEGIN
                     INSERT dbo.ModuloCarnicoConfiguracionSeguridad
-                        (id_configuracion, clave_firma)
+                        (id_configuracion, clave_firma) 
                     VALUES (
                         1,
                         CONVERT(NVARCHAR(36), NEWID())
