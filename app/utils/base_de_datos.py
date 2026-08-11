@@ -343,8 +343,6 @@ class BaseDatos(ComandosBaseDatos):
                 WHERE CboGroupName = ?
                   {filtro}
 
-                UNION ALL
-
                 SELECT
                     0 AS ItemData,
                     'NO CLASIFICADO' AS ItemValue
@@ -1657,8 +1655,6 @@ class BaseDatos(ComandosBaseDatos):
                 INNER JOIN dbo.orgProduct AS P
                     ON P.ProductID = DI.ProductID
 
-                UNION ALL
-
                 SELECT
                     R.relacion_id,
                     R.fecha_hora,
@@ -2775,8 +2771,6 @@ class BaseDatos(ComandosBaseDatos):
                       OR T.nombre_transformacion LIKE '%' + ? + '%'
                   )
 
-                UNION ALL
-
                 SELECT
                     P.ProductID AS product_id,
                     P.ProductName AS producto,
@@ -2914,8 +2908,6 @@ class BaseDatos(ComandosBaseDatos):
             LEFT JOIN dbo.orgProduct AS P
                 ON P.ProductID = O.product_id
             WHERE O.activo = 1
-
-            UNION ALL
 
             SELECT
                 -T.id_transformacion_usuario AS product_id,
@@ -3519,8 +3511,6 @@ class BaseDatos(ComandosBaseDatos):
                   AND UPPER(LTRIM(RTRIM(F.Producto))) =
                       UPPER(LTRIM(RTRIM(?)))
                 GROUP BY F.ProductID
-
-                UNION ALL
 
                 SELECT ProductID, 1 AS prioridad
                 FROM dbo.orgProduct
