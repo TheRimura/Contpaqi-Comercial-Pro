@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 from app.utils.base_de_datos import BaseDatos, obtener_base_datos
 
@@ -182,6 +183,30 @@ def _validar_columnas_modulo(base_datos: BaseDatos) -> None:
         )
 
 
+def _leer_script_sin_indices() -> str:
+    if not RUTA_SCRIPT_SQL.is_file():
+        raise RuntimeError(
+            f"No se encontró el script de instalación: {RUTA_SCRIPT_SQL}"
+        )
+    script_sql = RUTA_SCRIPT_SQL.read_text(encoding="utf-8")
+    patrones_prohibidos = {
+        "CREATE INDEX": r"\bCREATE\s+(?:UNIQUE\s+)?INDEX\b",
+        "PRIMARY KEY": r"\bPRIMARY\s+KEY\b",
+        "UNIQUE": r"\bUNIQUE\s*\(",
+    }
+    encontrados = [
+        nombre
+        for nombre, patron in patrones_prohibidos.items()
+        if re.search(patron, script_sql, flags=re.IGNORECASE)
+    ]
+    if encontrados:
+        raise RuntimeError(
+            "El script del módulo intenta crear índices: "
+            + ", ".join(encontrados)
+        )
+    return script_sql
+
+
 def inicializar_base_datos_modulo(
     base_datos: BaseDatos | None = None,
 ) -> ReporteInicializacion:
@@ -197,21 +222,18 @@ def inicializar_base_datos_modulo(
         for tabla in TABLAS_PROPIAS_MODULO
         if _objeto_existe(base_datos, tabla)
     }
-    if not RUTA_SCRIPT_SQL.is_file():
-        raise RuntimeError(
-            f"No se encontró el script de instalación: {RUTA_SCRIPT_SQL}"
-        )
+    script_sql = _leer_script_sin_indices()
 
     try:
         base_datos.command(
-            RUTA_SCRIPT_SQL.read_text(encoding="utf-8"),
+            script_sql,
             (),
         )
     except Exception as error:
         raise RuntimeError(
             "No fue posible instalar o actualizar las tablas del módulo. "
             "Verifique que la cuenta SQL Server tenga permisos de "
-            "CREATE TABLE, ALTER y CREATE INDEX. "
+            "CREATE TABLE y ALTER. "
             f"Detalle original: {error}"
         ) from error
 

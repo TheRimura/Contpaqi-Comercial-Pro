@@ -29,25 +29,20 @@ puede consultar en `http://127.0.0.1:8000/salud`.
 
 ## Conexión al servidor
 
-El módulo usa `cayal.comandos_base_datos.ComandosBaseDatos`. Configure el
-destino mediante variables de entorno:
+El módulo hereda de `cayal.comandos_base_datos.ComandosBaseDatos`. Sin una
+configuración de despliegue usa `platform.node()` y se conecta a la instancia
+SQL de la computadora local. El instalador detecta, en este orden, una
+configuración explícita, la instancia `COMPAC` del equipo y la instancia local;
+después guarda el destino validado en `.env`:
 
 ```env
 CAYAL_DB_SERVER=SERVIDOR_SQL\INSTANCIA
 CAYAL_DB_NAME=ComercialSP
 ```
 
-Con estas variables se utiliza autenticación integrada de Windows. La cuenta
-que ejecute el servicio debe tener acceso a SQL Server. Para autenticación SQL:
-
-```env
-CAYAL_DB_USER=usuario_modulo
-CAYAL_DB_PASSWORD=contraseña_segura
-```
-
-También puede proporcionar `CAYAL_DB_CONNECTION_STRING`, que tiene prioridad
-sobre las variables anteriores. Nunca almacene credenciales reales dentro del
-repositorio.
+La detección no explora toda la red: solamente prueba los destinos anteriores
+y exige que la base sea `ComercialSP` y contenga los objetos nativos de SSM.
+Nunca almacene credenciales reales dentro del repositorio.
 
 ## Inicialización de la base de datos
 
@@ -64,16 +59,17 @@ El proceso:
 2. Valida los objetos nativos de SSM utilizados por el módulo.
 3. Reutiliza las tablas compatibles existentes.
 4. Crea solamente las tablas propias que hagan falta.
-5. Agrega las columnas e índices administrados pendientes.
+5. Agrega solamente las columnas administradas pendientes.
 6. Verifica la estructura final antes de habilitar el módulo.
 
 El inicializador es idempotente: puede ejecutarse varias veces sin duplicar
-tablas, columnas, índices ni configuraciones de seguridad. Los objetos nativos
+tablas, columnas ni configuraciones de seguridad. No crea índices, claves
+primarias ni restricciones únicas. Los objetos nativos
 de SSM no se crean artificialmente; si falta alguno, el proceso se detiene para
 evitar una instalación incompatible.
 
 La primera instalación requiere permisos para consultar metadatos y, cuando
-sea necesario, crear o modificar tablas e índices. El servidor necesita
+sea necesario, crear o modificar tablas. El servidor necesita
 Microsoft ODBC Driver 17 u 18 para SQL Server.
 
 ## Validación antes de publicar

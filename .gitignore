@@ -2,7 +2,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .idea/
+.env
 app/config/.session_secret
-
 
 

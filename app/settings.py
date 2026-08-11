@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 
 
@@ -5,7 +6,10 @@ from dataclasses import dataclass
 class AjustesModulo:
     servidor_base_datos: str = "localhost"
     nombre_base_datos: str = "ComercialSP"
-    permitir_servidor_base_datos_remoto: bool = False
+    permitir_servidor_base_datos_remoto: bool = (
+        os.getenv('CAYAL_PERMITIR_SERVIDOR_REMOTO', '').strip().lower()
+        in {'1', 'true', 'si', 'sí', 'yes'}
+    )
     merma_tecnica_porcentaje: float = 8.0
     nombres_con_merma_configurable: tuple[str, ...] = (
         "MOLIDA",

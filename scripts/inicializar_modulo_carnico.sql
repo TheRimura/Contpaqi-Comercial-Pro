@@ -8,8 +8,7 @@ BEGIN TRY
     BEGIN
         CREATE TABLE dbo.TransformacionesUsuario
         (
-            id_transformacion_usuario INT IDENTITY(1,1) NOT NULL
-                CONSTRAINT PK_TransformacionesUsuario PRIMARY KEY,
+            id_transformacion_usuario INT IDENTITY(1,1) NOT NULL,
             nombre_transformacion NVARCHAR(150) NOT NULL,
             producto_origen INT NOT NULL,
             producto_formula INT NULL,
@@ -38,8 +37,7 @@ BEGIN TRY
     BEGIN
         CREATE TABLE dbo.TransformacionesUsuarioDetalle
         (
-            id_detalle_usuario INT IDENTITY(1,1) NOT NULL
-                CONSTRAINT PK_TransformacionesUsuarioDetalle PRIMARY KEY,
+            id_detalle_usuario INT IDENTITY(1,1) NOT NULL,
             id_transformacion_usuario INT NOT NULL,
             producto_resultante INT NOT NULL,
             cantidad_resultante DECIMAL(18,6) NOT NULL,
@@ -56,8 +54,7 @@ BEGIN TRY
     BEGIN
         CREATE TABLE dbo.TransformacionesUsuarioComponente
         (
-            id_componente_usuario INT IDENTITY(1,1) NOT NULL
-                CONSTRAINT PK_TransformacionesUsuarioComponente PRIMARY KEY,
+            id_componente_usuario INT IDENTITY(1,1) NOT NULL,
             id_transformacion_usuario INT NOT NULL,
             producto_componente INT NOT NULL,
             cantidad DECIMAL(18,6) NOT NULL,
@@ -79,8 +76,7 @@ BEGIN TRY
     BEGIN
         CREATE TABLE dbo.ModuloCarnicoConfiguracionAuditoria
         (
-            id_auditoria INT IDENTITY(1,1) NOT NULL
-                CONSTRAINT PK_ModuloCarnicoConfiguracionAuditoria PRIMARY KEY,
+            id_auditoria INT IDENTITY(1,1) NOT NULL,
             configuracion_id INT NULL,
             configuracion_nombre NVARCHAR(150) NOT NULL,
             accion NVARCHAR(30) NOT NULL,
@@ -98,8 +94,7 @@ BEGIN TRY
     BEGIN
         CREATE TABLE dbo.ModuloCarnicoConfiguracionSeguridad
         (
-            id_configuracion TINYINT NOT NULL
-                CONSTRAINT PK_ModuloCarnicoConfiguracionSeguridad PRIMARY KEY,
+            id_configuracion TINYINT NOT NULL,
             clave_firma NVARCHAR(200) NOT NULL,
             fecha_creacion DATETIME2(0) NOT NULL
                 CONSTRAINT DF_ModuloCarnicoSeguridad_Fecha
@@ -127,8 +122,7 @@ BEGIN TRY
     BEGIN
         CREATE TABLE dbo.ModuloCarnicoProductoConfigurado
         (
-            id_producto_carnico INT IDENTITY(1,1) NOT NULL
-                CONSTRAINT PK_ModuloCarnicoProductoConfigurado PRIMARY KEY,
+            id_producto_carnico INT IDENTITY(1,1) NOT NULL,
             product_id INT NULL,
             clave NVARCHAR(60) NULL,
             proveedor_id INT NULL,
@@ -153,8 +147,7 @@ BEGIN TRY
     BEGIN
         CREATE TABLE dbo.ModuloCarnicoProductoBitacora
         (
-            id_bitacora INT IDENTITY(1,1) NOT NULL
-                CONSTRAINT PK_ModuloCarnicoProductoBitacora PRIMARY KEY,
+            id_bitacora INT IDENTITY(1,1) NOT NULL,
             accion NVARCHAR(60) NOT NULL,
             usuario_id BIGINT NULL,
             usuario_confirmacion_nombre NVARCHAR(150) NOT NULL,
@@ -169,8 +162,7 @@ BEGIN TRY
     BEGIN
         CREATE TABLE dbo.ModuloCarnicoTransformacionRegistro
         (
-            id_registro INT IDENTITY(1,1) NOT NULL
-                CONSTRAINT PK_ModuloCarnicoTransformacionRegistro PRIMARY KEY,
+            id_registro INT IDENTITY(1,1) NOT NULL,
             producto_salida_config_id INT NOT NULL,
             producto_entrada_config_id INT NOT NULL,
             producto_salida_nombre NVARCHAR(250) NOT NULL,
@@ -200,15 +192,13 @@ BEGIN TRY
     BEGIN
         CREATE TABLE dbo.ModuloAlmacenMarca
         (
-            BrandID INT IDENTITY(1,1) NOT NULL
-                CONSTRAINT PK_ModuloAlmacenMarca PRIMARY KEY,
+            BrandID INT IDENTITY(1,1) NOT NULL,
             BrandName NVARCHAR(150) NOT NULL,
             categoria NVARCHAR(150) NULL,
             activo BIT NOT NULL
                 CONSTRAINT DF_ModuloAlmacenMarca_activo DEFAULT 1,
             fecha_creacion DATETIME2 NOT NULL
-                CONSTRAINT DF_ModuloAlmacenMarca_fecha DEFAULT SYSDATETIME(),
-            CONSTRAINT UQ_ModuloAlmacenMarca UNIQUE (BrandName, categoria)
+                CONSTRAINT DF_ModuloAlmacenMarca_fecha DEFAULT SYSDATETIME()
         );
     END;
 
@@ -216,8 +206,7 @@ BEGIN TRY
     BEGIN
         CREATE TABLE dbo.ModuloCarnicoCatalogoOculto
         (
-            product_id INT NOT NULL
-                CONSTRAINT PK_ModuloCarnicoCatalogoOculto PRIMARY KEY,
+            product_id INT NOT NULL,
             nombre NVARCHAR(250) NOT NULL,
             linea NVARCHAR(100) NULL,
             activo BIT NOT NULL

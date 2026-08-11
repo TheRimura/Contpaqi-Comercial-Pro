@@ -29,33 +29,12 @@ class BaseDatos(ComandosBaseDatos):
     )
 
     def __init__(self):
-        servidor_local = node().strip()
-        if not servidor_local:
-            raise RuntimeError(
-                'No fue posible identificar el servidor local.'
-            )
-        servidor_configurado = servidor_local.casefold()
-        servidores_locales = {
-            '.',
-            '(local)',
-            'localhost',
-            '127.0.0.1',
-            node().strip().casefold(),
-        }
-        if (
-            not AJUSTES_MODULO.permitir_servidor_base_datos_remoto
-            and servidor_configurado not in servidores_locales
-            and not servidor_configurado.startswith('localhost\\')
-            and not servidor_configurado.startswith('.\\')
-            and not servidor_configurado.startswith('msi\\')
-        ):
-            raise RuntimeError(
-                'Destino SQL remoto rechazado antes de abrir la conexión.'
-            )
-        super().__init__(
-            servidor=node(),
-            base_de_datos=AJUSTES_MODULO.nombre_base_datos,
+        servidor = os.getenv('CAYAL_DB_SERVER', '').strip() or node()
+        base_datos = (
+            os.getenv('CAYAL_DB_NAME', '').strip()
+            or AJUSTES_MODULO.nombre_base_datos
         )
+        super().__init__(servidor=servidor, base_de_datos=base_datos)
         conexion_heredada = getattr(
             self,
             '_BaseDatos__conexion_base_de_datos',
@@ -164,9 +143,7 @@ class BaseDatos(ComandosBaseDatos):
                 BEGIN
                     CREATE TABLE dbo.ModuloCarnicoConfiguracionSeguridad
                     (
-                        id_configuracion TINYINT NOT NULL
-                            CONSTRAINT PK_ModuloCarnicoConfiguracionSeguridad
-                            PRIMARY KEY,
+                    id_configuracion TINYINT NOT NULL,
                         clave_firma NVARCHAR(200) NOT NULL,
                         fecha_creacion DATETIME2(0) NOT NULL
                             CONSTRAINT DF_ModuloCarnicoSeguridad_Fecha
@@ -2090,9 +2067,7 @@ class BaseDatos(ComandosBaseDatos):
             ) IS NULL
             BEGIN
                 CREATE TABLE dbo.ModuloCarnicoProductoConfigurado (
-                    id_producto_carnico INT IDENTITY(1,1) NOT NULL
-                        CONSTRAINT PK_ModuloCarnicoProductoConfigurado
-                        PRIMARY KEY,
+                    id_producto_carnico INT IDENTITY(1,1) NOT NULL,
                     product_id INT NULL,
                     clave NVARCHAR(50) NULL,
                     proveedor_id INT NULL,
@@ -2121,9 +2096,7 @@ class BaseDatos(ComandosBaseDatos):
             ) IS NULL
             BEGIN
                 CREATE TABLE dbo.ModuloCarnicoProductoBitacora (
-                    id_bitacora INT IDENTITY(1,1) NOT NULL
-                        CONSTRAINT PK_ModuloCarnicoProductoBitacora
-                        PRIMARY KEY,
+                    id_bitacora INT IDENTITY(1,1) NOT NULL,
                     accion NVARCHAR(50) NOT NULL,
                     usuario_id BIGINT NULL,
                     usuario_confirmacion_nombre NVARCHAR(150) NOT NULL,
@@ -2140,9 +2113,7 @@ class BaseDatos(ComandosBaseDatos):
             ) IS NULL
             BEGIN
                 CREATE TABLE dbo.ModuloCarnicoTransformacionRegistro (
-                    id_registro INT IDENTITY(1,1) NOT NULL
-                        CONSTRAINT PK_ModuloCarnicoTransformacionRegistro
-                        PRIMARY KEY,
+                    id_registro INT IDENTITY(1,1) NOT NULL,
                     producto_salida_config_id INT NOT NULL,
                     producto_entrada_config_id INT NOT NULL,
                     producto_salida_nombre NVARCHAR(250) NOT NULL,
@@ -2458,15 +2429,13 @@ class BaseDatos(ComandosBaseDatos):
             IF OBJECT_ID('dbo.ModuloAlmacenMarca', 'U') IS NULL
             BEGIN
                 CREATE TABLE dbo.ModuloAlmacenMarca (
-                    BrandID INT IDENTITY(1,1) NOT NULL
-                        CONSTRAINT PK_ModuloAlmacenMarca PRIMARY KEY,
+                    BrandID INT IDENTITY(1,1) NOT NULL,
                     BrandName NVARCHAR(150) NOT NULL,
                     categoria NVARCHAR(150) NULL,
                     activo BIT NOT NULL
                         CONSTRAINT DF_ModuloAlmacenMarca_activo DEFAULT 1,
                     fecha_creacion DATETIME2 NOT NULL
-                        CONSTRAINT DF_ModuloAlmacenMarca_fecha DEFAULT SYSDATETIME(),
-                    CONSTRAINT UQ_ModuloAlmacenMarca UNIQUE (BrandName, categoria)
+                        CONSTRAINT DF_ModuloAlmacenMarca_fecha DEFAULT SYSDATETIME()
                 );
             END;
             """,
@@ -2686,9 +2655,7 @@ class BaseDatos(ComandosBaseDatos):
             ) IS NULL
             BEGIN
                 CREATE TABLE dbo.ModuloCarnicoConfiguracionAuditoria (
-                    id_auditoria INT IDENTITY(1,1) NOT NULL
-                        CONSTRAINT PK_ModuloCarnicoConfiguracionAuditoria
-                        PRIMARY KEY,
+                    id_auditoria INT IDENTITY(1,1) NOT NULL,
                     configuracion_id INT NULL,
                     configuracion_nombre NVARCHAR(150) NOT NULL,
                     accion NVARCHAR(30) NOT NULL,
@@ -2700,8 +2667,6 @@ class BaseDatos(ComandosBaseDatos):
                     fecha DATETIME2 NOT NULL
                         CONSTRAINT DF_MCCA_fecha DEFAULT SYSDATETIME()
                 );
-                CREATE INDEX IX_MCCA_fecha
-                    ON dbo.ModuloCarnicoConfiguracionAuditoria(fecha DESC);
             END;
             """,
             (),
@@ -2864,8 +2829,7 @@ class BaseDatos(ComandosBaseDatos):
             IF OBJECT_ID('dbo.ModuloCarnicoCatalogoOculto', 'U') IS NULL
             BEGIN
                 CREATE TABLE dbo.ModuloCarnicoCatalogoOculto (
-                    product_id INT NOT NULL
-                        CONSTRAINT PK_ModuloCarnicoCatalogoOculto PRIMARY KEY,
+                    product_id INT NOT NULL,
                     nombre NVARCHAR(250) NOT NULL,
                     linea NVARCHAR(100) NULL,
                     activo BIT NOT NULL
