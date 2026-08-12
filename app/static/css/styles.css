@@ -462,7 +462,6 @@ tbody tr:hover { background: var(--red-soft); }
 .audit-table td { vertical-align: middle; }
 .audit-table td:nth-child(4) { font-weight: 700; }
 .audit-action { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: var(--red-soft); color: var(--red); font-size: .7rem; font-weight: 900; }
-.audit-action.REACTIVAR { background: #eaf8f2; color: var(--success); }
 .audit-detail-content { display: grid; gap: 14px; }
 .audit-detail-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .audit-detail-summary > div, .audit-values { padding: 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: #f8fafc; }
@@ -557,13 +556,6 @@ tbody tr:hover { background: var(--red-soft); }
 .catalog-products.delete-mode .catalog-product:hover { border-color: #c92838; background: #ffe6e8; color: #a70f20; }
 .catalog-product strong { font-size: .82rem; }
 .catalog-product span { flex: 0 0 auto; color: var(--muted); font-size: .7rem; }
-.restore-catalog-dialog { width: min(760px, 100%); max-height: calc(100vh - 36px); overflow-y: auto; }
-.restore-catalog-list { display: grid; gap: 8px; margin-top: 16px; }
-.restore-catalog-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: #f8fafc; }
-.restore-catalog-item > div { display: grid; gap: 3px; min-width: 0; }
-.restore-catalog-item strong { overflow: hidden; color: var(--blue-dark); text-overflow: ellipsis; white-space: nowrap; }
-.restore-catalog-item span { color: var(--muted); font-size: .75rem; }
-.restore-catalog-item button { flex: 0 0 auto; }
 .catalog-loading { grid-column: 1 / -1; margin: 0; padding: 18px; border-radius: 9px; background: #f5f7fa; color: var(--muted); text-align: center; }
 .catalog-error { color: #a42418; }
 .catalog-pagination { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line-soft); }

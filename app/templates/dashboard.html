@@ -540,9 +540,6 @@
                     <div class="catalog-products-heading">
                         <div><p class="eyebrow">Productos base disponibles</p><h3 id="catalogo-productos-titulo">Selecciona una línea</h3></div>
                         <div class="catalog-products-actions">
-                            {% if permisos.restaurar_productos_catalogo %}
-                            <button id="abrir-productos-ocultos" type="button" class="button-outline">Recuperar ocultos</button>
-                            {% endif %}
                             {% if permisos.eliminar_productos_catalogo %}
                             <button id="eliminar-producto-catalogo" type="button" class="button-outline button-danger">Eliminar</button>
                             <button id="cancelar-eliminacion-catalogo" type="button" class="button-outline hidden">Cancelar</button>
@@ -789,29 +786,6 @@
             </div>
         </section>
     </div>
-    {% if permisos.restaurar_productos_catalogo %}
-    <div id="modal-productos-ocultos" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-productos-ocultos">
-        <section class="detail-dialog restore-catalog-dialog">
-            <header class="detail-dialog-heading">
-                <div><p class="eyebrow">Catálogo del módulo</p><h2 id="titulo-productos-ocultos">Productos ocultos</h2></div>
-                <button id="cerrar-productos-ocultos" type="button" class="button-outline">Cerrar</button>
-            </header>
-            <div id="lista-productos-ocultos" class="restore-catalog-list"></div>
-        </section>
-    </div>
-    <div id="modal-confirmar-restauracion-producto" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-confirmar-restauracion-producto">
-        <section class="movement-dialog confirmation-dialog">
-            <div class="dialog-icon confirmation-icon" aria-hidden="true">✓</div>
-            <p class="eyebrow">Confirmar recuperación</p>
-            <h2 id="titulo-confirmar-restauracion-producto">¿Restaurar este producto?</h2>
-            <div class="catalog-delete-product"><small>Producto seleccionado</small><strong id="nombre-producto-a-restaurar">Producto</strong></div>
-            <div class="dialog-actions">
-                <button id="cancelar-restauracion-producto" type="button" class="button-outline">Cancelar</button>
-                <button id="confirmar-restauracion-producto" type="button">Restaurar producto</button>
-            </div>
-        </section>
-    </div>
-    {% endif %}
     <div id="modal-detalle-auditoria" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="titulo-detalle-auditoria">
         <section class="detail-dialog audit-detail-dialog">
             <header class="detail-dialog-heading">

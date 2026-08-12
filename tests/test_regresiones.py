@@ -44,13 +44,6 @@ class PruebasRegresionModulo(unittest.TestCase):
         self.assertEqual(2, len(base.consultas))
         self.assertTrue(all("UNION" not in sql.upper() for sql, _ in base.consultas))
 
-    def test_permiso_restauracion_esta_declarado(self):
-        self.assertTrue(
-            PERMISOS_MODULO.grupo_tiene_permiso(
-                1, "restaurar_productos_catalogo"
-            )
-        )
-
     def test_sql_del_modulo_no_contiene_union(self):
         contenido = (RAIZ / "app/utils/base_de_datos.py").read_text(
             encoding="utf-8"

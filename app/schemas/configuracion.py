@@ -75,10 +75,9 @@ class EventoAuditoriaConfiguracion(BaseModel):
             'CREO': 'CREAR',
             'EDITO': 'EDITAR',
             'ELIMINO': 'ELIMINAR',
-            'REACTIVO': 'REACTIVAR',
         }
         accion = alias.get(accion, accion)
-        if accion not in {'CREAR', 'EDITAR', 'ELIMINAR', 'REACTIVAR'}:
+        if accion not in {'CREAR', 'EDITAR', 'ELIMINAR'}:
             raise ValueError('La acción de auditoría no es válida.')
         return accion
 
@@ -99,4 +98,3 @@ class OcultarProductoCatalogo(BaseModel):
     @classmethod
     def limpiar_texto_ocultamiento(cls, valor: str) -> str:
         return ' '.join(valor.split())
-

@@ -545,118 +545,6 @@ async function ocultarProductoCatalogo(producto) {
     aplicarFiltrosCatalogo();
 }
 
-function cerrarProductosOcultos() {
-    const modalProductosOcultos = document.getElementById("modal-productos-ocultos");
-    if (!modalProductosOcultos) return;
-    modalProductosOcultos.classList.add("hidden");
-    document.body.classList.remove("modal-open");
-}
-
-function solicitarConfirmacionRestaurarProducto(producto) {
-    return new Promise((resolve) => {
-        const modal = document.getElementById("modal-confirmar-restauracion-producto");
-        const confirmar = document.getElementById("confirmar-restauracion-producto");
-        const cancelar = document.getElementById("cancelar-restauracion-producto");
-        document.getElementById("nombre-producto-a-restaurar").textContent =
-            limpiarNombreProducto(producto.producto);
-
-        const cerrar = (aceptado = false) => {
-            modal.classList.add("hidden");
-            confirmar.removeEventListener("click", aceptar);
-            cancelar.removeEventListener("click", rechazar);
-            if (!document.querySelector("#modal-productos-ocultos:not(.hidden)")) {
-                document.body.classList.remove("modal-open");
-            }
-            resolve(aceptado);
-        };
-        const aceptar = () => cerrar(true);
-        const rechazar = () => cerrar(false);
-        confirmar.addEventListener("click", aceptar);
-        cancelar.addEventListener("click", rechazar);
-        modal.classList.remove("hidden");
-        document.body.classList.add("modal-open");
-        cancelar.focus();
-    });
-}
-
-function renderizarProductosOcultos(productos) {
-    const lista = document.getElementById("lista-productos-ocultos");
-    lista.replaceChildren();
-    if (!productos.length) {
-        const vacio = document.createElement("p");
-        vacio.className = "catalog-loading";
-        vacio.textContent = "No hay productos ni transformaciones ocultos.";
-        lista.appendChild(vacio);
-        return;
-    }
-    productos.forEach((producto) => {
-        const fila = document.createElement("article");
-        fila.className = "restore-catalog-item";
-        const detalle = document.createElement("div");
-        const nombre = document.createElement("strong");
-        nombre.textContent = limpiarNombreProducto(producto.producto);
-        const referencia = document.createElement("span");
-        referencia.textContent = [
-            producto.linea || "Sin línea",
-            producto.es_configuracion ? "Transformación configurada" : "Producto en el sistema",
-        ].join(" · ");
-        detalle.append(nombre, referencia);
-        const boton = document.createElement("button");
-        boton.type = "button";
-        boton.className = "button-outline";
-        boton.textContent = "Restaurar";
-        boton.addEventListener("click", async () => {
-            if (!(await solicitarConfirmacionRestaurarProducto(producto))) return;
-            boton.disabled = true;
-            boton.textContent = "Restaurando...";
-            try {
-                await solicitarJson(`${API_CONFIGURACION}/catalogo/restaurar`, {
-                    method: "POST",
-                    body: JSON.stringify({
-                        producto_id: Number(producto.product_id),
-                        es_configuracion: Boolean(producto.es_configuracion),
-                        transformacion_id: producto.transformacion_id || null,
-                        nombre: limpiarNombreProducto(producto.producto),
-                        linea: producto.linea,
-                    }),
-                });
-                fila.remove();
-                mensajeConfiguracion("Producto restaurado correctamente.", "success");
-                if (lineaCatalogoActual === producto.linea) {
-                    await cargarProductosCatalogo(lineaCatalogoActual);
-                }
-                if (!lista.querySelector(".restore-catalog-item")) {
-                    renderizarProductosOcultos([]);
-                }
-            } catch (error) {
-                boton.disabled = false;
-                boton.textContent = "Restaurar";
-                mensajeConfiguracion(error.message);
-            }
-        });
-        fila.append(detalle, boton);
-        lista.appendChild(fila);
-    });
-}
-
-async function abrirProductosOcultos() {
-    const modal = document.getElementById("modal-productos-ocultos");
-    const lista = document.getElementById("lista-productos-ocultos");
-    modal.classList.remove("hidden");
-    document.body.classList.add("modal-open");
-    lista.innerHTML = '<p class="catalog-loading">Consultando productos ocultos...</p>';
-    try {
-        const productos = await solicitarJson(`${API_CONFIGURACION}/catalogo/ocultos`);
-        renderizarProductosOcultos(productos);
-    } catch (error) {
-        lista.innerHTML = "";
-        const mensaje = document.createElement("p");
-        mensaje.className = "catalog-loading catalog-error";
-        mensaje.textContent = error.message;
-        lista.appendChild(mensaje);
-    }
-}
-
 function solicitarConfirmacionEliminarProductoCatalogo(producto) {
     return new Promise((resolve) => {
         const modal = document.getElementById("modal-confirmar-eliminacion-producto");
@@ -1873,14 +1761,6 @@ function iniciarPaginaConfiguracion() {
     document.getElementById("cancelar-eliminacion-catalogo")?.addEventListener(
         "click",
         cancelarEliminacionCatalogo
-    );
-    document.getElementById("abrir-productos-ocultos")?.addEventListener(
-        "click",
-        abrirProductosOcultos
-    );
-    document.getElementById("cerrar-productos-ocultos")?.addEventListener(
-        "click",
-        cerrarProductosOcultos
     );
     document.getElementById("cerrar-detalle-producto").addEventListener("click", () => {
         document.getElementById("modal-detalle-producto").classList.add("hidden");
