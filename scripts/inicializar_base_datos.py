@@ -50,12 +50,10 @@ def _detectar_servidor_sql() -> str:
 
     equipo = node().strip()
     servidor_explicito = os.getenv('CAYAL_DB_SERVER', '').strip()
-    candidatos = (
-        servidor_explicito,
-        rf'{equipo}\COMPAC' if equipo else '',
-        equipo,
-        'localhost',
-    )
+    # Una instancia COMPAC o remota debe declararse explícitamente. Esto
+    # evita que una instalación de desarrollo descubra y modifique por error
+    # un servidor empresarial accesible desde el equipo.
+    candidatos = (servidor_explicito, equipo, 'localhost')
     revisados: set[str] = set()
     for candidato in candidatos:
         clave = candidato.casefold()
@@ -105,7 +103,6 @@ def _preparar_destino_sql() -> str:
         '.',
         '(local)',
         '127.0.0.1',
-        rf'{equipo}\compac',
     }
     _actualizar_variable_env('CAYAL_DB_SERVER', servidor)
     _actualizar_variable_env('CAYAL_DB_NAME', 'ComercialSP')

@@ -200,6 +200,7 @@ def _leer_script_sin_indices() -> str:
 
 def inicializar_base_datos_modulo(
     base_datos: BaseDatos | None = None,
+    aplicar_cambios: bool = True,
 ) -> ReporteInicializacion:
     base_datos = base_datos or obtener_base_datos()
     if not base_datos.probar_conexion():
@@ -213,20 +214,24 @@ def inicializar_base_datos_modulo(
         for tabla in TABLAS_PROPIAS_MODULO
         if _objeto_existe(base_datos, tabla)
     }
-    script_sql = _leer_script_sin_indices()
-
-    try:
-        base_datos.command(
-            script_sql,
-            (),
-        )
-    except Exception as error:
+    if aplicar_cambios:
+        script_sql = _leer_script_sin_indices()
+        try:
+            base_datos.command(script_sql, ())
+        except Exception as error:
+            raise RuntimeError(
+                "No fue posible instalar o actualizar las tablas del módulo. "
+                "Verifique que la cuenta SQL Server tenga permisos de "
+                "CREATE TABLE y ALTER. "
+                f"Detalle original: {error}"
+            ) from error
+    elif len(existentes_antes) != len(TABLAS_PROPIAS_MODULO):
+        faltantes = sorted(set(TABLAS_PROPIAS_MODULO) - existentes_antes)
         raise RuntimeError(
-            "No fue posible instalar o actualizar las tablas del módulo. "
-            "Verifique que la cuenta SQL Server tenga permisos de "
-            "CREATE TABLE y ALTER. "
-            f"Detalle original: {error}"
-        ) from error
+            "Falta instalar la estructura del módulo: "
+            + ", ".join(faltantes)
+            + ". Ejecute scripts/inicializar_base_datos.py una sola vez."
+        )
 
     faltantes_despues = [
         tabla

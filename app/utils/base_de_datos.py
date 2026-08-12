@@ -333,23 +333,24 @@ class BaseDatos(ComandosBaseDatos):
             )
             filtro = f"AND ItemData IN ({ids_sql})"
 
-        return self.fetchall(
+        registros = self.fetchall(
             f"""
             SELECT ItemData, ItemValue
-            FROM
-            (
-                SELECT ItemData, ItemValue
-                FROM dbo.engRefCombo
-                WHERE CboGroupName = ?
-                  {filtro}
-
-                SELECT
-                    0 AS ItemData,
-                    'NO CLASIFICADO' AS ItemValue
-            ) AS Movimientos
+            FROM dbo.engRefCombo
+            WHERE CboGroupName = ?
+              {filtro}
             ORDER BY ItemValue
             """,
             (grupo,),
+        )
+        if not any(int(fila.get('ItemData') or 0) == 0 for fila in registros):
+            registros.append({
+                'ItemData': 0,
+                'ItemValue': 'NO CLASIFICADO',
+            })
+        return sorted(
+            registros,
+            key=lambda fila: str(fila.get('ItemValue') or ''),
         )
 
     def buscar_tipos_movimiento_entrada(self) -> list[dict]:
@@ -449,7 +450,7 @@ class BaseDatos(ComandosBaseDatos):
         return self.fetchall(
             """
             SELECT
-                Base.ProductName AS producto_base,
+                P.Category2 AS producto_base,
                 COALESCE(
                     MIN(CASE
                         WHEN UPPER(LTRIM(RTRIM(P.ProductName))) =
@@ -461,6 +462,19 @@ class BaseDatos(ComandosBaseDatos):
                 COUNT(*) AS total_resultantes
             FROM dbo.orgProduct AS P
             WHERE P.DiscontinuedOn IS NULL
+              AND NOT EXISTS
+              (
+                  SELECT 1
+                  FROM dbo.ModuloCarnicoProductoConfigurado AS Visibilidad
+                  WHERE Visibilidad.product_id = P.ProductID
+                    AND Visibilidad.activo = 0
+                    AND Visibilidad.id_producto_carnico =
+                    (
+                        SELECT MAX(Ultimo.id_producto_carnico)
+                        FROM dbo.ModuloCarnicoProductoConfigurado AS Ultimo
+                        WHERE Ultimo.product_id = P.ProductID
+                    )
+              )
               AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
                   UPPER(LTRIM(RTRIM(?)))
               AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
@@ -490,6 +504,19 @@ class BaseDatos(ComandosBaseDatos):
                 ON E.BusinessEntityID = S.BusinessEntityID
             WHERE T.activa = 1
               AND P.DiscontinuedOn IS NULL
+              AND NOT EXISTS
+              (
+                  SELECT 1
+                  FROM dbo.ModuloCarnicoProductoConfigurado AS Visibilidad
+                  WHERE Visibilidad.product_id = P.ProductID
+                    AND Visibilidad.activo = 0
+                    AND Visibilidad.id_producto_carnico =
+                    (
+                        SELECT MAX(Ultimo.id_producto_carnico)
+                        FROM dbo.ModuloCarnicoProductoConfigurado AS Ultimo
+                        WHERE Ultimo.product_id = P.ProductID
+                    )
+              )
               AND UPPER(LTRIM(RTRIM(P.Category1))) =
                   UPPER(LTRIM(RTRIM(?)))
             ORDER BY T.nombre_transformacion
@@ -533,6 +560,19 @@ class BaseDatos(ComandosBaseDatos):
                     B.ProductID
             ) AS Base
             WHERE P.DiscontinuedOn IS NULL
+              AND NOT EXISTS
+              (
+                  SELECT 1
+                  FROM dbo.ModuloCarnicoProductoConfigurado AS Visibilidad
+                  WHERE Visibilidad.product_id = P.ProductID
+                    AND Visibilidad.activo = 0
+                    AND Visibilidad.id_producto_carnico =
+                    (
+                        SELECT MAX(Ultimo.id_producto_carnico)
+                        FROM dbo.ModuloCarnicoProductoConfigurado AS Ultimo
+                        WHERE Ultimo.product_id = P.ProductID
+                    )
+              )
               AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
                   IN ('CERDO', 'POLLO', 'RES LOCAL')
               AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
@@ -1573,8 +1613,7 @@ class BaseDatos(ComandosBaseDatos):
             limite: int = 500,
     ) -> list[dict]:
         limite = min(max(int(limite), 1), 500)
-        return self.fetchall(
-            """
+        consulta = """
             WITH Relaciones AS
             (
                 SELECT TOP (?)
@@ -1582,21 +1621,16 @@ class BaseDatos(ComandosBaseDatos):
                     R.SourceDocumentID AS documento_salida_id,
                     R.DestinationDocumentID AS documento_entrada_id,
                     R.CreatedOn AS fecha_hora,
-                    ISNULL(S.FolioPrefix, '') +
-                        ISNULL(S.Folio, '') AS folio_salida,
-                    ISNULL(E.FolioPrefix, '') +
-                        ISNULL(E.Folio, '') AS folio_entrada,
+                    ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '') AS folio_salida,
+                    ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '') AS folio_entrada,
                     ISNULL(U.UserName, '') AS usuario,
                     ISNULL(Empleado.OfficialName, '') AS tablajero
                 FROM dbo.docDocumentWarehouseRelation AS R
                 INNER JOIN dbo.docDocument AS S
-                    ON S.DocumentID = R.SourceDocumentID
-                   AND S.ModuleID = 203
+                    ON S.DocumentID = R.SourceDocumentID AND S.ModuleID = 203
                 INNER JOIN dbo.docDocument AS E
-                    ON E.DocumentID = R.DestinationDocumentID
-                   AND E.ModuleID = 202
-                LEFT JOIN dbo.engUser AS U
-                    ON U.UserID = R.ERPUserID
+                    ON E.DocumentID = R.DestinationDocumentID AND E.ModuleID = 202
+                LEFT JOIN dbo.engUser AS U ON U.UserID = R.ERPUserID
                 OUTER APPLY
                 (
                     SELECT TOP 1 EMP.OfficialName
@@ -1608,72 +1642,41 @@ class BaseDatos(ComandosBaseDatos):
                   AND E.DeletedOn IS NULL
                   AND TRY_CONVERT(INT, S.CustomCbo) = 2
                   AND TRY_CONVERT(INT, E.CustomCbo) = 5
-                ORDER BY
-                    R.CreatedOn DESC,
-                    R.DocumentWarehouseRelationID DESC
-            ),
-            Partidas AS
-            (
-                SELECT
-                    R.relacion_id,
-                    R.fecha_hora,
-                    R.folio_salida,
-                    R.folio_entrada,
-                    R.usuario,
-                    R.tablajero,
-                    1 AS orden_documento,
-                    'SALIDA' AS tipo_documento,
-                    R.folio_salida AS folio_documento,
-                    DI.DocumentItemID AS partida_id,
-                    ISNULL(P.ProductName, '') AS producto,
-                    ISNULL(DI.Quantity, 0) AS cantidad
-                FROM Relaciones AS R
-                INNER JOIN dbo.docDocumentItem AS DI
-                    ON DI.DocumentID = R.documento_salida_id
-                   AND DI.DeletedOn IS NULL
-                INNER JOIN dbo.orgProduct AS P
-                    ON P.ProductID = DI.ProductID
-
-                SELECT
-                    R.relacion_id,
-                    R.fecha_hora,
-                    R.folio_salida,
-                    R.folio_entrada,
-                    R.usuario,
-                    R.tablajero,
-                    2 AS orden_documento,
-                    'ENTRADA' AS tipo_documento,
-                    R.folio_entrada AS folio_documento,
-                    DI.DocumentItemID AS partida_id,
-                    ISNULL(P.ProductName, '') AS producto,
-                    ISNULL(DI.Quantity, 0) AS cantidad
-                FROM Relaciones AS R
-                INNER JOIN dbo.docDocumentItem AS DI
-                    ON DI.DocumentID = R.documento_entrada_id
-                   AND DI.DeletedOn IS NULL
-                INNER JOIN dbo.orgProduct AS P
-                    ON P.ProductID = DI.ProductID
+                ORDER BY R.CreatedOn DESC, R.DocumentWarehouseRelationID DESC
             )
             SELECT
-                relacion_id,
-                fecha_hora,
-                folio_salida,
-                folio_entrada,
-                usuario,
-                tablajero,
-                tipo_documento,
-                folio_documento,
-                producto,
-                cantidad
-            FROM Partidas
-            ORDER BY
-                fecha_hora DESC,
-                relacion_id DESC,
-                orden_documento,
-                partida_id
-            """,
-            (limite,),
+                R.relacion_id, R.fecha_hora, R.folio_salida, R.folio_entrada,
+                R.usuario, R.tablajero,
+                ? AS tipo_documento,
+                CASE WHEN ? = 'SALIDA' THEN R.folio_salida ELSE R.folio_entrada END
+                    AS folio_documento,
+                DI.DocumentItemID AS partida_id,
+                ISNULL(P.ProductName, '') AS producto,
+                ISNULL(DI.Quantity, 0) AS cantidad
+            FROM Relaciones AS R
+            INNER JOIN dbo.docDocumentItem AS DI
+                ON DI.DocumentID = CASE WHEN ? = 'SALIDA'
+                    THEN R.documento_salida_id ELSE R.documento_entrada_id END
+               AND DI.DeletedOn IS NULL
+            INNER JOIN dbo.orgProduct AS P ON P.ProductID = DI.ProductID
+            ORDER BY R.fecha_hora DESC, R.relacion_id DESC, DI.DocumentItemID
+        """
+        salida = self.fetchall(consulta, (limite, 'SALIDA', 'SALIDA', 'SALIDA'))
+        entrada = self.fetchall(consulta, (limite, 'ENTRADA', 'ENTRADA', 'ENTRADA'))
+        orden = {'SALIDA': 1, 'ENTRADA': 2}
+        registros = salida + entrada
+        registros.sort(
+            key=lambda fila: (
+                fila.get('fecha_hora'),
+                int(fila.get('relacion_id') or 0),
+                -orden.get(str(fila.get('tipo_documento')), 9),
+                -int(fila.get('partida_id') or 0),
+            ),
+            reverse=True,
         )
+        for fila in registros:
+            fila.pop('partida_id', None)
+        return registros
 
     def obtener_detalle_historial_transformacion(
             self,
@@ -2764,6 +2767,19 @@ class BaseDatos(ComandosBaseDatos):
                 CAST(NULL AS INT) AS transformacion_id
             FROM dbo.orgProduct AS P
             WHERE P.DiscontinuedOn IS NULL
+              AND NOT EXISTS
+              (
+                  SELECT 1
+                  FROM dbo.ModuloCarnicoProductoConfigurado AS Visibilidad
+                  WHERE Visibilidad.product_id = P.ProductID
+                    AND Visibilidad.activo = 0
+                    AND Visibilidad.id_producto_carnico =
+                    (
+                        SELECT MAX(Ultimo.id_producto_carnico)
+                        FROM dbo.ModuloCarnicoProductoConfigurado AS Ultimo
+                        WHERE Ultimo.product_id = P.ProductID
+                    )
+              )
               AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
                   UPPER(LTRIM(RTRIM(?)))
               AND (? = '' OR P.ProductName LIKE '%' + ? + '%')
@@ -2801,13 +2817,45 @@ class BaseDatos(ComandosBaseDatos):
                 raise ValueError('El producto seleccionado no es válido.')
             ocultado = self.fetchone(
                 """
-                UPDATE dbo.orgProduct
-                SET DiscontinuedOn = SYSUTCDATETIME()
-                OUTPUT INSERTED.ProductID
-                WHERE ProductID = ?
-                  AND DiscontinuedOn IS NULL;
+                SET XACT_ABORT ON;
+                BEGIN TRANSACTION;
+                IF NOT EXISTS
+                (
+                    SELECT 1 FROM dbo.orgProduct
+                    WHERE ProductID = ? AND DiscontinuedOn IS NULL
+                )
+                BEGIN
+                    ROLLBACK TRANSACTION;
+                    SELECT NULL;
+                    RETURN;
+                END;
+                IF EXISTS
+                (
+                    SELECT 1 FROM dbo.ModuloCarnicoProductoConfigurado
+                    WHERE product_id = ?
+                )
+                    UPDATE dbo.ModuloCarnicoProductoConfigurado
+                    SET activo = 0, usuario_actualizacion = ?,
+                        fecha_actualizacion = SYSDATETIME()
+                    WHERE product_id = ?;
+                ELSE
+                    INSERT dbo.ModuloCarnicoProductoConfigurado
+                    (
+                        product_id, nombre_producto, categoria, unidad,
+                        porcentaje_merma, activo, usuario_creacion
+                    )
+                    SELECT ProductID, ProductName, Category1,
+                           ISNULL(Unit, 'KILO'), 0, 0, ?
+                    FROM dbo.orgProduct
+                    WHERE ProductID = ?;
+                COMMIT TRANSACTION;
+                SELECT ?;
                 """,
-                (int(producto_id),),
+                (
+                    int(producto_id), int(producto_id), int(usuario_id),
+                    int(producto_id), int(usuario_id), int(producto_id),
+                    int(producto_id),
+                ),
             )
             if ocultado is None:
                 raise ValueError(
@@ -2838,8 +2886,17 @@ class BaseDatos(ComandosBaseDatos):
                 P.Category1 AS linea,
                 CAST(0 AS BIT) AS es_configuracion,
                 CAST(NULL AS INT) AS transformacion_id,
-                P.DiscontinuedOn AS fecha
+                Visibilidad.fecha_actualizacion AS fecha
             FROM dbo.orgProduct AS P
+            INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS Visibilidad
+                ON Visibilidad.product_id = P.ProductID
+               AND Visibilidad.activo = 0
+               AND Visibilidad.id_producto_carnico =
+               (
+                   SELECT MAX(Ultimo.id_producto_carnico)
+                   FROM dbo.ModuloCarnicoProductoConfigurado AS Ultimo
+                   WHERE Ultimo.product_id = P.ProductID
+               )
             CROSS APPLY
             (
                 SELECT TOP 1 A.accion
@@ -2847,7 +2904,7 @@ class BaseDatos(ComandosBaseDatos):
                 WHERE A.configuracion_id = -P.ProductID
                 ORDER BY A.fecha DESC, A.id_auditoria DESC
             ) AS UltimaAccion
-            WHERE P.DiscontinuedOn IS NOT NULL
+            WHERE P.DiscontinuedOn IS NULL
               AND UltimaAccion.accion = 'ELIMINAR'
             ORDER BY P.Category1, P.ProductName
             """,
@@ -2907,20 +2964,15 @@ class BaseDatos(ComandosBaseDatos):
                 raise ValueError('El producto seleccionado no es válido.')
             restaurado = self.fetchone(
                 """
-                UPDATE dbo.orgProduct
-                SET DiscontinuedOn = NULL
-                OUTPUT INSERTED.ProductID
-                WHERE ProductID = ?
-                  AND DiscontinuedOn IS NOT NULL
-                  AND
-                  (
-                      SELECT TOP 1 A.accion
-                      FROM dbo.ModuloCarnicoConfiguracionAuditoria AS A
-                      WHERE A.configuracion_id = -dbo.orgProduct.ProductID
-                      ORDER BY A.fecha DESC, A.id_auditoria DESC
-                  ) = 'ELIMINAR'
+                UPDATE dbo.ModuloCarnicoProductoConfigurado
+                SET activo = 1,
+                    usuario_actualizacion = ?,
+                    fecha_actualizacion = SYSDATETIME()
+                OUTPUT INSERTED.product_id
+                WHERE product_id = ?
+                  AND activo = 0
                 """,
-                (int(producto_id),),
+                (int(usuario_id), int(producto_id)),
             )
             configuracion_id = -int(producto_id)
         if restaurado is None:
@@ -3452,11 +3504,8 @@ class BaseDatos(ComandosBaseDatos):
         self.asegurar_proveedor_transformaciones_usuario()
         producto_resultante_id = self.fetchone(
             """
-            SELECT TOP 1 Candidato.ProductID
-            FROM
-            (
-                SELECT F.ProductID, 0 AS prioridad
-                FROM dbo.zvwFormulasListasPCocinar AS F
+            SELECT TOP 1 F.ProductID
+            FROM dbo.zvwFormulasListasPCocinar AS F
                 INNER JOIN dbo.orgProduct AS Componente
                     ON Componente.ProductID = F.ComponenteID
                    AND Componente.DiscontinuedOn IS NULL
@@ -3467,20 +3516,25 @@ class BaseDatos(ComandosBaseDatos):
                       UPPER(LTRIM(RTRIM(?)))
                   AND UPPER(LTRIM(RTRIM(F.Producto))) =
                       UPPER(LTRIM(RTRIM(?)))
-                GROUP BY F.ProductID
-
-                SELECT ProductID, 1 AS prioridad
+            GROUP BY F.ProductID
+            ORDER BY F.ProductID
+            """,
+            (datos.linea, datos.nombre),
+        )
+        if not producto_resultante_id:
+            producto_resultante_id = self.fetchone(
+                """
+                SELECT TOP 1 ProductID
                 FROM dbo.orgProduct
                 WHERE DiscontinuedOn IS NULL
                   AND UPPER(LTRIM(RTRIM(ISNULL(Category1, '')))) =
                       UPPER(LTRIM(RTRIM(?)))
                   AND UPPER(LTRIM(RTRIM(ProductName))) =
                       UPPER(LTRIM(RTRIM(?)))
-            ) AS Candidato
-            ORDER BY Candidato.prioridad, Candidato.ProductID
-            """,
-            (datos.linea, datos.nombre, datos.linea, datos.nombre),
-        )
+                ORDER BY ProductID
+                """,
+                (datos.linea, datos.nombre),
+            )
         componentes_ids = [
             int(componente.producto_id)
             for componente in datos.componentes

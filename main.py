@@ -24,7 +24,7 @@ from app.utils.inicializador_base_datos import (
 from app.utils.seguridad import seguridad_sesion
 
 
-__version__ = "1.2.4"
+__version__ = "1.2.7"
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -34,7 +34,9 @@ STATIC_DIR = APP_DIR / 'static'
 
 @asynccontextmanager
 async def ciclo_vida_aplicacion(aplicacion: FastAPI):
-    reporte = inicializar_base_datos_modulo()
+    # El servidor web solo valida. Las migraciones se ejecutan de forma
+    # explícita con scripts/inicializar_base_datos.py.
+    reporte = inicializar_base_datos_modulo(aplicar_cambios=False)
     aplicacion.state.inicializacion_base_datos = reporte
     print(
         "[BD] Módulo cárnico listo en "
@@ -142,9 +144,9 @@ def comprobar_salud():
     try:
         conexion = obtener_base_datos().probar_conexion()
         detalle = 'Conexión SQL Server disponible.'
-    except Exception as error:
+    except Exception:
         conexion = False
-        detalle = str(error)
+        detalle = 'Base de datos no disponible.'
 
     return {
         'aplicacion': 'Módulo Cárnico CAYAL',

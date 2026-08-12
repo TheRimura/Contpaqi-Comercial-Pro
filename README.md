@@ -32,8 +32,9 @@ puede consultar en `http://127.0.0.1:8000/salud`.
 El módulo hereda de `cayal.comandos_base_datos.ComandosBaseDatos`. Sin una
 configuración de despliegue usa `platform.node()` y se conecta a la instancia
 SQL de la computadora local. El instalador detecta, en este orden, una
-configuración explícita, la instancia `COMPAC` del equipo y la instancia local;
-después guarda el destino validado en `.env`:
+configuración explícita y después la instancia local. Una instancia
+`COMPAC` o remota debe declararse de forma explícita para impedir conexiones
+accidentales a servidores empresariales. El destino validado se guarda en `.env`:
 
 ```env
 CAYAL_DB_SERVER=SERVIDOR_SQL\INSTANCIA
@@ -46,8 +47,9 @@ Nunca almacene credenciales reales dentro del repositorio.
 
 ## Inicialización de la base de datos
 
-La validación se ejecuta al arrancar FastAPI. También puede iniciarse de forma
-manual antes de un despliegue:
+Al arrancar, FastAPI solamente valida la estructura existente y nunca crea ni
+altera tablas. La instalación o actualización se ejecuta explícitamente antes
+de un despliegue:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\inicializar_base_datos.py
@@ -75,7 +77,8 @@ Microsoft ODBC Driver 17 u 18 para SQL Server.
 ## Validación antes de publicar
 
 ```powershell
-.\.venv\Scripts\python.exe -m compileall -q main.py app scripts
+.\.venv\Scripts\python.exe -m compileall -q main.py app scripts tests
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
 node --check app\static\js\app.js
 git diff --check
 ```

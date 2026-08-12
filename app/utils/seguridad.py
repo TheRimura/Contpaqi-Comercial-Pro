@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import time
 from functools import cache, cached_property
 
@@ -129,6 +130,9 @@ class SeguridadSesion:
             "eliminar_productos_catalogo": self.tiene_permiso(
                 sesion, "eliminar_productos_catalogo"
             ),
+            "restaurar_productos_catalogo": self.tiene_permiso(
+                sesion, "restaurar_productos_catalogo"
+            ),
         }
 
     def requerir_sesion(self, request: Request):
@@ -170,6 +174,9 @@ class SeguridadSesion:
         datos_usuario,
         usar_https,
     ):
+        cookie_segura = usar_https or os.getenv(
+            'SESSION_COOKIE_SECURE', ''
+        ).strip().lower() in {'1', 'true', 'si', 'sí', 'yes'}
         response.set_cookie(
             key=self._configuracion["nombre_cookie"],
             value=self.crear_token(datos_usuario),
@@ -177,7 +184,7 @@ class SeguridadSesion:
                 self._configuracion["duracion_sesion_segundos"]
             ),
             httponly=True,
-            secure=usar_https,
+            secure=cookie_segura,
             samesite="lax",
             path="/",
         )
@@ -186,7 +193,7 @@ class SeguridadSesion:
             value=str(datos_usuario["csrf"]),
             max_age=int(self._configuracion["duracion_sesion_segundos"]),
             httponly=False,
-            secure=usar_https,
+            secure=cookie_segura,
             samesite="lax",
             path="/",
         )
@@ -211,4 +218,3 @@ def obtener_seguridad():
 
 
 seguridad_sesion = obtener_seguridad()
-

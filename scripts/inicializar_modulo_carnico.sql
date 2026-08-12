@@ -202,8 +202,8 @@ BEGIN TRY
         );
     END;
 
-    -- Compatibilidad: migra ocultamientos de versiones anteriores a la
-    -- tabla principal de productos. La tabla antigua no se vuelve a crear.
+    -- Compatibilidad: conserva los ocultamientos anteriores dentro de la
+    -- tabla propia del módulo. Nunca modifica el estado global de orgProduct.
     IF OBJECT_ID('dbo.ModuloCarnicoCatalogoOculto', 'U') IS NOT NULL
     BEGIN
         INSERT INTO dbo.ModuloCarnicoConfiguracionAuditoria
@@ -225,12 +225,32 @@ BEGIN TRY
               WHERE A.configuracion_id = -O.product_id
           );
 
-        UPDATE P
-        SET P.DiscontinuedOn = COALESCE(P.DiscontinuedOn, O.fecha)
-        FROM dbo.orgProduct AS P
+        UPDATE C
+        SET C.activo = 0,
+            C.fecha_actualizacion = O.fecha
+        FROM dbo.ModuloCarnicoProductoConfigurado AS C
         INNER JOIN dbo.ModuloCarnicoCatalogoOculto AS O
-            ON O.product_id = P.ProductID
+            ON O.product_id = C.product_id
            AND O.activo = 1;
+
+        INSERT dbo.ModuloCarnicoProductoConfigurado
+        (
+            product_id, nombre_producto, categoria, unidad,
+            porcentaje_merma, activo, usuario_creacion,
+            fecha_creacion, fecha_actualizacion
+        )
+        SELECT
+            P.ProductID, P.ProductName, P.Category1, ISNULL(P.Unit, 'KILO'),
+            0, 0, O.usuario_id, O.fecha, O.fecha
+        FROM dbo.ModuloCarnicoCatalogoOculto AS O
+        INNER JOIN dbo.orgProduct AS P ON P.ProductID = O.product_id
+        WHERE O.activo = 1
+          AND NOT EXISTS
+          (
+              SELECT 1
+              FROM dbo.ModuloCarnicoProductoConfigurado AS C
+              WHERE C.product_id = O.product_id
+          );
     END;
 
 

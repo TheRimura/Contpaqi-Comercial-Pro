@@ -17,9 +17,10 @@ let transformacionesLineaActual = [];
 let paginaTransformacionesActual = 1;
 const TRANSFORMACIONES_POR_PAGINA = Number(AJUSTES_INTERFAZ.transformacionesPorPagina || 12);
 const API_CONFIGURACION = "/api/configuracion";
-const CLAVE_CONFIGURACIONES_NUEVAS = "cayal-configuraciones-nuevas";
-const CLAVE_BORRADOR_CONFIGURACION = "cayal-borrador-configuracion-v1";
-const CLAVE_BORRADOR_TRANSFORMACION = "cayal-borrador-transformacion-v1";
+const SUFIJO_USUARIO_LOCAL = AJUSTES_INTERFAZ.usuarioId || "anonimo";
+const CLAVE_CONFIGURACIONES_NUEVAS = `cayal-configuraciones-nuevas-${SUFIJO_USUARIO_LOCAL}`;
+const CLAVE_BORRADOR_CONFIGURACION = `cayal-borrador-configuracion-v1-${SUFIJO_USUARIO_LOCAL}`;
+const CLAVE_BORRADOR_TRANSFORMACION = `cayal-borrador-transformacion-v1-${SUFIJO_USUARIO_LOCAL}`;
 let componentesConfiguracion = [];
 let productosConfiguracionDisponibles = [];
 let lineaCatalogoActual = "";
@@ -504,7 +505,10 @@ async function cargarProductosCatalogo(linea) {
         productosCatalogoActual = [];
         productosCatalogoSinFiltrar = [];
         document.getElementById("paginacion-productos-catalogo").classList.add("hidden");
-        lista.innerHTML = `<p class="catalog-loading catalog-error">${error.message}</p>`;
+        const mensaje = document.createElement("p");
+        mensaje.className = "catalog-loading catalog-error";
+        mensaje.textContent = error.message;
+        lista.replaceChildren(mensaje);
     }
 }
 
@@ -855,8 +859,14 @@ async function abrirAuditoriaConfiguracion() {
         );
         renderizarAuditoriaConfiguracion();
     } catch (error) {
-        document.getElementById("filas-auditoria-configuracion").innerHTML =
-            `<tr><td colspan="5" class="empty-table-cell">${error.message}</td></tr>`;
+        const cuerpo = document.getElementById("filas-auditoria-configuracion");
+        const fila = document.createElement("tr");
+        const celda = document.createElement("td");
+        celda.colSpan = 5;
+        celda.className = "empty-table-cell";
+        celda.textContent = error.message;
+        fila.appendChild(celda);
+        cuerpo.replaceChildren(fila);
     }
 }
 
@@ -2036,11 +2046,15 @@ function configurarRangoFechasHistorial() {
     if (!fechaDesde || !fechaHasta) return;
 
     const fechaActual = fechaLocalISO();
+    const hoy = new Date();
+    const inicioMes = fechaLocalISO(
+        new Date(hoy.getFullYear(), hoy.getMonth(), 1)
+    );
     fechaDesde.value = fechaActual;
     fechaDesde.max = fechaActual;
     fechaHasta.max = fechaActual;
-    if (fechaHasta.value && fechaHasta.value > fechaActual) {
-        fechaHasta.value = "";
+    if (!fechaHasta.value || fechaHasta.value > fechaActual) {
+        fechaHasta.value = inicioMes;
     }
     fechaHasta.setCustomValidity("");
 }
@@ -2097,7 +2111,7 @@ async function actualizarHistorialDesdeServidor() {
 }
 
 function parametrosFiltrosHistorial() {
-    const parametros = new URLSearchParams({ limite: "100" });
+    const parametros = new URLSearchParams({ limite: "500" });
     const desdeVisual = document.getElementById("historial-fecha-desde")?.value;
     const hastaVisual = document.getElementById("historial-fecha-hasta")?.value;
     const transformacion = document.getElementById("historial-transformacion")?.value?.trim();
@@ -2133,7 +2147,13 @@ async function consultarHistorialFiltrado() {
         resumen.classList.remove("hidden");
     } catch (error) {
         registrosHistorialActual = [];
-        cuerpo.innerHTML = `<tr><td colspan="9" class="history-empty">${error.message}</td></tr>`;
+        const fila = document.createElement("tr");
+        const celda = document.createElement("td");
+        celda.colSpan = 9;
+        celda.className = "history-empty";
+        celda.textContent = error.message;
+        fila.appendChild(celda);
+        cuerpo.replaceChildren(fila);
     }
 }
 
@@ -2907,7 +2927,6 @@ async function solicitarTipoMovimiento() {
         document.getElementById("movimiento-inicial").focus();
     } catch (error) {
         mostrarMensaje(error.message);
-        window.alert(error.message);
     } finally {
         boton.disabled = false;
         boton.textContent = "Iniciar captura";

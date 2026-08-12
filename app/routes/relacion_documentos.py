@@ -531,6 +531,13 @@ def homologar(
     request: Request,
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
-    exigir_sesion(request)
-    base_datos.homologar_tipo_movimiento_documento(document_id)
-    return {'mensaje': 'Homologación ejecutada correctamente.'}
+    seguridad_sesion.requerir_permiso(
+        request, 'registrar_transformaciones'
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            'La homologación manual está deshabilitada. '
+            'Los documentos solo se generan mediante una transformación.'
+        ),
+    )
