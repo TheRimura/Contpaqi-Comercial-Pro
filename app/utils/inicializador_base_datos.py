@@ -33,7 +33,6 @@ TABLAS_PROPIAS_MODULO = (
     "dbo.ModuloCarnicoProductoConfigurado",
     "dbo.ModuloCarnicoProductoBitacora",
     "dbo.ModuloCarnicoTransformacionRegistro",
-    "dbo.ModuloCarnicoCatalogoOculto",
     "dbo.ModuloAlmacenMarca",
 )
 
@@ -95,14 +94,6 @@ COLUMNAS_ESENCIALES_MODULO = {
         "fecha",
         "id_transformacion",
         "categoria_base",
-    ),
-    "dbo.ModuloCarnicoCatalogoOculto": (
-        "product_id",
-        "nombre",
-        "linea",
-        "activo",
-        "usuario_id",
-        "fecha",
     ),
     "dbo.ModuloAlmacenMarca": (
         "BrandID",

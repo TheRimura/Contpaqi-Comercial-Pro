@@ -471,7 +471,6 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def listar_transformaciones_precargadas(self, linea: str) -> list[dict]:
-        self.asegurar_tabla_catalogo_oculto()
         self.asegurar_proveedor_transformaciones_usuario()
         return self.fetchall(
             """
@@ -499,7 +498,6 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def listar_transformaciones_disponibles(self) -> list[dict]:
-        self.asegurar_tabla_catalogo_oculto()
         return self.fetchall(
             """
             SELECT
@@ -535,12 +533,6 @@ class BaseDatos(ComandosBaseDatos):
                     B.ProductID
             ) AS Base
             WHERE P.DiscontinuedOn IS NULL
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM dbo.ModuloCarnicoCatalogoOculto AS O
-                  WHERE O.product_id = P.ProductID
-                    AND O.activo = 1
-              )
               AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
                   IN ('CERDO', 'POLLO', 'RES LOCAL')
               AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
@@ -690,7 +682,6 @@ class BaseDatos(ComandosBaseDatos):
     def obtener_transformacion_catalogo(
             self, producto_resultante_id: int
     ) -> Optional[dict]:
-        self.asegurar_tabla_catalogo_oculto()
         disponibles = self.fetchall(
             """
             SELECT TOP 1
@@ -727,12 +718,6 @@ class BaseDatos(ComandosBaseDatos):
             ) AS Base
             WHERE P.ProductID = ?
               AND P.DiscontinuedOn IS NULL
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM dbo.ModuloCarnicoCatalogoOculto AS O
-                  WHERE O.product_id = P.ProductID
-                    AND O.activo = 1
-              )
               AND EXISTS
               (
                   SELECT 1
@@ -775,12 +760,6 @@ class BaseDatos(ComandosBaseDatos):
                 ) AS Base
                 WHERE P.ProductID = ?
                   AND P.DiscontinuedOn IS NULL
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM dbo.ModuloCarnicoCatalogoOculto AS O
-                      WHERE O.product_id = P.ProductID
-                        AND O.activo = 1
-                  )
                   AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
                       IN ('CERDO', 'POLLO', 'RES LOCAL')
                   AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
@@ -2741,101 +2720,58 @@ class BaseDatos(ComandosBaseDatos):
     def buscar_productos_base_configuracion(
             self, linea: str, termino: str = ''
     ) -> list[dict]:
-        self.asegurar_tabla_catalogo_oculto()
         texto = str(termino or '').strip()
-        return self.fetchall(
+        parametros = (str(linea).strip(), texto, texto)
+        configuraciones = self.fetchall(
             """
-            WITH Catalogo AS
-            (
-                SELECT
-                    -T.id_transformacion_usuario AS product_id,
-                    T.nombre_transformacion AS producto,
-                    CAST('TRANSFORMACION' AS NVARCHAR(50)) AS unidad,
-                    T.fecha_creacion,
-                    CAST(CASE
-                        WHEN T.fecha_creacion >= DATEADD(DAY, -30, GETDATE())
-                        THEN 1 ELSE 0
-                    END AS BIT) AS es_reciente,
-                    CAST(1 AS BIT) AS tiene_receta,
-                    CAST(1 AS BIT) AS es_configuracion,
-                    T.id_transformacion_usuario AS transformacion_id
-                FROM dbo.TransformacionesUsuario AS T
-                INNER JOIN dbo.orgProduct AS Base
-                    ON Base.ProductID = T.producto_origen
-                   AND Base.DiscontinuedOn IS NULL
-                WHERE T.activa = 1
-                  AND UPPER(LTRIM(RTRIM(ISNULL(Base.Category1, '')))) =
-                      UPPER(LTRIM(RTRIM(?)))
-                  AND (
-                      ? = ''
-                      OR T.nombre_transformacion LIKE '%' + ? + '%'
-                  )
-
-                SELECT
-                    P.ProductID AS product_id,
-                    P.ProductName AS producto,
-                    CAST(ISNULL(P.Unit, 'KILO') AS NVARCHAR(50)) AS unidad,
-                    P.CreatedOn AS fecha_creacion,
-                    CAST(CASE
-                        WHEN P.CreatedOn >= DATEADD(DAY, -30, GETDATE())
-                        THEN 1 ELSE 0
-                    END AS BIT) AS es_reciente,
-                    CAST(CASE WHEN EXISTS (
-                        SELECT 1
-                        FROM dbo.zvwFormulasListasPCocinar AS F
-                        WHERE F.ComponenteID = P.ProductID
-                    ) THEN 1 ELSE 0 END AS BIT) AS tiene_receta,
-                    CAST(0 AS BIT) AS es_configuracion,
-                    CAST(NULL AS INT) AS transformacion_id
-                FROM dbo.orgProduct AS P
-                WHERE P.DiscontinuedOn IS NULL
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM dbo.ModuloCarnicoCatalogoOculto AS O
-                      WHERE O.product_id = P.ProductID
-                        AND O.activo = 1
-                  )
-                  AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
-                      UPPER(LTRIM(RTRIM(?)))
-                  AND (? = '' OR P.ProductName LIKE '%' + ? + '%')
-            )
-            SELECT TOP (200)
-                product_id,
-                producto,
-                unidad,
-                fecha_creacion,
-                es_reciente,
-                tiene_receta,
-                es_configuracion,
-                transformacion_id
-            FROM Catalogo
-            ORDER BY es_configuracion DESC, producto
+            SELECT
+                -T.id_transformacion_usuario AS product_id,
+                T.nombre_transformacion AS producto,
+                CAST('TRANSFORMACION' AS NVARCHAR(50)) AS unidad,
+                T.fecha_creacion,
+                CAST(CASE WHEN T.fecha_creacion >= DATEADD(DAY, -30, GETDATE())
+                     THEN 1 ELSE 0 END AS BIT) AS es_reciente,
+                CAST(1 AS BIT) AS tiene_receta,
+                CAST(1 AS BIT) AS es_configuracion,
+                T.id_transformacion_usuario AS transformacion_id
+            FROM dbo.TransformacionesUsuario AS T
+            INNER JOIN dbo.orgProduct AS Base
+                ON Base.ProductID = T.producto_origen
+               AND Base.DiscontinuedOn IS NULL
+            WHERE T.activa = 1
+              AND UPPER(LTRIM(RTRIM(ISNULL(Base.Category1, '')))) =
+                  UPPER(LTRIM(RTRIM(?)))
+              AND (? = '' OR T.nombre_transformacion LIKE '%' + ? + '%')
+            ORDER BY T.nombre_transformacion
             """,
-            (
-                str(linea).strip(), texto, texto,
-                str(linea).strip(), texto, texto,
-            ),
+            parametros,
         )
-
-    def asegurar_tabla_catalogo_oculto(self) -> None:
-        self.command(
+        productos = self.fetchall(
             """
-            IF OBJECT_ID('dbo.ModuloCarnicoCatalogoOculto', 'U') IS NULL
-            BEGIN
-                CREATE TABLE dbo.ModuloCarnicoCatalogoOculto (
-                    product_id INT NOT NULL,
-                    nombre NVARCHAR(250) NOT NULL,
-                    linea NVARCHAR(100) NULL,
-                    activo BIT NOT NULL
-                        CONSTRAINT DF_MCCO_activo DEFAULT 1,
-                    usuario_id BIGINT NULL,
-                    fecha DATETIME2 NOT NULL
-                        CONSTRAINT DF_MCCO_fecha DEFAULT SYSUTCDATETIME()
-                );
-            END;
+            SELECT
+                P.ProductID AS product_id,
+                P.ProductName AS producto,
+                CAST(ISNULL(P.Unit, 'KILO') AS NVARCHAR(50)) AS unidad,
+                P.CreatedOn AS fecha_creacion,
+                CAST(CASE WHEN P.CreatedOn >= DATEADD(DAY, -30, GETDATE())
+                     THEN 1 ELSE 0 END AS BIT) AS es_reciente,
+                CAST(CASE WHEN EXISTS
+                (
+                    SELECT 1 FROM dbo.zvwFormulasListasPCocinar AS F
+                    WHERE F.ComponenteID = P.ProductID
+                ) THEN 1 ELSE 0 END AS BIT) AS tiene_receta,
+                CAST(0 AS BIT) AS es_configuracion,
+                CAST(NULL AS INT) AS transformacion_id
+            FROM dbo.orgProduct AS P
+            WHERE P.DiscontinuedOn IS NULL
+              AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
+                  UPPER(LTRIM(RTRIM(?)))
+              AND (? = '' OR P.ProductName LIKE '%' + ? + '%')
+            ORDER BY P.ProductName
             """,
-            (),
+            parametros,
         )
+        return (configuraciones + productos)[:200]
 
     def ocultar_producto_catalogo(
             self,
@@ -2863,25 +2799,21 @@ class BaseDatos(ComandosBaseDatos):
         else:
             if int(producto_id) <= 0:
                 raise ValueError('El producto seleccionado no es válido.')
-            self.asegurar_tabla_catalogo_oculto()
-            self.command(
+            ocultado = self.fetchone(
                 """
-                MERGE dbo.ModuloCarnicoCatalogoOculto AS Destino
-                USING (SELECT ? AS product_id) AS Origen
-                    ON Destino.product_id = Origen.product_id
-                WHEN MATCHED THEN UPDATE SET
-                    nombre = ?, linea = ?, activo = 1,
-                    usuario_id = ?, fecha = SYSUTCDATETIME()
-                WHEN NOT MATCHED THEN
-                    INSERT (product_id, nombre, linea, activo, usuario_id)
-                    VALUES (?, ?, ?, 1, ?);
+                UPDATE dbo.orgProduct
+                SET DiscontinuedOn = SYSUTCDATETIME()
+                OUTPUT INSERTED.ProductID
+                WHERE ProductID = ?
+                  AND DiscontinuedOn IS NULL;
                 """,
-                (
-                    int(producto_id), nombre, linea, int(usuario_id),
-                    int(producto_id), nombre, linea, int(usuario_id),
-                ),
+                (int(producto_id),),
             )
-            configuracion_id = None
+            if ocultado is None:
+                raise ValueError(
+                    'El producto ya está oculto o no está disponible.'
+                )
+            configuracion_id = -int(producto_id)
         self.registrar_auditoria_configuracion(
             configuracion_id=configuracion_id,
             configuracion_nombre=nombre,
@@ -2890,25 +2822,39 @@ class BaseDatos(ComandosBaseDatos):
             usuario_nombre=usuario_nombre,
             motivo='Producto ocultado desde el catálogo',
             valores_anteriores={'visible': True, 'linea': linea},
-            valores_nuevos={'visible': False},
+            valores_nuevos={
+                'visible': False,
+                'producto_id': int(producto_id),
+                'es_configuracion': bool(es_configuracion),
+            },
         )
 
     def listar_productos_ocultos_catalogo(self) -> list[dict]:
-        self.asegurar_tabla_catalogo_oculto()
-        return self.fetchall(
+        productos = self.fetchall(
             """
             SELECT
-                O.product_id,
-                O.nombre AS producto,
-                ISNULL(NULLIF(O.linea, ''), P.Category1) AS linea,
+                P.ProductID AS product_id,
+                P.ProductName AS producto,
+                P.Category1 AS linea,
                 CAST(0 AS BIT) AS es_configuracion,
                 CAST(NULL AS INT) AS transformacion_id,
-                O.fecha
-            FROM dbo.ModuloCarnicoCatalogoOculto AS O
-            LEFT JOIN dbo.orgProduct AS P
-                ON P.ProductID = O.product_id
-            WHERE O.activo = 1
-
+                P.DiscontinuedOn AS fecha
+            FROM dbo.orgProduct AS P
+            CROSS APPLY
+            (
+                SELECT TOP 1 A.accion
+                FROM dbo.ModuloCarnicoConfiguracionAuditoria AS A
+                WHERE A.configuracion_id = -P.ProductID
+                ORDER BY A.fecha DESC, A.id_auditoria DESC
+            ) AS UltimaAccion
+            WHERE P.DiscontinuedOn IS NOT NULL
+              AND UltimaAccion.accion = 'ELIMINAR'
+            ORDER BY P.Category1, P.ProductName
+            """,
+            (),
+        )
+        configuraciones = self.fetchall(
+            """
             SELECT
                 -T.id_transformacion_usuario AS product_id,
                 T.nombre_transformacion AS producto,
@@ -2921,11 +2867,16 @@ class BaseDatos(ComandosBaseDatos):
                 ON Base.ProductID = T.producto_origen
                AND Base.DiscontinuedOn IS NULL
             WHERE T.activa = 0
-
-            ORDER BY linea, producto
+            ORDER BY Base.Category1, T.nombre_transformacion
             """,
             (),
         )
+        ocultos = productos + configuraciones
+        ocultos.sort(key=lambda item: (
+            str(item.get('linea') or ''),
+            str(item.get('producto') or ''),
+        ))
+        return ocultos
 
     def restaurar_producto_catalogo(
             self,
@@ -2937,7 +2888,6 @@ class BaseDatos(ComandosBaseDatos):
             usuario_id: int,
             usuario_nombre: str,
     ) -> None:
-        self.asegurar_tabla_catalogo_oculto()
         if es_configuracion:
             if not transformacion_id:
                 raise ValueError('La configuración seleccionada no es válida.')
@@ -2957,15 +2907,22 @@ class BaseDatos(ComandosBaseDatos):
                 raise ValueError('El producto seleccionado no es válido.')
             restaurado = self.fetchone(
                 """
-                UPDATE dbo.ModuloCarnicoCatalogoOculto
-                SET activo = 0, usuario_id = ?, fecha = SYSUTCDATETIME()
-                OUTPUT INSERTED.product_id
-                WHERE product_id = ?
-                  AND activo = 1
+                UPDATE dbo.orgProduct
+                SET DiscontinuedOn = NULL
+                OUTPUT INSERTED.ProductID
+                WHERE ProductID = ?
+                  AND DiscontinuedOn IS NOT NULL
+                  AND
+                  (
+                      SELECT TOP 1 A.accion
+                      FROM dbo.ModuloCarnicoConfiguracionAuditoria AS A
+                      WHERE A.configuracion_id = -dbo.orgProduct.ProductID
+                      ORDER BY A.fecha DESC, A.id_auditoria DESC
+                  ) = 'ELIMINAR'
                 """,
-                (int(usuario_id), int(producto_id)),
+                (int(producto_id),),
             )
-            configuracion_id = None
+            configuracion_id = -int(producto_id)
         if restaurado is None:
             raise ValueError('El producto ya fue restaurado o no está disponible.')
         self.registrar_auditoria_configuracion(

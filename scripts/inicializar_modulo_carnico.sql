@@ -202,19 +202,35 @@ BEGIN TRY
         );
     END;
 
-    IF OBJECT_ID('dbo.ModuloCarnicoCatalogoOculto', 'U') IS NULL
+    -- Compatibilidad: migra ocultamientos de versiones anteriores a la
+    -- tabla principal de productos. La tabla antigua no se vuelve a crear.
+    IF OBJECT_ID('dbo.ModuloCarnicoCatalogoOculto', 'U') IS NOT NULL
     BEGIN
-        CREATE TABLE dbo.ModuloCarnicoCatalogoOculto
+        INSERT INTO dbo.ModuloCarnicoConfiguracionAuditoria
         (
-            product_id INT NOT NULL,
-            nombre NVARCHAR(250) NOT NULL,
-            linea NVARCHAR(100) NULL,
-            activo BIT NOT NULL
-                CONSTRAINT DF_MCCO_activo DEFAULT 1,
-            usuario_id BIGINT NULL,
-            fecha DATETIME2 NOT NULL
-                CONSTRAINT DF_MCCO_fecha DEFAULT SYSUTCDATETIME()
-        );
+            configuracion_id, configuracion_nombre, accion,
+            usuario_id, usuario_nombre, motivo,
+            valores_anteriores_json, valores_nuevos_json, fecha
+        )
+        SELECT
+            -O.product_id, O.nombre, 'ELIMINAR', O.usuario_id,
+            'MIGRACION', 'Ocultamiento migrado a orgProduct',
+            NULL, NULL, O.fecha
+        FROM dbo.ModuloCarnicoCatalogoOculto AS O
+        WHERE O.activo = 1
+          AND NOT EXISTS
+          (
+              SELECT 1
+              FROM dbo.ModuloCarnicoConfiguracionAuditoria AS A
+              WHERE A.configuracion_id = -O.product_id
+          );
+
+        UPDATE P
+        SET P.DiscontinuedOn = COALESCE(P.DiscontinuedOn, O.fecha)
+        FROM dbo.orgProduct AS P
+        INNER JOIN dbo.ModuloCarnicoCatalogoOculto AS O
+            ON O.product_id = P.ProductID
+           AND O.activo = 1;
     END;
 
 

@@ -197,15 +197,25 @@ ORDER BY
    5. PRODUCTOS OCULTOS DEL CATÁLOGO DEL MÓDULO
    ================================================================ */
 SELECT
-    O.product_id AS ProductID,
-    O.nombre AS Producto,
-    O.linea AS Linea,
-    O.activo AS Oculto,
-    O.usuario_id AS UsuarioID,
-    CONVERT(DATETIME2(0), O.fecha) AS Fecha
-FROM dbo.ModuloCarnicoCatalogoOculto AS O
-WHERE O.activo = 1
-ORDER BY O.fecha DESC;
+    P.ProductID,
+    P.ProductName AS Producto,
+    P.Category1 AS Linea,
+    CAST(1 AS BIT) AS Oculto,
+    A.usuario_id AS UsuarioID,
+    CONVERT(DATETIME2(0), P.DiscontinuedOn) AS Fecha
+FROM dbo.orgProduct AS P
+CROSS APPLY
+(
+    SELECT TOP 1
+        Auditoria.usuario_id,
+        Auditoria.accion
+    FROM dbo.ModuloCarnicoConfiguracionAuditoria AS Auditoria
+    WHERE Auditoria.configuracion_id = -P.ProductID
+    ORDER BY Auditoria.fecha DESC, Auditoria.id_auditoria DESC
+) AS A
+WHERE P.DiscontinuedOn IS NOT NULL
+  AND A.accion = 'ELIMINAR'
+ORDER BY P.DiscontinuedOn DESC;
 
 
 /* ================================================================
