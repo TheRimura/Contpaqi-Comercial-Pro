@@ -202,8 +202,6 @@ BEGIN TRY
         );
     END;
 
-    -- Compatibilidad: conserva los ocultamientos anteriores dentro de la
-    -- tabla propia del módulo. Nunca modifica el estado global de orgProduct.
     IF OBJECT_ID('dbo.ModuloCarnicoCatalogoOculto', 'U') IS NOT NULL
     BEGIN
         INSERT INTO dbo.ModuloCarnicoConfiguracionAuditoria

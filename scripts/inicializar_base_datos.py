@@ -45,14 +45,11 @@ def _actualizar_variable_env(nombre: str, valor: str) -> None:
 
 
 def _detectar_servidor_sql() -> str:
-    """Localiza una instancia compatible sin explorar la red completa."""
     from cayal.comandos_base_datos import ComandosBaseDatos
 
     equipo = node().strip()
     servidor_explicito = os.getenv('CAYAL_DB_SERVER', '').strip()
-    # Una instancia COMPAC o remota debe declararse explícitamente. Esto
-    # evita que una instalación de desarrollo descubra y modifique por error
-    # un servidor empresarial accesible desde el equipo.
+
     candidatos = (servidor_explicito, equipo, 'localhost')
     revisados: set[str] = set()
     for candidato in candidatos:
@@ -61,8 +58,7 @@ def _detectar_servidor_sql() -> str:
             continue
         revisados.add(clave)
         try:
-            # El paquete CAYAL imprime su cadena al inicializarse. Se oculta
-            # para no exponer datos de conexión en la consola del instalador.
+
             with redirect_stdout(StringIO()):
                 comandos = ComandosBaseDatos(
                     servidor=candidato,
