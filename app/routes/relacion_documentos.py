@@ -9,7 +9,9 @@ from fastapi.encoders import jsonable_encoder
 
 from app.schemas.relacion_documentos import (
     CrearTransformacion,
+    LineaTransformacion,
     RespuestaRelacionDocumentos,
+    TransformacionPrecargada,
 )
 from app.utils.base_de_datos import BaseDatos, obtener_base_datos
 from app.utils.seguridad import seguridad_sesion
@@ -85,7 +87,7 @@ def consultar_catalogos(
     return jsonable_encoder(_catalogos_compartidos(periodo_cache))
 
 
-@router.get('/transformacion/lineas')
+@router.get('/transformacion/lineas', response_model=list[LineaTransformacion])
 def consultar_lineas_transformacion(
     request: Request,
     base_datos: BaseDatos = Depends(obtener_base_datos),
@@ -106,7 +108,10 @@ def consultar_bases_transformacion(
     )
 
 
-@router.get('/transformacion/precargadas')
+@router.get(
+    '/transformacion/precargadas',
+    response_model=list[TransformacionPrecargada],
+)
 def consultar_transformaciones_precargadas(
     request: Request,
     linea: str = Query(min_length=1, max_length=100),

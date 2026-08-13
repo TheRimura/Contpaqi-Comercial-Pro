@@ -160,8 +160,10 @@ SELECT
 FROM dbo.TransformacionesUsuario AS T
 INNER JOIN dbo.orgProduct AS P
     ON P.ProductID = T.producto_origen
+INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS M
+    ON M.product_id = P.ProductID
+   AND M.activo = 1
 WHERE T.activa = 1
-  AND P.DiscontinuedOn IS NULL
 ORDER BY
     P.Category1,
     T.nombre_transformacion;
@@ -197,25 +199,15 @@ ORDER BY
    5. PRODUCTOS OCULTOS DEL CATÁLOGO DEL MÓDULO
    ================================================================ */
 SELECT
-    P.ProductID,
-    P.ProductName AS Producto,
-    P.Category1 AS Linea,
+    M.product_id AS ProductID,
+    M.nombre_producto AS Producto,
+    M.categoria AS Linea,
     CAST(1 AS BIT) AS Oculto,
-    A.usuario_id AS UsuarioID,
-    CONVERT(DATETIME2(0), P.DiscontinuedOn) AS Fecha
-FROM dbo.orgProduct AS P
-CROSS APPLY
-(
-    SELECT TOP 1
-        Auditoria.usuario_id,
-        Auditoria.accion
-    FROM dbo.ModuloCarnicoConfiguracionAuditoria AS Auditoria
-    WHERE Auditoria.configuracion_id = -P.ProductID
-    ORDER BY Auditoria.fecha DESC, Auditoria.id_auditoria DESC
-) AS A
-WHERE P.DiscontinuedOn IS NOT NULL
-  AND A.accion = 'ELIMINAR'
-ORDER BY P.DiscontinuedOn DESC;
+    M.usuario_actualizacion AS UsuarioID,
+    CONVERT(DATETIME2(0), M.fecha_actualizacion) AS Fecha
+FROM dbo.ModuloCarnicoProductoConfigurado AS M
+WHERE M.activo = 0
+ORDER BY M.fecha_actualizacion DESC, M.id_producto_carnico DESC;
 
 
 /* ================================================================

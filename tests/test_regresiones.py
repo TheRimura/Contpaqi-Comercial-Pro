@@ -57,6 +57,55 @@ class PruebasRegresionModulo(unittest.TestCase):
         self.assertNotIn("UPDATE DBO.ORGPRODUCT", contenido)
         self.assertNotIn("SET DISCONTINUEDON", contenido)
 
+    def test_ocultamiento_solo_usa_estado_privado_del_modulo(self):
+        contenido = (RAIZ / "app/utils/base_de_datos.py").read_text(
+            encoding="utf-8"
+        )
+        bloque = contenido.split(
+            "    def ocultar_producto_catalogo(", 1
+        )[1].split(
+            "    def buscar_productos_resultantes_configuracion(", 1
+        )[0].upper()
+        self.assertNotIn("XACT_ABORT", bloque)
+        self.assertNotIn("BEGIN TRANSACTION", bloque)
+        self.assertNotIn("UPDATE DBO.ORGPRODUCT", bloque)
+        self.assertNotIn("FROM DBO.ORGPRODUCT", bloque)
+        self.assertIn("UPDATE DBO.MODULOCARNICOPRODUCTOCONFIGURADO", bloque)
+
+    def test_consultas_operativas_no_usan_xact_abort(self):
+        contenido = (RAIZ / "app/utils/base_de_datos.py").read_text(
+            encoding="utf-8"
+        ).upper()
+        self.assertNotIn("XACT_ABORT", contenido)
+
+    def test_rutas_no_contienen_sql_directo(self):
+        for ruta in (RAIZ / "app/routes").glob("*.py"):
+            contenido = ruta.read_text(encoding="utf-8").upper()
+            for sentencia in (
+                "SELECT ", "INSERT INTO ", "UPDATE DBO.", "DELETE FROM "
+            ):
+                self.assertNotIn(
+                    sentencia,
+                    contenido,
+                    f"{ruta.name} contiene SQL directo: {sentencia.strip()}",
+                )
+
+    def test_endpoints_principales_declaran_schema_de_salida(self):
+        relacion = (RAIZ / "app/routes/relacion_documentos.py").read_text(
+            encoding="utf-8"
+        )
+        configuracion = (
+            RAIZ / "app/routes/configuraciones_carnicas.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "response_model=list[LineaTransformacion]", relacion
+        )
+        self.assertIn(
+            "response_model=list[TransformacionPrecargada]", relacion
+        )
+        self.assertIn("response_model=ConfiguracionCreada", configuracion)
+        self.assertIn("response_model=ConfiguracionesCreadas", configuracion)
+
     def test_ids_usados_por_javascript_existen_en_las_plantillas(self):
         javascript = (RAIZ / "app/static/js/app.js").read_text(
             encoding="utf-8"

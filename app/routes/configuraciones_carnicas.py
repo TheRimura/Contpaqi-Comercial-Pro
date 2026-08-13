@@ -2,9 +2,12 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, sta
 from fastapi.encoders import jsonable_encoder
 
 from app.schemas.configuracion import (
+    ConfiguracionCreada,
+    ConfiguracionesCreadas,
     CrearConfiguracionTransformacion,
     EventoAuditoriaConfiguracion,
     OcultarProductoCatalogo,
+    MensajeConfiguracion,
 )
 from app.utils.base_de_datos import BaseDatos, obtener_base_datos
 from app.utils.seguridad import seguridad_sesion
@@ -13,7 +16,7 @@ from app.utils.seguridad import seguridad_sesion
 router = APIRouter(prefix='/api/configuracion', tags=['Configuración'])
 
 
-@router.post('/catalogo/ocultar')
+@router.post('/catalogo/ocultar', response_model=MensajeConfiguracion)
 def ocultar_producto_catalogo(
     datos: OcultarProductoCatalogo,
     request: Request,
@@ -142,7 +145,11 @@ def formula_producto(
     return jsonable_encoder(componentes)
 
 
-@router.post('/transformaciones', status_code=status.HTTP_201_CREATED)
+@router.post(
+    '/transformaciones',
+    response_model=ConfiguracionCreada,
+    status_code=status.HTTP_201_CREATED,
+)
 def crear_transformacion(
     datos: CrearConfiguracionTransformacion,
     request: Request,
@@ -165,7 +172,11 @@ def crear_transformacion(
     }
 
 
-@router.post('/transformaciones/lote', status_code=status.HTTP_201_CREATED)
+@router.post(
+    '/transformaciones/lote',
+    response_model=ConfiguracionesCreadas,
+    status_code=status.HTTP_201_CREATED,
+)
 def crear_transformaciones_lote(
     request: Request,
     datos: list[CrearConfiguracionTransformacion] = Body(

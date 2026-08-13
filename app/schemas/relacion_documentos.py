@@ -27,3 +27,18 @@ class RespuestaRelacionDocumentos(BaseModel):
     destination_document_id: int
     folio_salida: str
     folio_entrada: str
+
+
+class LineaTransformacion(BaseModel):
+    Category1: str
+    total_productos: int = Field(ge=0)
+    total_recetas: int = Field(ge=0)
+
+
+class TransformacionPrecargada(BaseModel):
+    transformacion_id: int = Field(gt=0)
+    nombre_transformacion: str
+    producto_base_id: int = Field(gt=0)
+    producto_base: str
+    linea: str
+    proveedor: str = ''

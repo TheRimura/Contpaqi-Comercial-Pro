@@ -4,14 +4,12 @@ import re
 import unicodedata
 from copy import deepcopy
 from difflib import SequenceMatcher
+from functools import cache
 from platform import node
 from threading import RLock
 from time import monotonic
 
 import pyodbc
-
-from functools import cache
-from typing import Any, Optional
 
 from cayal.comandos_base_datos import ComandosBaseDatos
 
@@ -19,8 +17,6 @@ from app.settings import AJUSTES_MODULO
 
 
 class BaseDatos(ComandosBaseDatos):
-
-
     MODULO_ENTRADA = 202
     MODULO_SALIDA = 203
 
@@ -52,9 +48,13 @@ class BaseDatos(ComandosBaseDatos):
             tuple[str, str, str], tuple[float, dict[str, float | int]]
         ] = {}
         self._cache_paginas_historial: dict[
-            tuple[int, int, str, str, str], tuple[float, dict[str, Any]]
+            tuple[int, int, str, str, str], tuple[float, dict]
         ] = {}
         self._bloqueo_cache_historial = RLock()
+        self._bloqueo_estructura = RLock()
+        self._tablas_modulo_verificadas = False
+        self._tablas_relacion_verificadas = False
+        self._tablas_configuracion_verificadas = False
         contexto = super().fetchall(
             """
             SELECT
@@ -92,8 +92,7 @@ class BaseDatos(ComandosBaseDatos):
             self,
             sql: str,
             params: tuple = (),
-    ) -> list[dict[str, Any]]:
-
+    ) -> list[dict]:
         return super().fetchall(sql, params)
 
     def command(
@@ -101,15 +100,13 @@ class BaseDatos(ComandosBaseDatos):
             sql: str,
             params: tuple = (),
     ) -> int | None:
-
         return super().command(sql, params)
 
     def fetchone(
             self,
             sql: str,
             params: tuple = (),
-    ) -> Any | None:
-
+    ) -> object | None:
         with pyodbc.connect(self._cadena_conexion_modulo) as conexion:
             cursor = conexion.cursor()
             cursor.execute(sql, params)
@@ -146,7 +143,6 @@ class BaseDatos(ComandosBaseDatos):
         if not clave_firma:
             valor_clave_firma = self.fetchone(
                 """
-                SET XACT_ABORT ON;
                 IF OBJECT_ID(
                     'dbo.ModuloCarnicoConfiguracionSeguridad', 'U'
                 ) IS NULL
@@ -429,34 +425,45 @@ class BaseDatos(ComandosBaseDatos):
         return []
 
     def listar_lineas_transformacion(self) -> list[dict]:
+        self.asegurar_tablas_modulo_carnico()
         return self.fetchall(
             """
+            WITH ProductosModulo AS
+            (
+                SELECT P.ProductID, P.Category1
+                FROM dbo.orgProduct AS P
+                INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS M
+                    ON M.product_id = P.ProductID
+                   AND M.activo = 1
+                WHERE UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
+                    IN ('CERDO', 'POLLO', 'RES LOCAL')
+            ),
+            RecetasPorLinea AS
+            (
+                SELECT
+                    C.Category1,
+                    COUNT(DISTINCT F.ProductID) AS total_recetas
+                FROM dbo.zvwFormulasListasPCocinar AS F
+                INNER JOIN ProductosModulo AS C
+                    ON C.ProductID = F.ComponenteID
+                INNER JOIN ProductosModulo AS R
+                    ON R.ProductID = F.ProductID
+                GROUP BY C.Category1
+            )
             SELECT
-                Linea.Category1,
+                P.Category1,
                 COUNT(*) AS total_productos,
-                (
-                    SELECT COUNT(DISTINCT Formula.ProductID)
-                    FROM dbo.zvwFormulasListasPCocinar AS Formula
-                    INNER JOIN dbo.orgProduct AS Componente
-                        ON Componente.ProductID = Formula.ComponenteID
-                       AND Componente.DiscontinuedOn IS NULL
-                    INNER JOIN dbo.orgProduct AS Resultado
-                        ON Resultado.ProductID = Formula.ProductID
-                       AND Resultado.DiscontinuedOn IS NULL
-                    WHERE UPPER(LTRIM(RTRIM(ISNULL(Componente.Category1, '')))) =
-                          UPPER(LTRIM(RTRIM(Linea.Category1)))
-                ) AS total_recetas
-            FROM dbo.orgProduct AS Linea
-            WHERE Linea.DiscontinuedOn IS NULL
-              AND UPPER(LTRIM(RTRIM(ISNULL(Linea.Category1, ''))))
-                  IN ('CERDO', 'POLLO', 'RES LOCAL')
-            GROUP BY Linea.Category1
-            ORDER BY Linea.Category1
+                ISNULL(MAX(R.total_recetas), 0) AS total_recetas
+            FROM ProductosModulo AS P
+            LEFT JOIN RecetasPorLinea AS R ON R.Category1 = P.Category1
+            GROUP BY P.Category1
+            ORDER BY P.Category1
             """,
             (),
         )
 
     def listar_productos_base_transformacion(self, linea: str) -> list[dict]:
+        self.asegurar_tablas_modulo_carnico()
         return self.fetchall(
             """
             SELECT
@@ -471,21 +478,10 @@ class BaseDatos(ComandosBaseDatos):
                 ) AS product_id_base,
                 COUNT(*) AS total_resultantes
             FROM dbo.orgProduct AS P
-            WHERE P.DiscontinuedOn IS NULL
-              AND NOT EXISTS
-              (
-                  SELECT 1
-                  FROM dbo.ModuloCarnicoProductoConfigurado AS Visibilidad
-                  WHERE Visibilidad.product_id = P.ProductID
-                    AND Visibilidad.activo = 0
-                    AND Visibilidad.id_producto_carnico =
-                    (
-                        SELECT MAX(Ultimo.id_producto_carnico)
-                        FROM dbo.ModuloCarnicoProductoConfigurado AS Ultimo
-                        WHERE Ultimo.product_id = P.ProductID
-                    )
-              )
-              AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
+            INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS CatalogoModulo
+                ON CatalogoModulo.product_id = P.ProductID
+               AND CatalogoModulo.activo = 1
+            WHERE UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
                   UPPER(LTRIM(RTRIM(?)))
               AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
             GROUP BY P.Category2
@@ -495,6 +491,7 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def listar_transformaciones_precargadas(self, linea: str) -> list[dict]:
+        self.asegurar_tablas_modulo_carnico()
         self.asegurar_proveedor_transformaciones_usuario()
         return self.fetchall(
             """
@@ -512,21 +509,10 @@ class BaseDatos(ComandosBaseDatos):
                 ON S.SupplierID = T.proveedor_id
             LEFT JOIN dbo.orgBusinessEntity AS E
                 ON E.BusinessEntityID = S.BusinessEntityID
+            INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS CatalogoModulo
+                ON CatalogoModulo.product_id = P.ProductID
+               AND CatalogoModulo.activo = 1
             WHERE T.activa = 1
-              AND P.DiscontinuedOn IS NULL
-              AND NOT EXISTS
-              (
-                  SELECT 1
-                  FROM dbo.ModuloCarnicoProductoConfigurado AS Visibilidad
-                  WHERE Visibilidad.product_id = P.ProductID
-                    AND Visibilidad.activo = 0
-                    AND Visibilidad.id_producto_carnico =
-                    (
-                        SELECT MAX(Ultimo.id_producto_carnico)
-                        FROM dbo.ModuloCarnicoProductoConfigurado AS Ultimo
-                        WHERE Ultimo.product_id = P.ProductID
-                    )
-              )
               AND UPPER(LTRIM(RTRIM(P.Category1))) =
                   UPPER(LTRIM(RTRIM(?)))
             ORDER BY T.nombre_transformacion
@@ -535,6 +521,7 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def listar_transformaciones_disponibles(self) -> list[dict]:
+        self.asegurar_tablas_modulo_carnico()
         return self.fetchall(
             """
             SELECT
@@ -551,6 +538,9 @@ class BaseDatos(ComandosBaseDatos):
                 ) THEN 1 ELSE 0 END AS BIT) AS tiene_formula,
                 CAST(1 AS BIT) AS origen_catalogo
             FROM dbo.orgProduct AS P
+            INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS CatalogoModulo
+                ON CatalogoModulo.product_id = P.ProductID
+               AND CatalogoModulo.activo = 1
             OUTER APPLY
             (
                 SELECT TOP 1 B.ProductID, B.ProductName
@@ -569,21 +559,7 @@ class BaseDatos(ComandosBaseDatos):
                          THEN 0 ELSE 1 END,
                     B.ProductID
             ) AS Base
-            WHERE P.DiscontinuedOn IS NULL
-              AND NOT EXISTS
-              (
-                  SELECT 1
-                  FROM dbo.ModuloCarnicoProductoConfigurado AS Visibilidad
-                  WHERE Visibilidad.product_id = P.ProductID
-                    AND Visibilidad.activo = 0
-                    AND Visibilidad.id_producto_carnico =
-                    (
-                        SELECT MAX(Ultimo.id_producto_carnico)
-                        FROM dbo.ModuloCarnicoProductoConfigurado AS Ultimo
-                        WHERE Ultimo.product_id = P.ProductID
-                    )
-              )
-              AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
+            WHERE UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
                   IN ('CERDO', 'POLLO', 'RES LOCAL')
               AND NULLIF(LTRIM(RTRIM(P.Category2)), '') IS NOT NULL
               AND UPPER(LTRIM(RTRIM(P.ProductName))) <>
@@ -731,7 +707,7 @@ class BaseDatos(ComandosBaseDatos):
 
     def obtener_transformacion_catalogo(
             self, producto_resultante_id: int
-    ) -> Optional[dict]:
+    ) -> dict | None:
         disponibles = self.fetchall(
             """
             SELECT TOP 1
@@ -892,7 +868,7 @@ class BaseDatos(ComandosBaseDatos):
     def obtener_transformacion_precargada(
             self,
             transformacion_id: int,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         encabezados = self.fetchall(
             """
             SELECT TOP 1
@@ -985,8 +961,8 @@ class BaseDatos(ComandosBaseDatos):
             self,
             module_id: int,
             product_id: int,
-            cantidad: Optional[float] = None,
-    ) -> Optional[dict]:
+            cantidad: float | None = None,
+    ) -> dict | None:
         filas = self.fetchall(
             """
             SELECT TOP 1
@@ -1024,7 +1000,7 @@ class BaseDatos(ComandosBaseDatos):
             linea: str,
             producto_base_id: int,
             producto_resultante_id: int,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         filas = self.fetchall(
             """
             SELECT TOP 1
@@ -1118,12 +1094,11 @@ class BaseDatos(ComandosBaseDatos):
             usuario_fisico_id: int,
             tipo_movimiento_salida_id: int,
             tipo_movimiento_entrada_id: int,
-            insumos: Optional[list[dict]] = None,
-    ) -> Optional[dict]:
+            insumos: list[dict] | None = None,
+    ) -> dict | None:
         relation_id = self.fetchone(
             """
             SET NOCOUNT ON;
-            SET XACT_ABORT ON;
             BEGIN TRY
                 BEGIN TRANSACTION;
 
@@ -1351,7 +1326,7 @@ class BaseDatos(ComandosBaseDatos):
             fecha_desde: str = '',
             fecha_hasta: str = '',
             transformacion: str = '',
-    ) -> dict[str, Any]:
+    ) -> dict:
         clave_cache = (
             int(limite),
             int(pagina),
@@ -1383,7 +1358,7 @@ class BaseDatos(ComandosBaseDatos):
             fecha_desde: str = '',
             fecha_hasta: str = '',
             transformacion: str = '',
-    ) -> dict[str, Any]:
+    ) -> dict:
         limite = min(max(int(limite), 1), 50)
         pagina = max(int(pagina), 1)
         desplazamiento = (pagina - 1) * limite
@@ -1822,7 +1797,7 @@ class BaseDatos(ComandosBaseDatos):
     def obtener_detalle_historial_transformacion(
             self,
             relacion_id: int,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         relaciones = self.fetchall(
             """
             SELECT TOP 1
@@ -1873,7 +1848,7 @@ class BaseDatos(ComandosBaseDatos):
     def obtener_relacion_documento(
             self,
             document_id: int,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         self.asegurar_tablas_relacion_documentos()
         filas = self.fetchall(
             """
@@ -1950,7 +1925,6 @@ class BaseDatos(ComandosBaseDatos):
         self.command(
             """
             SET NOCOUNT ON;
-            SET XACT_ABORT ON;
             BEGIN TRANSACTION;
 
             DECLARE @Origen INT = ?;
@@ -2148,7 +2122,7 @@ class BaseDatos(ComandosBaseDatos):
     def buscar_document_id_por_folio(
             self,
             folio: str,
-            module_id: Optional[int] = None,
+            module_id: int | None = None,
     ) -> int:
         if not folio:
             return 0
@@ -2178,8 +2152,13 @@ class BaseDatos(ComandosBaseDatos):
 
     # -------------------------- MODULO CARNICO -------------------------
     def asegurar_tablas_modulo_carnico(self) -> None:
-        self.command(
-            """
+        if self._tablas_modulo_verificadas:
+            return
+        with self._bloqueo_estructura:
+            if self._tablas_modulo_verificadas:
+                return
+            self.command(
+                """
             IF OBJECT_ID(
                 'dbo.ModuloCarnicoProductoConfigurado',
                 'U'
@@ -2226,6 +2205,26 @@ class BaseDatos(ComandosBaseDatos):
                 );
             END;
 
+            INSERT dbo.ModuloCarnicoProductoConfigurado
+            (
+                product_id, clave, nombre_producto, categoria, unidad,
+                porcentaje_merma, activo, usuario_creacion
+            )
+            SELECT
+                P.ProductID, CONVERT(NVARCHAR(50), P.ProductID),
+                P.ProductName, P.Category1, ISNULL(P.Unit, 'KILO'),
+                0, 1, NULL
+            FROM dbo.orgProduct AS P
+            WHERE P.DiscontinuedOn IS NULL
+              AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
+                  IN ('CERDO', 'POLLO', 'RES LOCAL')
+              AND NOT EXISTS
+              (
+                  SELECT 1
+                  FROM dbo.ModuloCarnicoProductoConfigurado AS M
+                  WHERE M.product_id = P.ProductID
+              );
+
             IF OBJECT_ID(
                 'dbo.ModuloCarnicoTransformacionRegistro',
                 'U'
@@ -2248,9 +2247,10 @@ class BaseDatos(ComandosBaseDatos):
                         CONSTRAINT DF_MCTR_fecha DEFAULT SYSUTCDATETIME()
                 );
             END;
-            """,
-            (),
-        )
+                """,
+                (),
+            )
+            self._tablas_modulo_verificadas = True
 
     def buscar_productos_carnicos_configurados(
             self,
@@ -2417,7 +2417,7 @@ class BaseDatos(ComandosBaseDatos):
     def buscar_producto_carnico_configurado(
             self,
             id_configuracion: int,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         filas = self.fetchall(
             """
             SELECT TOP 1
@@ -2543,8 +2543,13 @@ class BaseDatos(ComandosBaseDatos):
         )
 
     def asegurar_tablas_relacion_documentos(self) -> None:
-        self.command(
-            """
+        if self._tablas_relacion_verificadas:
+            return
+        with self._bloqueo_estructura:
+            if self._tablas_relacion_verificadas:
+                return
+            self.command(
+                """
             IF OBJECT_ID('dbo.ModuloAlmacenMarca', 'U') IS NULL
             BEGIN
                 CREATE TABLE dbo.ModuloAlmacenMarca (
@@ -2557,9 +2562,10 @@ class BaseDatos(ComandosBaseDatos):
                         CONSTRAINT DF_ModuloAlmacenMarca_fecha DEFAULT SYSDATETIME()
                 );
             END;
-            """,
-            (),
-        )
+                """,
+                (),
+            )
+            self._tablas_relacion_verificadas = True
 
     def obtener_o_crear_marca_modulo(self, categoria: str, nombre: str) -> int:
         categoria = str(categoria or "").strip()
@@ -2759,8 +2765,13 @@ class BaseDatos(ComandosBaseDatos):
 
     # ---------------- CONFIGURACION DE TRANSFORMACIONES ----------------
     def asegurar_proveedor_transformaciones_usuario(self) -> None:
-        self.command(
-            """
+        if self._tablas_configuracion_verificadas:
+            return
+        with self._bloqueo_estructura:
+            if self._tablas_configuracion_verificadas:
+                return
+            self.command(
+                """
             IF OBJECT_ID('dbo.TransformacionesUsuario', 'U') IS NOT NULL
                AND COL_LENGTH('dbo.TransformacionesUsuario', 'proveedor_id') IS NULL
             BEGIN
@@ -2787,9 +2798,10 @@ class BaseDatos(ComandosBaseDatos):
                         CONSTRAINT DF_MCCA_fecha DEFAULT SYSDATETIME()
                 );
             END;
-            """,
-            (),
-        )
+                """,
+                (),
+            )
+            self._tablas_configuracion_verificadas = True
 
     def registrar_auditoria_configuracion(
             self,
@@ -2864,6 +2876,7 @@ class BaseDatos(ComandosBaseDatos):
     def buscar_productos_base_configuracion(
             self, linea: str, termino: str = ''
     ) -> list[dict]:
+        self.asegurar_tablas_modulo_carnico()
         texto = str(termino or '').strip()
         parametros = (str(linea).strip(), texto, texto)
         configuraciones = self.fetchall(
@@ -2881,7 +2894,9 @@ class BaseDatos(ComandosBaseDatos):
             FROM dbo.TransformacionesUsuario AS T
             INNER JOIN dbo.orgProduct AS Base
                 ON Base.ProductID = T.producto_origen
-               AND Base.DiscontinuedOn IS NULL
+            INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS CatalogoModulo
+                ON CatalogoModulo.product_id = Base.ProductID
+               AND CatalogoModulo.activo = 1
             WHERE T.activa = 1
               AND UPPER(LTRIM(RTRIM(ISNULL(Base.Category1, '')))) =
                   UPPER(LTRIM(RTRIM(?)))
@@ -2907,21 +2922,10 @@ class BaseDatos(ComandosBaseDatos):
                 CAST(0 AS BIT) AS es_configuracion,
                 CAST(NULL AS INT) AS transformacion_id
             FROM dbo.orgProduct AS P
-            WHERE P.DiscontinuedOn IS NULL
-              AND NOT EXISTS
-              (
-                  SELECT 1
-                  FROM dbo.ModuloCarnicoProductoConfigurado AS Visibilidad
-                  WHERE Visibilidad.product_id = P.ProductID
-                    AND Visibilidad.activo = 0
-                    AND Visibilidad.id_producto_carnico =
-                    (
-                        SELECT MAX(Ultimo.id_producto_carnico)
-                        FROM dbo.ModuloCarnicoProductoConfigurado AS Ultimo
-                        WHERE Ultimo.product_id = P.ProductID
-                    )
-              )
-              AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
+            INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS CatalogoModulo
+                ON CatalogoModulo.product_id = P.ProductID
+               AND CatalogoModulo.activo = 1
+            WHERE UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
                   UPPER(LTRIM(RTRIM(?)))
               AND (? = '' OR P.ProductName LIKE '%' + ? + '%')
             ORDER BY P.ProductName
@@ -2958,44 +2962,17 @@ class BaseDatos(ComandosBaseDatos):
                 raise ValueError('El producto seleccionado no es válido.')
             ocultado = self.fetchone(
                 """
-                SET XACT_ABORT ON;
-                BEGIN TRANSACTION;
-                IF NOT EXISTS
-                (
-                    SELECT 1 FROM dbo.orgProduct
-                    WHERE ProductID = ? AND DiscontinuedOn IS NULL
-                )
-                BEGIN
-                    ROLLBACK TRANSACTION;
-                    SELECT NULL;
-                    RETURN;
-                END;
-                IF EXISTS
-                (
-                    SELECT 1 FROM dbo.ModuloCarnicoProductoConfigurado
-                    WHERE product_id = ?
-                )
-                    UPDATE dbo.ModuloCarnicoProductoConfigurado
-                    SET activo = 0, usuario_actualizacion = ?,
-                        fecha_actualizacion = SYSDATETIME()
-                    WHERE product_id = ?;
-                ELSE
-                    INSERT dbo.ModuloCarnicoProductoConfigurado
-                    (
-                        product_id, nombre_producto, categoria, unidad,
-                        porcentaje_merma, activo, usuario_creacion
-                    )
-                    SELECT ProductID, ProductName, Category1,
-                           ISNULL(Unit, 'KILO'), 0, 0, ?
-                    FROM dbo.orgProduct
-                    WHERE ProductID = ?;
-                COMMIT TRANSACTION;
-                SELECT ?;
+                UPDATE dbo.ModuloCarnicoProductoConfigurado
+                SET activo = 0,
+                    usuario_actualizacion = ?,
+                    fecha_actualizacion = SYSDATETIME()
+                WHERE product_id = ?
+                  AND activo = 1;
+
+                SELECT CASE WHEN @@ROWCOUNT > 0 THEN ? ELSE NULL END;
                 """,
                 (
-                    int(producto_id), int(producto_id), int(usuario_id),
-                    int(producto_id), int(usuario_id), int(producto_id),
-                    int(producto_id),
+                    int(usuario_id), int(producto_id), int(producto_id),
                 ),
             )
             if ocultado is None:
@@ -3044,7 +3021,7 @@ class BaseDatos(ComandosBaseDatos):
 
     def buscar_base_sugerida_configuracion(
             self, linea: str, nombre_transformacion: str
-    ) -> Optional[dict]:
+    ) -> dict | None:
         nombre = str(nombre_transformacion or '').strip()
         if len(nombre) < 3:
             return None
@@ -3314,33 +3291,47 @@ class BaseDatos(ComandosBaseDatos):
         }
 
     def buscar_componentes_configuracion(self, linea: str) -> list[dict]:
-        return self.fetchall(
+        linea_normalizada = str(linea).strip().upper()
+        productos_linea = self.fetchall(
             """
-            WITH BasesFormula AS
+            SELECT TOP (500)
+                P.ProductID AS product_id,
+                P.ProductName AS producto,
+                ISNULL(P.Unit, 'KILO') AS unidad,
+                CAST(0 AS DECIMAL(18,8)) AS cantidad_por_kilo
+            FROM dbo.orgProduct AS P
+            WHERE P.DiscontinuedOn IS NULL
+              AND P.Category1 = ?
+            ORDER BY P.ProductName
+            """,
+            (linea_normalizada,),
+        )
+        productos_formula = self.fetchall(
+            """
+            WITH FormulaEvaluada AS
             (
                 SELECT
-                    F.ProductID AS formula_id,
-                    MAX(CAST(F.CantidadComp AS DECIMAL(18,8))) AS cantidad_base
+                    F.ProductID,
+                    F.ComponenteID,
+                    CAST(F.CantidadComp AS DECIMAL(18,8)) AS cantidad,
+                    MAX(CASE WHEN Base.Category1 = ?
+                        THEN CAST(F.CantidadComp AS DECIMAL(18,8))
+                    END) OVER (PARTITION BY F.ProductID) AS cantidad_base
                 FROM dbo.zvwFormulasListasPCocinar AS F
                 INNER JOIN dbo.orgProduct AS Base
                     ON Base.ProductID = F.ComponenteID
                    AND Base.DiscontinuedOn IS NULL
-                WHERE UPPER(LTRIM(RTRIM(ISNULL(Base.Category1, '')))) =
-                      UPPER(LTRIM(RTRIM(?)))
-                GROUP BY F.ProductID
             ),
             Proporciones AS
             (
                 SELECT
-                    F.ComponenteID AS producto_id,
+                    ComponenteID AS producto_id,
                     CAST(AVG(
-                        CAST(F.CantidadComp AS DECIMAL(18,8)) /
-                        NULLIF(B.cantidad_base, 0)
+                        cantidad / NULLIF(cantidad_base, 0)
                     ) AS DECIMAL(18,8)) AS cantidad_por_kilo
-                FROM dbo.zvwFormulasListasPCocinar AS F
-                INNER JOIN BasesFormula AS B ON B.formula_id = F.ProductID
-                WHERE CAST(F.CantidadComp AS DECIMAL(18,8)) > 0
-                GROUP BY F.ComponenteID
+                FROM FormulaEvaluada
+                WHERE cantidad > 0 AND cantidad_base > 0
+                GROUP BY ComponenteID
             )
             SELECT TOP (500)
                 P.ProductID AS product_id,
@@ -3348,23 +3339,23 @@ class BaseDatos(ComandosBaseDatos):
                 ISNULL(P.Unit, 'KILO') AS unidad,
                 ISNULL(Proporcion.cantidad_por_kilo, 0) AS cantidad_por_kilo
             FROM dbo.orgProduct AS P
-            LEFT JOIN Proporciones AS Proporcion
+            INNER JOIN Proporciones AS Proporcion
                 ON Proporcion.producto_id = P.ProductID
             WHERE P.DiscontinuedOn IS NULL
-              AND (
-                    UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
-                        UPPER(LTRIM(RTRIM(?)))
-                    OR EXISTS
-                    (
-                        SELECT 1
-                        FROM dbo.zvwFormulasListasPCocinar AS F
-                        WHERE F.ComponenteID = P.ProductID
-                    )
-                  )
             ORDER BY P.ProductName
             """,
-            (str(linea).strip(), str(linea).strip()),
+            (linea_normalizada,),
         )
+        por_producto = {
+            int(producto['product_id']): producto
+            for producto in productos_linea
+        }
+        for producto in productos_formula:
+            por_producto[int(producto['product_id'])] = producto
+        return sorted(
+            por_producto.values(),
+            key=lambda producto: str(producto.get('producto') or ''),
+        )[:500]
 
     def buscar_formula_producto_configuracion(
             self, producto_id: int
@@ -3492,7 +3483,6 @@ class BaseDatos(ComandosBaseDatos):
         ids_json = json.dumps(ids)
         self.fetchone(
             """
-            SET XACT_ABORT ON;
             BEGIN TRANSACTION;
             BEGIN TRY
                 DELETE A
@@ -3643,7 +3633,6 @@ class BaseDatos(ComandosBaseDatos):
         )
         transformacion_id = int(self.fetchone(
             """
-            SET XACT_ABORT ON;
             BEGIN TRANSACTION;
             BEGIN TRY
                 INSERT dbo.TransformacionesUsuario

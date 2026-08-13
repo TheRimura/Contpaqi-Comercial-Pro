@@ -1,5 +1,4 @@
 SET NOCOUNT ON;
-SET XACT_ABORT ON;
 
 BEGIN TRY
     BEGIN TRANSACTION;
@@ -158,6 +157,26 @@ BEGIN TRY
         );
     END;
 
+    INSERT dbo.ModuloCarnicoProductoConfigurado
+    (
+        product_id, clave, nombre_producto, categoria, unidad,
+        porcentaje_merma, activo, usuario_creacion
+    )
+    SELECT
+        P.ProductID, CONVERT(NVARCHAR(60), P.ProductID),
+        P.ProductName, P.Category1, ISNULL(P.Unit, 'KILO'),
+        0, 1, NULL
+    FROM dbo.orgProduct AS P
+    WHERE P.DiscontinuedOn IS NULL
+      AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
+          IN ('CERDO', 'POLLO', 'RES LOCAL')
+      AND NOT EXISTS
+      (
+          SELECT 1
+          FROM dbo.ModuloCarnicoProductoConfigurado AS M
+          WHERE M.product_id = P.ProductID
+      );
+
     IF OBJECT_ID('dbo.ModuloCarnicoTransformacionRegistro', 'U') IS NULL
     BEGIN
         CREATE TABLE dbo.ModuloCarnicoTransformacionRegistro
@@ -212,7 +231,7 @@ BEGIN TRY
         )
         SELECT
             -O.product_id, O.nombre, 'ELIMINAR', O.usuario_id,
-            'MIGRACION', 'Ocultamiento migrado a orgProduct',
+            'MIGRACION', 'Ocultamiento migrado a tabla privada del módulo',
             NULL, NULL, O.fecha
         FROM dbo.ModuloCarnicoCatalogoOculto AS O
         WHERE O.activo = 1

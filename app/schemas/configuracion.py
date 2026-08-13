@@ -98,3 +98,17 @@ class OcultarProductoCatalogo(BaseModel):
     @classmethod
     def limpiar_texto_ocultamiento(cls, valor: str) -> str:
         return ' '.join(valor.split())
+
+
+class MensajeConfiguracion(BaseModel):
+    mensaje: str = Field(min_length=1, max_length=300)
+
+
+class ConfiguracionCreada(BaseModel):
+    mensaje: str = Field(min_length=1, max_length=300)
+    transformacion_id: int = Field(gt=0)
+
+
+class ConfiguracionesCreadas(BaseModel):
+    mensaje: str = Field(min_length=1, max_length=300)
+    transformaciones_ids: list[int] = Field(min_length=1, max_length=20)
