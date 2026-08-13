@@ -234,30 +234,40 @@
             <div class="history-kpis" aria-label="Resumen de transformaciones del mes">
                 <article class="history-kpi">
                     <small>Transformaciones del mes</small>
-                    <strong id="historial-kpi-transformaciones">{{resumen_historial. transformaciones}}</strong>
+                    <strong id="historial-kpi-transformaciones">{{ resumen_historial.transformaciones }}</strong>
                 </article>
                 <article class="history-kpi">
                     <small>Peso procesado</small>
                     <strong>
                         {% if resumen_historial.kilos_procesados >= 1000 %}
-                        <span id="historial-kpi-kilos" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.kilos_procesados / 1000) }}</span> <span id="historial-kpi-kilos-unidad">T</span>
+                            {% set peso_procesado_valor = resumen_historial.kilos_procesados / 1000 %}
+                            {% set peso_procesado_unidad = 'T' %}
                         {% elif resumen_historial.kilos_procesados > 0 and resumen_historial.kilos_procesados < 1 %}
-                        <span id="historial-kpi-kilos" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.kilos_procesados * 1000) }}</span> <span id="historial-kpi-kilos-unidad">g</span>
+                            {% set peso_procesado_valor = resumen_historial.kilos_procesados * 1000 %}
+                            {% set peso_procesado_unidad = 'g' %}
                         {% else %}
-                        <span id="historial-kpi-kilos" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.kilos_procesados) }}</span> <span id="historial-kpi-kilos-unidad">kg</span>
+                            {% set peso_procesado_valor = resumen_historial.kilos_procesados %}
+                            {% set peso_procesado_unidad = 'kg' %}
                         {% endif %}
+                        <span id="historial-kpi-kilos" class="history-kpi-value">{{ '%.2f'|format(peso_procesado_valor) }}</span>
+                        <span id="historial-kpi-kilos-unidad">{{ peso_procesado_unidad }}</span>
                     </strong>
                 </article>
                 <article class="history-kpi">
                     <small>Merma acumulada</small>
                     <strong>
                         {% if resumen_historial.merma_acumulada >= 1000 %}
-                        <span id="historial-kpi-merma" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.merma_acumulada / 1000) }}</span> <span id="historial-kpi-merma-unidad">T</span>
+                            {% set merma_acumulada_valor = resumen_historial.merma_acumulada / 1000 %}
+                            {% set merma_acumulada_unidad = 'T' %}
                         {% elif resumen_historial.merma_acumulada > 0 and resumen_historial.merma_acumulada < 1 %}
-                        <span id="historial-kpi-merma" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.merma_acumulada * 1000) }}</span> <span id="historial-kpi-merma-unidad">g</span>
+                            {% set merma_acumulada_valor = resumen_historial.merma_acumulada * 1000 %}
+                            {% set merma_acumulada_unidad = 'g' %}
                         {% else %}
-                        <span id="historial-kpi-merma" class="history-kpi-value">{{ '%.2f'|format(resumen_historial.merma_acumulada) }}</span> <span id="historial-kpi-merma-unidad">kg</span>
+                            {% set merma_acumulada_valor = resumen_historial.merma_acumulada %}
+                            {% set merma_acumulada_unidad = 'kg' %}
                         {% endif %}
+                        <span id="historial-kpi-merma" class="history-kpi-value">{{ '%.2f'|format(merma_acumulada_valor) }}</span>
+                        <span id="historial-kpi-merma-unidad">{{ merma_acumulada_unidad }}</span>
                     </strong>
                 </article>
                 <article class="history-kpi history-kpi-performance">

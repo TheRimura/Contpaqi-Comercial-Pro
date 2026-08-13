@@ -226,27 +226,37 @@ def consultar_historial(
     request: Request,
     fecha_desde: Optional[date] = Query(default=None),
     fecha_hasta: Optional[date] = Query(default=None),
-    linea: str = Query(default='', max_length=30),
     transformacion: str = Query(default='', max_length=150),
-    tablajero: str = Query(default='', max_length=150),
-    folio: str = Query(default='', max_length=50),
-    estado: str = Query(default='', max_length=30),
-    nivel_merma: str = Query(default='', max_length=30),
-    limite: int = Query(default=100, ge=1, le=500),
+    pagina: int = Query(default=1, ge=1),
+    limite: int = Query(default=10, ge=1, le=50),
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
     seguridad_sesion.requerir_permiso(request, 'ver_historial')
     return jsonable_encoder(
         base_datos.listar_historial_transformaciones(
             limite=limite,
+            pagina=pagina,
             fecha_desde=fecha_desde.isoformat() if fecha_desde else '',
             fecha_hasta=fecha_hasta.isoformat() if fecha_hasta else '',
-            linea=linea,
             transformacion=transformacion,
-            tablajero=tablajero,
-            folio=folio,
-            estado=estado,
-            nivel_merma=nivel_merma,
+        )
+    )
+
+
+@router.get('/historial-resumen')
+def consultar_resumen_historial(
+    request: Request,
+    fecha_desde: Optional[date] = Query(default=None),
+    fecha_hasta: Optional[date] = Query(default=None),
+    transformacion: str = Query(default='', max_length=150),
+    base_datos: BaseDatos = Depends(obtener_base_datos),
+):
+    seguridad_sesion.requerir_permiso(request, 'ver_historial')
+    return jsonable_encoder(
+        base_datos.obtener_resumen_historial_transformaciones(
+            fecha_desde=fecha_desde.isoformat() if fecha_desde else '',
+            fecha_hasta=fecha_hasta.isoformat() if fecha_hasta else '',
+            transformacion=transformacion,
         )
     )
 
@@ -423,6 +433,8 @@ def registrar_transformacion(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail='El sistema no devolvió los documentos creados.',
         )
+
+    base_datos.invalidar_cache_historial()
 
     return RespuestaRelacionDocumentos(
         mensaje='La transformación se registró y relacionó correctamente.',

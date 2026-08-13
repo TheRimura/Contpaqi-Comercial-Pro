@@ -38,6 +38,8 @@ let cantidadFormulaBaseConfiguracion = 0;
 const PRODUCTOS_POR_PAGINA = Number(AJUSTES_INTERFAZ.productosPorPagina || 12);
 const HISTORIAL_POR_PAGINA = 10;
 let paginaHistorialActual = 1;
+let totalPaginasHistorial = 1;
+let totalRegistrosHistorial = 0;
 let registrosHistorialActual = [];
 let historialCargadoDesdeServidor = false;
 let registrosAuditoriaConfiguracion = [];
@@ -1868,16 +1870,24 @@ function renderizarFilasHistorial() {
     renderizarPaginaHistorial();
 }
 
-function actualizarResumenHistorial() {
+function actualizarResumenHistorial(resumenServidor = null) {
     const datos = registrosHistorialActual.map(normalizarRegistroHistorial);
-    const kilos = datos.reduce((total, registro) => total + registro.entrada, 0);
+    const kilos = resumenServidor
+        ? Number(resumenServidor.kilos_procesados || 0)
+        : datos.reduce((total, registro) => total + registro.entrada, 0);
     const salida = datos.reduce((total, registro) => total + registro.salida, 0);
-    const merma = Math.max(kilos - salida, 0);
-    const rendimiento = kilos > 0 ? salida / kilos * 100 : 0;
+    const merma = resumenServidor
+        ? Number(resumenServidor.merma_acumulada || 0)
+        : Math.max(kilos - salida, 0);
+    const rendimiento = resumenServidor
+        ? Number(resumenServidor.rendimiento || 0)
+        : (kilos > 0 ? salida / kilos * 100 : 0);
     const pesoProcesado = separarPesoHistorial(kilos);
     const mermaAcumulada = separarPesoHistorial(merma);
     const valores = {
-        "historial-kpi-transformaciones": String(datos.length),
+        "historial-kpi-transformaciones": String(
+            resumenServidor?.transformaciones ?? totalRegistrosHistorial
+        ),
         "historial-kpi-kilos": pesoProcesado.valor,
         "historial-kpi-kilos-unidad": pesoProcesado.unidad,
         "historial-kpi-merma": mermaAcumulada.valor,
@@ -1891,26 +1901,27 @@ function actualizarResumenHistorial() {
 }
 
 function renderizarPaginaHistorial() {
-    const filas = [...document.querySelectorAll("#filas-historial .history-row")];
     const paginacion = document.getElementById("paginacion-historial");
     if (!paginacion) return;
 
-    const totalPaginas = Math.max(Math.ceil(filas.length / HISTORIAL_POR_PAGINA), 1);
-    paginaHistorialActual = Math.min(Math.max(paginaHistorialActual, 1), totalPaginas);
-    const inicio = (paginaHistorialActual - 1) * HISTORIAL_POR_PAGINA;
-    const fin = inicio + HISTORIAL_POR_PAGINA;
-    filas.forEach((fila, indice) => fila.classList.toggle("hidden", indice < inicio || indice >= fin));
+    paginaHistorialActual = Math.min(
+        Math.max(paginaHistorialActual, 1),
+        totalPaginasHistorial
+    );
 
     document.getElementById("historial-pagina-actual").textContent =
-        `Página ${paginaHistorialActual} de ${totalPaginas} (${filas.length} registros)`;
+        `Página ${paginaHistorialActual} de ${totalPaginasHistorial} (${totalRegistrosHistorial} registros)`;
     document.getElementById("historial-pagina-anterior").disabled = paginaHistorialActual <= 1;
-    document.getElementById("historial-pagina-siguiente").disabled = paginaHistorialActual >= totalPaginas;
-    paginacion.classList.toggle("hidden", filas.length <= HISTORIAL_POR_PAGINA);
+    document.getElementById("historial-pagina-siguiente").disabled =
+        paginaHistorialActual >= totalPaginasHistorial;
+    paginacion.classList.toggle("hidden", totalPaginasHistorial <= 1);
 }
 
 function cambiarPaginaHistorial(desplazamiento) {
-    paginaHistorialActual += desplazamiento;
-    renderizarPaginaHistorial();
+    const paginaNueva = paginaHistorialActual + desplazamiento;
+    if (paginaNueva < 1 || paginaNueva > totalPaginasHistorial) return;
+    paginaHistorialActual = paginaNueva;
+    void consultarHistorialFiltrado({ actualizarResumen: false });
 }
 
 function fechaLocalISO(fecha = new Date()) {
@@ -1976,22 +1987,28 @@ function conectarControlesHistorial() {
     document.getElementById("filtros-historial")?.addEventListener("submit", (evento) => {
         evento.preventDefault();
         if (!rangoFechasHistorialValido()) return;
+        paginaHistorialActual = 1;
         void consultarHistorialFiltrado();
     });
     document.getElementById("limpiar-filtros-historial")?.addEventListener("click", () => {
         document.getElementById("filtros-historial").reset();
         configurarRangoFechasHistorial();
+        paginaHistorialActual = 1;
         void consultarHistorialFiltrado();
     });
 }
 
 async function actualizarHistorialDesdeServidor() {
     if (!document.getElementById("vista-historial")) return;
+    paginaHistorialActual = 1;
     await consultarHistorialFiltrado();
 }
 
 function parametrosFiltrosHistorial() {
-    const parametros = new URLSearchParams({ limite: "500" });
+    const parametros = new URLSearchParams({
+        pagina: String(paginaHistorialActual),
+        limite: String(HISTORIAL_POR_PAGINA),
+    });
     const desdeVisual = document.getElementById("historial-fecha-desde")?.value;
     const hastaVisual = document.getElementById("historial-fecha-hasta")?.value;
     const transformacion = document.getElementById("historial-transformacion")?.value?.trim();
@@ -2004,27 +2021,43 @@ function parametrosFiltrosHistorial() {
     return parametros;
 }
 
-async function consultarHistorialFiltrado() {
+async function consultarHistorialFiltrado({ actualizarResumen = true } = {}) {
     const cuerpo = document.getElementById("filas-historial");
     if (!cuerpo) return;
-    cuerpo.innerHTML = '<tr><td colspan="9" class="history-empty">Consultando Movimentos...</td></tr>';
+    cuerpo.innerHTML = '<tr><td colspan="9" class="history-empty">Consultando movimientos...</td></tr>';
     try {
         const parametros = parametrosFiltrosHistorial();
-        registrosHistorialActual = await solicitarJson(
+        const respuesta = await solicitarJson(
             `${API_RELACIONES}/historial?${parametros.toString()}`
         );
+        registrosHistorialActual = Array.isArray(respuesta)
+            ? respuesta
+            : (respuesta.registros || []);
+        totalRegistrosHistorial = Number(
+            respuesta.total_registros ?? registrosHistorialActual.length
+        );
+        totalPaginasHistorial = Math.max(Number(respuesta.total_paginas || 1), 1);
+        paginaHistorialActual = Number(respuesta.pagina || paginaHistorialActual);
         historialCargadoDesdeServidor = true;
-        paginaHistorialActual = 1;
         renderizarFilasHistorial();
-        actualizarResumenHistorial();
         const resumen = document.getElementById("resumen-filtros-historial");
         const filtrosAplicados = [...parametros.keys()].filter(
-            (nombre) => nombre !== "limite"
+            (nombre) => !["limite", "pagina"].includes(nombre)
         ).length;
         resumen.textContent = filtrosAplicados
-            ? `${registrosHistorialActual.length} registros encontrados con ${filtrosAplicados} ${filtrosAplicados === 1 ? "filtro" : "filtros"}.`
-            : `${registrosHistorialActual.length} transformaciones disponibles.`;
+            ? `${totalRegistrosHistorial} registros encontrados con ${filtrosAplicados} ${filtrosAplicados === 1 ? "filtro" : "filtros"}.`
+            : `${totalRegistrosHistorial} transformaciones disponibles.`;
         resumen.classList.remove("hidden");
+        if (actualizarResumen) {
+            const parametrosResumen = new URLSearchParams(parametros);
+            parametrosResumen.delete("pagina");
+            parametrosResumen.delete("limite");
+            void solicitarJson(
+                `${API_RELACIONES}/historial-resumen?${parametrosResumen.toString()}`
+            ).then(actualizarResumenHistorial).catch((error) => {
+                console.warn("No fue posible actualizar los indicadores del historial.", error);
+            });
+        }
     } catch (error) {
         registrosHistorialActual = [];
         const fila = document.createElement("tr");

@@ -2,8 +2,11 @@ import json
 import os
 import re
 import unicodedata
+from copy import deepcopy
 from difflib import SequenceMatcher
 from platform import node
+from threading import RLock
+from time import monotonic
 
 import pyodbc
 
@@ -45,6 +48,13 @@ class BaseDatos(ComandosBaseDatos):
                 'El paquete cayal no inicializó una conexión válida.'
             )
         self._cadena_conexion_modulo: str = conexion_heredada
+        self._cache_resumen_historial: dict[
+            tuple[str, str, str], tuple[float, dict[str, float | int]]
+        ] = {}
+        self._cache_paginas_historial: dict[
+            tuple[int, int, str, str, str], tuple[float, dict[str, Any]]
+        ] = {}
+        self._bloqueo_cache_historial = RLock()
         contexto = super().fetchall(
             """
             SELECT
@@ -1336,46 +1346,52 @@ class BaseDatos(ComandosBaseDatos):
 
     def listar_historial_transformaciones(
             self,
-            limite: int = 100,
+            limite: int = 10,
+            pagina: int = 1,
             fecha_desde: str = '',
             fecha_hasta: str = '',
-            linea: str = '',
             transformacion: str = '',
-            tablajero: str = '',
-            folio: str = '',
-            estado: str = '',
-            nivel_merma: str = '',
-    ) -> list[dict]:
-        return self._consultar_historial_transformaciones(
-            limite=limite,
-            fecha_desde=fecha_desde,
-            fecha_hasta=fecha_hasta,
-            linea=linea,
-            transformacion=transformacion,
-            tablajero=tablajero,
-            folio=folio,
-            estado=estado,
-            nivel_merma=nivel_merma,
+    ) -> dict[str, Any]:
+        clave_cache = (
+            int(limite),
+            int(pagina),
+            fecha_desde.strip(),
+            fecha_hasta.strip(),
+            transformacion.strip().casefold(),
         )
+        with self._bloqueo_cache_historial:
+            pagina_cache = self._cache_paginas_historial.get(clave_cache)
+            if pagina_cache and monotonic() - pagina_cache[0] < 15:
+                return deepcopy(pagina_cache[1])
+            resultado = self._consultar_historial_transformaciones(
+                limite=limite,
+                pagina=pagina,
+                fecha_desde=fecha_desde,
+                fecha_hasta=fecha_hasta,
+                transformacion=transformacion,
+            )
+            self._cache_paginas_historial[clave_cache] = (
+                monotonic(),
+                resultado,
+            )
+            return deepcopy(resultado)
 
     def _consultar_historial_transformaciones(
             self,
-            limite: int = 100,
+            limite: int = 10,
+            pagina: int = 1,
             fecha_desde: str = '',
             fecha_hasta: str = '',
-            linea: str = '',
             transformacion: str = '',
-            tablajero: str = '',
-            folio: str = '',
-            estado: str = '',
-            nivel_merma: str = '',
-    ) -> list[dict]:
-        limite = min(max(int(limite), 1), 500)
+    ) -> dict[str, Any]:
+        limite = min(max(int(limite), 1), 50)
+        pagina = max(int(pagina), 1)
+        desplazamiento = (pagina - 1) * limite
         filas = self.fetchall(
             """
             WITH RelacionesFiltradas AS
             (
-                SELECT TOP (?)
+                SELECT
                     R.DocumentWarehouseRelationID AS relacion_id,
                     R.SourceDocumentID AS documento_salida_id,
                     R.DestinationDocumentID AS documento_entrada_id,
@@ -1384,7 +1400,8 @@ class BaseDatos(ComandosBaseDatos):
                     R.PhysicalUserID AS tablajero_id,
                     R.ERPUserID AS usuario_id,
                     ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '') AS folio_salida,
-                    ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '') AS folio_entrada
+                    ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '') AS folio_entrada,
+                    COUNT_BIG(*) OVER () AS total_registros
                 FROM dbo.docDocumentWarehouseRelation AS R
                 INNER JOIN dbo.docDocument AS S
                     ON S.DocumentID = R.SourceDocumentID
@@ -1415,16 +1432,13 @@ class BaseDatos(ComandosBaseDatos):
                                   '%' + UPPER(?) + '%'
                         )
                       )
-                  AND (
-                        ? = ''
-                        OR UPPER(
-                            ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '')
-                            + ' '
-                            + ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '')
-                        ) LIKE '%' + UPPER(?) + '%'
-                      )
-                ORDER BY R.CreatedOn DESC,
-                         R.DocumentWarehouseRelationID DESC
+            ),
+            Pagina AS
+            (
+                SELECT *
+                FROM RelacionesFiltradas
+                ORDER BY fecha_hora DESC, relacion_id DESC
+                OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
             )
             SELECT
                 RF.relacion_id,
@@ -1437,6 +1451,7 @@ class BaseDatos(ComandosBaseDatos):
                 RF.fecha_hora,
                 RF.folio_salida,
                 RF.folio_entrada,
+                RF.total_registros,
                 ISNULL(U.UserName, '') AS usuario,
                 ISNULL(Empleado.OfficialName, '') AS tablajero,
                 CASE
@@ -1470,7 +1485,7 @@ class BaseDatos(ComandosBaseDatos):
                      AND ISNULL(PartidasEntrada.total_partidas, 0) > 1
                     THEN 1 ELSE 0
                 END AS es_documento_lote
-            FROM RelacionesFiltradas AS RF
+            FROM Pagina AS RF
             LEFT JOIN dbo.engUser AS U
                 ON U.UserID = RF.usuario_id
             OUTER APPLY
@@ -1521,77 +1536,26 @@ class BaseDatos(ComandosBaseDatos):
                 WHERE DI.DocumentID = RF.documento_entrada_id
                   AND DI.DeletedOn IS NULL
             ) AS PartidasEntrada
-            WHERE (? = '' OR UPPER(ISNULL(Base.Category1, '')) = UPPER(?))
-              AND (
-                    ? = ''
-                    OR UPPER(ISNULL(Empleado.OfficialName, '')) LIKE
-                       '%' + UPPER(?) + '%'
-                  )
-              AND (
-                    ? = ''
-                    OR UPPER(RF.folio_salida + ' ' + RF.folio_entrada)
-                       LIKE '%' + UPPER(?) + '%'
-                  )
-              AND (? = '' OR UPPER(?) = 'RELACIONADO')
-              AND (
-                    ? = ''
-                    OR (
-                        UPPER(?) = 'NORMAL'
-                        AND ISNULL(Base.Quantity, 0) > 0
-                        AND (
-                            (ISNULL(Base.Quantity, 0) - ISNULL(Resultado.Quantity, 0))
-                            / ISNULL(Base.Quantity, 0) * 100
-                        ) <= ?
-                    )
-                    OR (
-                        UPPER(?) = 'ADVERTENCIA'
-                        AND ISNULL(Base.Quantity, 0) > 0
-                        AND (
-                            (ISNULL(Base.Quantity, 0) - ISNULL(Resultado.Quantity, 0))
-                            / ISNULL(Base.Quantity, 0) * 100
-                        ) > ?
-                        AND (
-                            (ISNULL(Base.Quantity, 0) - ISNULL(Resultado.Quantity, 0))
-                            / ISNULL(Base.Quantity, 0) * 100
-                        ) <= ?
-                    )
-                    OR (
-                        UPPER(?) = 'CRITICA'
-                        AND ISNULL(Base.Quantity, 0) > 0
-                        AND (
-                            (ISNULL(Base.Quantity, 0) - ISNULL(Resultado.Quantity, 0))
-                            / ISNULL(Base.Quantity, 0) * 100
-                        ) > ?
-                    )
-                  )
             ORDER BY
                 RF.fecha_hora DESC,
                 RF.relacion_id DESC
             """,
             (
-                limite,
                 fecha_desde, fecha_desde,
                 fecha_hasta, fecha_hasta,
                 transformacion, transformacion,
-                folio, folio,
-                linea, linea,
-                tablajero, tablajero,
-                folio, folio,
-                estado, estado,
-                nivel_merma, nivel_merma,
-                AJUSTES_MODULO.merma_tecnica_porcentaje,
-                nivel_merma,
-                AJUSTES_MODULO.merma_tecnica_porcentaje,
-                AJUSTES_MODULO.merma_tecnica_porcentaje * 1.5,
-                nivel_merma,
-                AJUSTES_MODULO.merma_tecnica_porcentaje * 1.5,
+                desplazamiento, limite,
             ),
         )
         patron_rango = re.compile(
             r"\s*\.?\s*1\s*\(\s*\d+\s*(?:-\s*\d+|\+)\s*\)\s*$",
             re.IGNORECASE,
         )
+        total_registros = int(
+            filas[0].get('total_registros', 0) if filas else 0
+        )
         for fila in filas:
+            fila.pop('total_registros', None)
             fila['producto_base'] = patron_rango.sub(
                 '', str(fila.get('producto_base') or '')
             ).strip()
@@ -1606,7 +1570,184 @@ class BaseDatos(ComandosBaseDatos):
             fila['total_insumos'] = (
                 0 if es_documento_lote else max(total_partidas - 1, 0)
             )
-        return filas
+        total_paginas = max(
+            (total_registros + limite - 1) // limite,
+            1,
+        )
+        return {
+            'registros': filas,
+            'pagina': min(pagina, total_paginas),
+            'por_pagina': limite,
+            'total_registros': total_registros,
+            'total_paginas': total_paginas,
+        }
+
+    def obtener_resumen_historial_transformaciones(
+            self,
+            fecha_desde: str = '',
+            fecha_hasta: str = '',
+            transformacion: str = '',
+    ) -> dict[str, float | int]:
+        clave_cache = (
+            fecha_desde.strip(),
+            fecha_hasta.strip(),
+            transformacion.strip().casefold(),
+        )
+        resumen_cache = self._cache_resumen_historial.get(clave_cache)
+        if resumen_cache and monotonic() - resumen_cache[0] < 60:
+            return dict(resumen_cache[1])
+        filas = self.fetchall(
+            """
+            WITH RelacionesFiltradas AS
+            (
+                SELECT
+                    R.DocumentWarehouseRelationID AS relacion_id,
+                    R.SourceDocumentID AS documento_salida_id,
+                    R.DestinationDocumentID AS documento_entrada_id
+                FROM dbo.docDocumentWarehouseRelation AS R
+                INNER JOIN dbo.docDocument AS S
+                    ON S.DocumentID = R.SourceDocumentID
+                   AND S.ModuleID = 203
+                INNER JOIN dbo.docDocument AS E
+                    ON E.DocumentID = R.DestinationDocumentID
+                   AND E.ModuleID = 202
+                WHERE S.DeletedOn IS NULL
+                  AND E.DeletedOn IS NULL
+                  AND TRY_CONVERT(INT, S.CustomCbo) = 2
+                  AND TRY_CONVERT(INT, E.CustomCbo) = 5
+                  AND (? = '' OR R.CreatedOn >= TRY_CONVERT(DATE, ?))
+                  AND (
+                        ? = ''
+                        OR R.CreatedOn < DATEADD(DAY, 1, TRY_CONVERT(DATE, ?))
+                      )
+                  AND (
+                        ? = ''
+                        OR EXISTS
+                        (
+                            SELECT 1
+                            FROM dbo.docDocumentItem AS DIFiltro
+                            INNER JOIN dbo.orgProduct AS PFiltro
+                                ON PFiltro.ProductID = DIFiltro.ProductID
+                            WHERE DIFiltro.DocumentID = E.DocumentID
+                              AND DIFiltro.DeletedOn IS NULL
+                              AND UPPER(ISNULL(PFiltro.ProductName, '')) LIKE
+                                  '%' + UPPER(?) + '%'
+                        )
+                      )
+            ),
+            PartidasSalida AS
+            (
+                SELECT
+                    RF.relacion_id,
+                    DI.Quantity,
+                    COUNT_BIG(*) OVER (
+                        PARTITION BY RF.relacion_id
+                    ) AS total_partidas,
+                    SUM(ISNULL(DI.Quantity, 0)) OVER (
+                        PARTITION BY RF.relacion_id
+                    ) AS cantidad_total,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY RF.relacion_id
+                        ORDER BY
+                            CASE WHEN DI.Comments LIKE 'Producto base%'
+                                 THEN 0 ELSE 1 END,
+                            DI.DocumentItemID
+                    ) AS numero_fila
+                FROM RelacionesFiltradas AS RF
+                INNER JOIN dbo.docDocumentItem AS DI
+                    ON DI.DocumentID = RF.documento_salida_id
+                   AND DI.DeletedOn IS NULL
+            ),
+            PartidasEntrada AS
+            (
+                SELECT
+                    RF.relacion_id,
+                    DI.Quantity,
+                    COUNT_BIG(*) OVER (
+                        PARTITION BY RF.relacion_id
+                    ) AS total_partidas,
+                    SUM(ISNULL(DI.Quantity, 0)) OVER (
+                        PARTITION BY RF.relacion_id
+                    ) AS cantidad_total,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY RF.relacion_id
+                        ORDER BY DI.DocumentItemID
+                    ) AS numero_fila
+                FROM RelacionesFiltradas AS RF
+                INNER JOIN dbo.docDocumentItem AS DI
+                    ON DI.DocumentID = RF.documento_entrada_id
+                   AND DI.DeletedOn IS NULL
+            ),
+            Cantidades AS
+            (
+                SELECT
+                    RF.relacion_id,
+                    CASE
+                        WHEN ISNULL(PS.total_partidas, 0) > 1
+                         AND ISNULL(PE.total_partidas, 0) > 1
+                        THEN ISNULL(PS.cantidad_total, 0)
+                        ELSE ISNULL(PS.Quantity, 0)
+                    END AS cantidad_base,
+                    CASE
+                        WHEN ISNULL(PS.total_partidas, 0) > 1
+                         AND ISNULL(PE.total_partidas, 0) > 1
+                        THEN ISNULL(PE.cantidad_total, 0)
+                        ELSE ISNULL(PE.Quantity, 0)
+                    END AS cantidad_resultante
+                FROM RelacionesFiltradas AS RF
+                LEFT JOIN PartidasSalida AS PS
+                    ON PS.relacion_id = RF.relacion_id
+                   AND PS.numero_fila = 1
+                LEFT JOIN PartidasEntrada AS PE
+                    ON PE.relacion_id = RF.relacion_id
+                   AND PE.numero_fila = 1
+            )
+            SELECT
+                COUNT_BIG(*) AS transformaciones,
+                ISNULL(SUM(cantidad_base), 0) AS kilos_procesados,
+                ISNULL(SUM(
+                    CASE
+                        WHEN cantidad_base > cantidad_resultante
+                        THEN cantidad_base - cantidad_resultante
+                        ELSE 0
+                    END
+                ), 0) AS merma_acumulada,
+                CASE
+                    WHEN ISNULL(SUM(cantidad_base), 0) > 0
+                    THEN ISNULL(SUM(cantidad_resultante), 0)
+                         / SUM(cantidad_base) * 100
+                    ELSE 0
+                END AS rendimiento
+            FROM Cantidades
+            """,
+            (
+                fecha_desde, fecha_desde,
+                fecha_hasta, fecha_hasta,
+                transformacion, transformacion,
+            ),
+        )
+        if not filas:
+            resumen: dict[str, float | int] = {
+                'transformaciones': 0,
+                'kilos_procesados': 0.0,
+                'merma_acumulada': 0.0,
+                'rendimiento': 0.0,
+            }
+        else:
+            fila = filas[0]
+            resumen = {
+                'transformaciones': int(fila.get('transformaciones') or 0),
+                'kilos_procesados': float(fila.get('kilos_procesados') or 0),
+                'merma_acumulada': float(fila.get('merma_acumulada') or 0),
+                'rendimiento': float(fila.get('rendimiento') or 0),
+            }
+        self._cache_resumen_historial[clave_cache] = (monotonic(), resumen)
+        return dict(resumen)
+
+    def invalidar_cache_historial(self) -> None:
+        with self._bloqueo_cache_historial:
+            self._cache_resumen_historial.clear()
+            self._cache_paginas_historial.clear()
 
     def listar_documentos_relacionados_exportacion(
             self,

@@ -1,5 +1,6 @@
 import secrets
 from contextlib import asynccontextmanager
+from datetime import date
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -44,6 +45,22 @@ async def ciclo_vida_aplicacion(aplicacion: FastAPI):
         f"Tablas creadas: {len(reporte.tablas_creadas)}; "
         f"reutilizadas: {len(reporte.tablas_reutilizadas)}."
     )
+    # SQL Server compila este plan la primera vez. Se precalienta durante el
+    # arranque para que el operador no pague ese costo al abrir Historial.
+    hoy = date.today()
+    inicio_mes = hoy.replace(day=1)
+    base_datos = obtener_base_datos()
+    base_datos.listar_historial_transformaciones(
+        limite=10,
+        pagina=1,
+        fecha_desde=inicio_mes.isoformat(),
+        fecha_hasta=hoy.isoformat(),
+    )
+    base_datos.obtener_resumen_historial_transformaciones(
+        fecha_desde=inicio_mes.isoformat(),
+        fecha_hasta=hoy.isoformat(),
+    )
+    print("[BD] Consultas del historial precalentadas.")
     yield
 
 
