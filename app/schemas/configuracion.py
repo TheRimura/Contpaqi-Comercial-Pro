@@ -141,7 +141,7 @@ class ProductoCatalogo(ModeloConfiguracion):
     es_reciente: bool = False
     tiene_receta: bool = False
     es_configuracion: bool = False
-    transformacion_id: int | None = None
+    transformaciones_id: int | None = None
 
 
 class ProductoResultante(ModeloConfiguracion):
@@ -160,7 +160,7 @@ class BaseSugerida(ModeloConfiguracion):
 
 class ComponenteDisponible(ModeloConfiguracion):
     product_id: int = Field(gt=0)
-    producto: str
+    producto_resultante: str
     unidad: str
     cantidad_por_kilo: float = Field(ge=0)
 
