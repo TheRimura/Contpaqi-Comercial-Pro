@@ -132,8 +132,8 @@ def _obtener_contexto(base_datos: BaseDatos) -> tuple[str, str]:
     filas = base_datos.fetchall(
         """
         SELECT
-            CONVERT(NVARCHAR(128), SERVERPROPERTY('ServerName')) AS servidor,
-            DB_NAME() AS base_datos
+            CONVERT(NVARCHAR(128), SERVERPROPERTY('ServerName')) AS ServerName,
+            DB_NAME() AS DatabaseName
         """,
         (),
     )
@@ -141,7 +141,7 @@ def _obtener_contexto(base_datos: BaseDatos) -> tuple[str, str]:
         raise RuntimeError(
             "SQL Server no devolvió el nombre del servidor y la base de datos."
         )
-    return str(filas[0]["servidor"]), str(filas[0]["base_datos"])
+    return str(filas[0]["ServerName"]), str(filas[0]["DatabaseName"])
 
 
 def _validar_dependencias_nativas(base_datos: BaseDatos) -> None:

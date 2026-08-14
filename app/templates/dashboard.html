@@ -340,9 +340,9 @@
                             </td>
                             <td>
                                 <strong>
-                                    {{ registro.tablajero or 'No registrado' }}
+                                    {% if registro.tablajero_id %}Tablajero #{{ registro.tablajero_id }}{% else %}No registrado{% endif %}
                                 </strong>
-                                <small>{{ registro.usuario or 'Sin usuario' }}</small>
+                                <small>{% if registro.usuario_erp_id %}Usuario ERP #{{ registro.usuario_erp_id }}{% else %}Sin usuario ERP{% endif %}</small>
                             </td>
                             <td>
                                 <strong>

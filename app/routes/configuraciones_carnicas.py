@@ -8,6 +8,13 @@ from app.schemas.configuracion import (
     EventoAuditoriaConfiguracion,
     OcultarProductoCatalogo,
     MensajeConfiguracion,
+    AuditoriaCreada,
+    BaseSugerida,
+    ComponenteDisponible,
+    ComponenteFormula,
+    ProductoCatalogo,
+    ProductoResultante,
+    RegistroAuditoria,
 )
 from app.utils.base_de_datos import BaseDatos, obtener_base_datos
 from app.utils.seguridad import seguridad_sesion
@@ -40,7 +47,7 @@ def ocultar_producto_catalogo(
     return {'mensaje': 'Producto ocultado correctamente.'}
 
 
-@router.get('/auditoria')
+@router.get('/auditoria', response_model=list[RegistroAuditoria])
 def consultar_auditoria(
     request: Request,
     limite: int = Query(default=100, ge=1, le=500),
@@ -52,7 +59,11 @@ def consultar_auditoria(
     )
 
 
-@router.post('/auditoria/eventos', status_code=status.HTTP_201_CREATED)
+@router.post(
+    '/auditoria/eventos',
+    response_model=AuditoriaCreada,
+    status_code=status.HTTP_201_CREATED,
+)
 def registrar_evento_auditoria(
     datos: EventoAuditoriaConfiguracion,
     request: Request,
@@ -74,7 +85,7 @@ def registrar_evento_auditoria(
     return {'auditoria_id': auditoria_id}
 
 
-@router.get('/productos-base')
+@router.get('/productos-base', response_model=list[ProductoCatalogo])
 def productos_base(
     request: Request,
     linea: str = Query(min_length=1, max_length=100),
@@ -86,7 +97,10 @@ def productos_base(
         base_datos.buscar_productos_base_configuracion(linea, termino)
     )
 
-@router.get('/productos-resultantes')
+@router.get(
+    '/productos-resultantes',
+    response_model=list[ProductoResultante],
+)
 def productos_resultantes(
     request: Request,
     linea: str = Query(min_length=1, max_length=100),
@@ -98,7 +112,7 @@ def productos_resultantes(
         base_datos.buscar_productos_resultantes_configuracion(linea, termino)
     )
 
-@router.get('/base-sugerida')
+@router.get('/base-sugerida', response_model=BaseSugerida | None)
 def base_sugerida(
     request: Request,
     linea: str = Query(min_length=1, max_length=100),
@@ -111,7 +125,7 @@ def base_sugerida(
     )
 
 
-@router.get('/componentes')
+@router.get('/componentes', response_model=list[ComponenteDisponible])
 def componentes_configuracion(
     request: Request,
     linea: str = Query(min_length=1, max_length=100),
@@ -123,26 +137,19 @@ def componentes_configuracion(
     )
 
 
-@router.get('/formula/{producto_id}')
+@router.get(
+    '/formula/{producto_id}',
+    response_model=list[ComponenteFormula],
+)
 def formula_producto(
     producto_id: int,
     request: Request,
     base_datos: BaseDatos = Depends(obtener_base_datos),
 ):
     seguridad_sesion.requerir_permiso(request, 'ver_configuracion')
-    formulas = base_datos.buscar_formulas_relacionadas_configuracion(
-        producto_id
+    return jsonable_encoder(
+        base_datos.listar_componentes_formulas_configuracion(producto_id)
     )
-    componentes = [
-        {
-            **componente,
-            'formula_id': formula['formula_id'],
-            'formula': formula['formula'],
-        }
-        for formula in formulas
-        for componente in formula['componentes']
-    ]
-    return jsonable_encoder(componentes)
 
 
 @router.post(

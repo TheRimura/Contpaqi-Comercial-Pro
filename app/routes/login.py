@@ -5,8 +5,8 @@ from collections import defaultdict, deque
 from threading import Lock
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field
 
+from app.schemas import CredencialesAcceso, SesionCerrada, SesionPublica
 from app.settings import AJUSTES_MODULO, PERMISOS_MODULO
 from app.utils.base_de_datos import obtener_base_datos
 from app.utils.seguridad import seguridad_sesion
@@ -16,11 +16,6 @@ router = APIRouter(
     prefix="/login",
     tags=["Login"],
 )
-
-
-class Credenciales(BaseModel):
-    usuario: str = Field(min_length=1, max_length=100)
-    password: str = Field(min_length=1, max_length=128)
 
 
 class Autenticador:
@@ -166,7 +161,7 @@ class LimiteIntentosAcceso:
 limite_intentos_acceso = LimiteIntentosAcceso()
 
 
-@router.get("/sesion")
+@router.get("/sesion", response_model=SesionPublica)
 def consultar_sesion(request: Request):
     sesion = seguridad_sesion.requerir_sesion(request)
 
@@ -179,9 +174,9 @@ def consultar_sesion(request: Request):
     }
 
 
-@router.post("/")
+@router.post("/", response_model=SesionPublica)
 def iniciar_sesion(
-    credenciales: Credenciales,
+    credenciales: CredencialesAcceso,
     request: Request,
     response: Response,
 ):
@@ -230,7 +225,7 @@ def iniciar_sesion(
     }
 
 
-@router.post("/logout")
+@router.post("/logout", response_model=SesionCerrada)
 def cerrar_sesion(response: Response):
     # Cerrar sesión no modifica información operativa. Debe funcionar
     # incluso con cookies antiguas o vencidas para no atrapar al usuario.

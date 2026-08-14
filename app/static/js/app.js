@@ -1831,8 +1831,12 @@ function crearFilaHistorial(registroOriginal) {
         <td><span class="history-status">Relacionado</span></td>`;
     fila.children[0].querySelector("span").textContent = fechaTexto;
     fila.children[0].querySelector("small").textContent = horaTexto;
-    fila.children[1].querySelector("strong").textContent = registro["tablajero"] || "No registrado";
-    fila.children[1].querySelector("small").textContent = registro["usuario"] || "Sin usuario";
+    fila.children[1].querySelector("strong").textContent = registro["tablajero_id"]
+        ? `Tablajero #${registro["tablajero_id"]}`
+        : "No registrado";
+    fila.children[1].querySelector("small").textContent = registro["usuario_erp_id"]
+        ? `Usuario ERP #${registro["usuario_erp_id"]}`
+        : "Sin usuario ERP";
     fila.children[2].querySelector("strong").textContent = limpiarNombreProducto(registro["producto_base"]) || "No disponible";
     const detalleOrigen = fila.children[2].querySelector(".history-origin-detail");
     if (registro["es_documento_lote"]) {
@@ -2232,8 +2236,8 @@ async function exportarHistorialExcel() {
                     fecha_hora: partida.fecha_hora,
                     folio_salida: partida.folio_salida || "",
                     folio_entrada: partida.folio_entrada || "",
-                    usuario: partida.usuario || "",
-                    tablajero: partida.tablajero || "",
+                    usuario_erp_id: Number(partida.usuario_erp_id || 0),
+                    tablajero_id: Number(partida.tablajero_id || 0),
                     partidas: [],
                 });
             }
@@ -2286,7 +2290,7 @@ async function exportarHistorialExcel() {
                 return `<Row ss:Height="18">${celdasSalida}${celdaVacia("Separador")}${celdasEntrada}</Row>`;
             }).join("");
             return `
-   <Row ss:Height="21">${celdaTexto(`RELACIÓN: ${relacion.folio_salida} → ${relacion.folio_entrada}   |   Fecha: ${fechaTexto(relacion.fecha_hora)}   |   Responsable: ${relacion.tablajero || "No registrado"}`, "Relacion", 8)}</Row>
+   <Row ss:Height="21">${celdaTexto(`RELACIÓN: ${relacion.folio_salida} → ${relacion.folio_entrada}   |   Fecha: ${fechaTexto(relacion.fecha_hora)}   |   Tablajero ID: ${relacion.tablajero_id || "No registrado"}   |   Usuario ERP ID: ${relacion.usuario_erp_id || "No registrado"}`, "Relacion", 8)}</Row>
    <Row ss:Height="18">${["FOLIO REF.", "MATERIA PRIMA (SALIDA)", "CANT.", "UND."].map((valor) => celdaTexto(valor, "EncabezadoSalida")).join("")}${celdaVacia("Separador")}${["FOLIO REF.", "PRODUCTO RESULTANTE (ENTRADA)", "CANT.", "UND."].map((valor) => celdaTexto(valor, "EncabezadoEntrada")).join("")}</Row>
     ${filasPartidas}
    <Row ss:Height="19">${celdaTexto("TOTAL:", "TotalEtiqueta", 1)}${celdaNumero(totalSalida, "TotalCantidad")}${celdaTexto("kg", "TotalUnidad")}${celdaVacia("Separador")}${celdaTexto("TOTAL:", "TotalEtiqueta", 1)}${celdaNumero(totalEntrada, "TotalCantidad")}${celdaTexto("kg", "TotalUnidad")}</Row>
@@ -2380,7 +2384,40 @@ async function solicitarJson(url, opciones = {}) {
         error.status = respuesta.status;
         throw error;
     }
-    return datos;
+    const usaContratoPascal = (
+        url.startsWith(API_CONFIGURACION)
+        || url.includes(`${API_RELACIONES}/transformacion/precargadas`)
+        || url.endsWith(`${API_RELACIONES}/transformacion/lineas`)
+        || url.includes(`${API_RELACIONES}/transformacion/bases`)
+        || url.includes(`${API_RELACIONES}/transformacion/disponibles`)
+        || url.includes(`${API_RELACIONES}/transformacion/folios-siguientes`)
+        || url.endsWith(`${API_RELACIONES}/transformacion/registrar`)
+        || url.includes(`${API_RELACIONES}/historial`)
+    );
+    return usaContratoPascal ? normalizarRespuestaPascal(datos) : datos;
+}
+
+function normalizarRespuestaPascal(valor) {
+    if (Array.isArray(valor)) {
+        return valor.map(normalizarRespuestaPascal);
+    }
+    if (!valor || typeof valor !== "object") return valor;
+
+    return Object.fromEntries(
+        Object.entries(valor).map(([clave, contenido]) => {
+            const clavesErp = new Set([
+                "Category1", "ProductID", "ProductKey", "ProductName",
+                "Category", "Unit", "Quantity", "CostPrice",
+            ]);
+            const claveNormalizada = clavesErp.has(clave)
+                ? clave
+                : clave.replace(
+                    /([a-z0-9])([A-Z])/g,
+                    "$1_$2"
+                ).toLowerCase();
+            return [claveNormalizada, normalizarRespuestaPascal(contenido)];
+        })
+    );
 }
 
 function mostrarMensaje(texto, tipo = "error") {

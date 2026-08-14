@@ -67,18 +67,18 @@ def _detectar_servidor_sql() -> str:
             filas = comandos.fetchall(
                 """
                 SELECT
-                    DB_NAME() AS base_datos,
-                    OBJECT_ID('dbo.orgProduct') AS org_product,
-                    OBJECT_ID('dbo.docDocument') AS doc_document
+                    DB_NAME() AS DatabaseName,
+                    OBJECT_ID('dbo.orgProduct') AS OrgProductObjectID,
+                    OBJECT_ID('dbo.docDocument') AS DocDocumentObjectID
                 """,
                 (),
             )
             if (
                 filas
-                and str(filas[0].get('base_datos') or '').casefold()
+                and str(filas[0].get('DatabaseName') or '').casefold()
                     == 'comercialsp'
-                and filas[0].get('org_product')
-                and filas[0].get('doc_document')
+                and filas[0].get('OrgProductObjectID')
+                and filas[0].get('DocDocumentObjectID')
             ):
                 return candidato
         except Exception:

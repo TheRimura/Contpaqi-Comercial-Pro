@@ -19,9 +19,7 @@ SELECT
     ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '') AS FolioEntrada,
     CONVERT(DATETIME2(0), R.CreatedOn) AS FechaRegistro,
     R.PhysicalUserID AS TablajeroID,
-    ISNULL(Empleado.OfficialName, '') AS Tablajero,
-    R.ERPUserID AS UsuarioERPID,
-    ISNULL(U.UserName, '') AS UsuarioERP
+    R.ERPUserID AS UsuarioERPID
 FROM dbo.docDocumentWarehouseRelation AS R
 INNER JOIN dbo.docDocument AS S
     ON S.DocumentID = R.SourceDocumentID
@@ -29,14 +27,6 @@ INNER JOIN dbo.docDocument AS S
 INNER JOIN dbo.docDocument AS E
     ON E.DocumentID = R.DestinationDocumentID
    AND E.ModuleID = 202
-LEFT JOIN dbo.engUser AS U
-    ON U.UserID = R.ERPUserID
-OUTER APPLY (
-    SELECT TOP 1 EMP.OfficialName
-    FROM dbo.zvwEmpleadosCayalMenu AS EMP
-    WHERE EMP.UserID = R.PhysicalUserID
-    ORDER BY EMP.OfficialName
-) AS Empleado
 WHERE S.DeletedOn IS NULL
   AND E.DeletedOn IS NULL
   AND TRY_CONVERT(INT, S.CustomCbo) = 2
@@ -91,8 +81,8 @@ SELECT
         ) AS DECIMAL(9,2)
     ) AS PorcentajeMerma,
 
-    ISNULL(Empleado.OfficialName, '') AS Tablajero,
-    ISNULL(U.UserName, '') AS UsuarioERP
+    R.PhysicalUserID AS TablajeroID,
+    R.ERPUserID AS UsuarioERPID
 FROM dbo.docDocumentWarehouseRelation AS R
 INNER JOIN dbo.docDocument AS S
     ON S.DocumentID = R.SourceDocumentID
@@ -100,8 +90,6 @@ INNER JOIN dbo.docDocument AS S
 INNER JOIN dbo.docDocument AS E
     ON E.DocumentID = R.DestinationDocumentID
    AND E.ModuleID = 202
-LEFT JOIN dbo.engUser AS U
-    ON U.UserID = R.ERPUserID
 OUTER APPLY (
     SELECT TOP 1
         P.ProductName,
@@ -129,12 +117,6 @@ OUTER APPLY (
       AND DI.DeletedOn IS NULL
     ORDER BY DI.DocumentItemID
 ) AS Resultado
-OUTER APPLY (
-    SELECT TOP 1 EMP.OfficialName
-    FROM dbo.zvwEmpleadosCayalMenu AS EMP
-    WHERE EMP.UserID = R.PhysicalUserID
-    ORDER BY EMP.OfficialName
-) AS Empleado
 WHERE S.DeletedOn IS NULL
   AND E.DeletedOn IS NULL
   AND TRY_CONVERT(INT, S.CustomCbo) = 2

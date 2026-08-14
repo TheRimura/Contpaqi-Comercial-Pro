@@ -1,9 +1,28 @@
-from pydantic import BaseModel, Field, field_validator, model_validator
+import json
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.settings import AJUSTES_MODULO
 
 
-class ComponenteConfiguracionTransformacion(BaseModel):
+def convertir_pascal(nombre: str) -> str:
+    return ''.join(
+        'ID' if parte == 'id' else parte.capitalize()
+        for parte in nombre.split('_')
+    )
+
+
+class ModeloConfiguracion(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=convertir_pascal,
+        populate_by_name=True,
+        serialize_by_alias=True,
+        extra='forbid',
+    )
+
+
+class ComponenteConfiguracionTransformacion(ModeloConfiguracion):
     producto_id: int = Field(gt=0)
     cantidad: float = Field(gt=0)
     unidad: str = Field(min_length=1, max_length=50)
@@ -16,7 +35,7 @@ class ComponenteConfiguracionTransformacion(BaseModel):
 
 #LOS AJUSTES DEL MODULO POR KILOS NO DEBE DE CAMBIARSE AL MENOS QUE SEA AUTORIZADO
 
-class CrearConfiguracionTransformacion(BaseModel):
+class CrearConfiguracionTransformacion(ModeloConfiguracion):
     nombre: str = Field(min_length=3, max_length=150)
     linea: str = Field(min_length=1, max_length=100)
     cantidad_base: float = Field(
@@ -59,7 +78,7 @@ class CrearConfiguracionTransformacion(BaseModel):
         return self
 
 
-class EventoAuditoriaConfiguracion(BaseModel):
+class EventoAuditoriaConfiguracion(ModeloConfiguracion):
     accion: str = Field(min_length=3, max_length=30)
     configuracion_id: int | None = Field(default=None, gt=0)
     configuracion_nombre: str = Field(min_length=1, max_length=150)
@@ -87,7 +106,7 @@ class EventoAuditoriaConfiguracion(BaseModel):
         return ' '.join(valor.split())
 
 
-class OcultarProductoCatalogo(BaseModel):
+class OcultarProductoCatalogo(ModeloConfiguracion):
     producto_id: int
     es_configuracion: bool = False
     transformacion_id: int | None = Field(default=None, gt=0)
@@ -100,15 +119,91 @@ class OcultarProductoCatalogo(BaseModel):
         return ' '.join(valor.split())
 
 
-class MensajeConfiguracion(BaseModel):
+class MensajeConfiguracion(ModeloConfiguracion):
     mensaje: str = Field(min_length=1, max_length=300)
 
 
-class ConfiguracionCreada(BaseModel):
+class ConfiguracionCreada(ModeloConfiguracion):
     mensaje: str = Field(min_length=1, max_length=300)
     transformacion_id: int = Field(gt=0)
 
 
-class ConfiguracionesCreadas(BaseModel):
+class ConfiguracionesCreadas(ModeloConfiguracion):
     mensaje: str = Field(min_length=1, max_length=300)
     transformaciones_ids: list[int] = Field(min_length=1, max_length=20)
+
+
+class ProductoCatalogo(ModeloConfiguracion):
+    product_id: int
+    producto: str
+    unidad: str
+    fecha_creacion: datetime | None = None
+    es_reciente: bool = False
+    tiene_receta: bool = False
+    es_configuracion: bool = False
+    transformacion_id: int | None = None
+
+
+class ProductoResultante(ModeloConfiguracion):
+    product_id: int = Field(gt=0)
+    producto: str
+    unidad: str
+
+
+class BaseSugerida(ModeloConfiguracion):
+    producto_resultante_id: int | None = None
+    producto_resultante: str
+    producto_base_id: int = Field(gt=0)
+    producto_base: str
+    unidad: str
+
+
+class ComponenteDisponible(ModeloConfiguracion):
+    product_id: int = Field(gt=0)
+    producto: str
+    unidad: str
+    cantidad_por_kilo: float = Field(ge=0)
+
+
+class ComponenteFormula(ModeloConfiguracion):
+    product_id: int = Field(gt=0)
+    producto: str
+    cantidad: float = Field(ge=0)
+    unidad: str
+    linea: str
+    formula_id: int = Field(gt=0)
+    formula: str
+
+
+class RegistroAuditoria(ModeloConfiguracion):
+    id_auditoria: int = Field(gt=0)
+    configuracion_id: int | None = None
+    configuracion_nombre: str
+    accion: str
+    usuario_id: int | None = None
+    usuario_nombre: str
+    motivo: str
+    valores_anteriores: dict | None = None
+    valores_nuevos: dict | None = None
+    fecha: datetime
+
+    @field_validator('valores_anteriores', 'valores_nuevos', mode='before')
+    @classmethod
+    def convertir_valores_json(cls, valor):
+        if valor in (None, ''):
+            return None
+        if isinstance(valor, dict):
+            return valor
+        if isinstance(valor, str):
+            try:
+                convertido = json.loads(valor)
+            except json.JSONDecodeError:
+                return {'valor': valor}
+            return convertido if isinstance(convertido, dict) else {
+                'valor': convertido
+            }
+        return {'valor': valor}
+
+
+class AuditoriaCreada(ModeloConfiguracion):
+    auditoria_id: int = Field(gt=0)

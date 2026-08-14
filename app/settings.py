@@ -6,6 +6,9 @@ from dataclasses import dataclass
 class AjustesModulo:
     servidor_base_datos: str = "localhost"
     nombre_base_datos: str = "ComercialSP"
+    duracion_sesion_segundos: int = 28_800
+    nombre_cookie_sesion: str = "cayal_session"
+    clave_firma_sesion: str = ""
     permitir_servidor_base_datos_remoto: bool = (
         os.getenv('CAYAL_PERMITIR_SERVIDOR_REMOTO', '').strip().lower()
         in {'1', 'true', 'si', 'sí', 'yes'}

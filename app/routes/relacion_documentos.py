@@ -9,8 +9,15 @@ from fastapi.encoders import jsonable_encoder
 
 from app.schemas.relacion_documentos import (
     CrearTransformacion,
+    DetalleHistorial,
+    FoliosTransformacion,
     LineaTransformacion,
+    PaginaHistorial,
+    PartidaExportacion,
+    ProductoBaseTransformacion,
     RespuestaRelacionDocumentos,
+    ResumenHistorial,
+    TransformacionDisponible,
     TransformacionPrecargada,
 )
 from app.utils.base_de_datos import BaseDatos, obtener_base_datos
@@ -96,7 +103,10 @@ def consultar_lineas_transformacion(
     return jsonable_encoder(base_datos.listar_lineas_transformacion())
 
 
-@router.get('/transformacion/bases')
+@router.get(
+    '/transformacion/bases',
+    response_model=list[ProductoBaseTransformacion],
+)
 def consultar_bases_transformacion(
     request: Request,
     linea: str = Query(min_length=1, max_length=100),
@@ -123,7 +133,10 @@ def consultar_transformaciones_precargadas(
     )
 
 
-@router.get('/transformacion/disponibles')
+@router.get(
+    '/transformacion/disponibles',
+    response_model=list[TransformacionDisponible],
+)
 def consultar_transformaciones_disponibles(
     request: Request,
     base_datos: BaseDatos = Depends(obtener_base_datos),
@@ -202,7 +215,10 @@ def consultar_documentos_transformacion(
     })
 
 
-@router.get('/transformacion/folios-siguientes')
+@router.get(
+    '/transformacion/folios-siguientes',
+    response_model=FoliosTransformacion,
+)
 def consultar_folios_transformacion(
     request: Request,
     base_datos: BaseDatos = Depends(obtener_base_datos),
@@ -213,7 +229,10 @@ def consultar_folios_transformacion(
     )
 
 
-@router.get('/historial/exportacion')
+@router.get(
+    '/historial/exportacion',
+    response_model=list[PartidaExportacion],
+)
 def exportar_documentos_relacionados(
     request: Request,
     base_datos: BaseDatos = Depends(obtener_base_datos),
@@ -226,7 +245,7 @@ def exportar_documentos_relacionados(
     )
 
 
-@router.get('/historial')
+@router.get('/historial', response_model=PaginaHistorial)
 def consultar_historial(
     request: Request,
     fecha_desde: Optional[date] = Query(default=None),
@@ -248,7 +267,7 @@ def consultar_historial(
     )
 
 
-@router.get('/historial-resumen')
+@router.get('/historial-resumen', response_model=ResumenHistorial)
 def consultar_resumen_historial(
     request: Request,
     fecha_desde: Optional[date] = Query(default=None),
@@ -266,7 +285,7 @@ def consultar_resumen_historial(
     )
 
 
-@router.get('/historial/{relacion_id}')
+@router.get('/historial/{relacion_id}', response_model=DetalleHistorial)
 def consultar_detalle_historial(
     relacion_id: int,
     request: Request,

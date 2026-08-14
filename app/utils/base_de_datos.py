@@ -1,18 +1,9 @@
-import json
-import os
-import re
 import unicodedata
-from copy import deepcopy
-from difflib import SequenceMatcher
-from functools import cache
-from platform import node
-from threading import RLock
-from time import monotonic
+from decimal import Decimal
 
 import pyodbc
 
 from cayal.comandos_base_datos import ComandosBaseDatos
-
 from app.settings import AJUSTES_MODULO
 
 
@@ -27,12 +18,30 @@ class BaseDatos(ComandosBaseDatos):
         0, 2, 6, 8, 9, 10, 12, 13, 14, 21, 23, 28,
     )
 
+    @staticmethod
+    def _convertir_entero(valor: object | None, predeterminado: int = 0) -> int:
+        if valor is None:
+            return predeterminado
+        if isinstance(valor, bool):
+            return int(valor)
+        if isinstance(valor, (int, float, Decimal, str)):
+            try:
+                return int(valor)
+            except (TypeError, ValueError, OverflowError):
+                return predeterminado
+        return predeterminado
+
+    @staticmethod
+    def _convertir_texto(valor: object | None) -> str:
+        if isinstance(valor, str):
+            return valor
+        if isinstance(valor, bytes):
+            return valor.decode('utf-8', errors='replace')
+        return ''
+
     def __init__(self):
-        servidor = os.getenv('CAYAL_DB_SERVER', '').strip() or node()
-        base_datos = (
-            os.getenv('CAYAL_DB_NAME', '').strip()
-            or AJUSTES_MODULO.nombre_base_datos
-        )
+        servidor = AJUSTES_MODULO.servidor_base_datos.strip()
+        base_datos = AJUSTES_MODULO.nombre_base_datos.strip()
         super().__init__(servidor=servidor, base_de_datos=base_datos)
         conexion_heredada = getattr(
             self,
@@ -44,27 +53,33 @@ class BaseDatos(ComandosBaseDatos):
                 'El paquete cayal no inicializó una conexión válida.'
             )
         self._cadena_conexion_modulo: str = conexion_heredada
-        self._cache_resumen_historial: dict[
-            tuple[str, str, str], tuple[float, dict[str, float | int]]
-        ] = {}
-        self._cache_paginas_historial: dict[
-            tuple[int, int, str, str, str], tuple[float, dict]
-        ] = {}
-        self._bloqueo_cache_historial = RLock()
-        self._bloqueo_estructura = RLock()
         self._tablas_modulo_verificadas = False
         self._tablas_relacion_verificadas = False
         self._tablas_configuracion_verificadas = False
+        vista_oficial_formulas = super().fetchall(
+            """
+            SELECT OBJECT_ID(
+                'dbo.vw_Cayal_FormulasProcesamiento'
+            ) AS ObjectID
+            """,
+            (),
+        )
+        self._fuente_formulas = (
+            'dbo.vw_Cayal_FormulasProcesamiento'
+            if vista_oficial_formulas
+            and vista_oficial_formulas[0].get('ObjectID')
+            else 'dbo.zvwFormulasListasPCocinar'
+        )
         contexto = super().fetchall(
             """
             SELECT
                 CONVERT(NVARCHAR(128), SERVERPROPERTY('MachineName'))
-                    AS maquina,
-                DB_NAME() AS base_datos,
+                    AS MachineName,
+                DB_NAME() AS DatabaseName,
                 CONVERT(
                     NVARCHAR(128),
                     CONNECTIONPROPERTY('local_net_address')
-                ) AS direccion_servidor
+                ) AS ServerAddress
             """,
             (),
         )
@@ -73,8 +88,10 @@ class BaseDatos(ComandosBaseDatos):
                 'No fue posible verificar el destino de la base de datos.'
             )
         destino = contexto[0]
-        direccion = str(destino.get('direccion_servidor') or '').strip()
-        base_actual = str(destino.get('base_datos') or '').strip()
+        direccion = self._convertir_texto(
+            destino.get('ServerAddress')
+        ).strip()
+        base_actual = self._convertir_texto(destino.get('DatabaseName')).strip()
         if base_actual.casefold() != AJUSTES_MODULO.nombre_base_datos.casefold():
             raise RuntimeError(
                 'La conexión apunta a una base de datos no autorizada.'
@@ -120,15 +137,12 @@ class BaseDatos(ComandosBaseDatos):
 
     # ----------------------------- SISTEMA -----------------------------
     def probar_conexion(self) -> bool:
-        return int(self.fetchone("SELECT 1", ()) or 0) == 1
+        return self._convertir_entero(self.fetchone("SELECT 1", ())) == 1
 
     def buscar_configuracion_seguridad(self) -> dict:
-        duracion = int(os.getenv("SESSION_MAX_AGE", "28800"))
-        nombre_cookie = os.getenv(
-            "SESSION_COOKIE_NAME",
-            "cayal_session",
-        ).strip()
-        clave_firma = os.getenv("SESSION_SECRET", "").strip()
+        duracion = AJUSTES_MODULO.duracion_sesion_segundos
+        nombre_cookie = AJUSTES_MODULO.nombre_cookie_sesion.strip()
+        clave_firma = AJUSTES_MODULO.clave_firma_sesion.strip()
 
         if duracion <= 0:
             raise RuntimeError(
@@ -277,7 +291,7 @@ class BaseDatos(ComandosBaseDatos):
             (int(document_id),),
         )
 
-        return int(valor or 0) == 1
+        return self._convertir_entero(valor) == 1
 
     def buscar_folio_documento(self, document_id: int) -> str:
         valor = self.fetchone(
@@ -291,7 +305,7 @@ class BaseDatos(ComandosBaseDatos):
             (int(document_id),),
         )
 
-        return str(valor or "")
+        return self._convertir_texto(valor)
 
     def buscar_tipo_movimiento_documento(
             self,
@@ -307,7 +321,7 @@ class BaseDatos(ComandosBaseDatos):
             (int(document_id),),
         )
 
-        return int(valor or 0)
+        return self._convertir_entero(valor)
 
     def buscar_tipo_movimiento_modulo(
             self,
@@ -356,7 +370,7 @@ class BaseDatos(ComandosBaseDatos):
             })
         return sorted(
             registros,
-            key=lambda fila: str(fila.get('ItemValue') or ''),
+            key=lambda fila: self._convertir_texto(fila.get('ItemValue')),
         )
 
     def buscar_tipos_movimiento_entrada(self) -> list[dict]:
@@ -426,8 +440,8 @@ class BaseDatos(ComandosBaseDatos):
 
     def listar_lineas_transformacion(self) -> list[dict]:
         self.asegurar_tablas_modulo_carnico()
-        return self.fetchall(
-            """
+        filas = self.fetchall(
+            f"""
             WITH ProductosModulo AS
             (
                 SELECT P.ProductID, P.Category1
@@ -435,15 +449,14 @@ class BaseDatos(ComandosBaseDatos):
                 INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS M
                     ON M.product_id = P.ProductID
                    AND M.activo = 1
-                WHERE UPPER(LTRIM(RTRIM(ISNULL(P.Category1, ''))))
-                    IN ('CERDO', 'POLLO', 'RES LOCAL')
+                WHERE P.Category1 IN ('CERDO', 'POLLO', 'RES LOCAL')
             ),
             RecetasPorLinea AS
             (
                 SELECT
                     C.Category1,
-                    COUNT(DISTINCT F.ProductID) AS total_recetas
-                FROM dbo.zvwFormulasListasPCocinar AS F
+                    COUNT(DISTINCT F.ProductID) AS TotalRecipes
+                FROM {self._fuente_formulas} AS F
                 INNER JOIN ProductosModulo AS C
                     ON C.ProductID = F.ComponenteID
                 INNER JOIN ProductosModulo AS R
@@ -452,22 +465,30 @@ class BaseDatos(ComandosBaseDatos):
             )
             SELECT
                 P.Category1,
-                COUNT(*) AS total_productos,
-                ISNULL(MAX(R.total_recetas), 0) AS total_recetas
+                COUNT(*) AS TotalProducts,
+                ISNULL(R.TotalRecipes, 0) AS TotalRecipes
             FROM ProductosModulo AS P
             LEFT JOIN RecetasPorLinea AS R ON R.Category1 = P.Category1
-            GROUP BY P.Category1
+            GROUP BY P.Category1, R.TotalRecipes
             ORDER BY P.Category1
             """,
             (),
         )
+        return [
+            {
+                'Category1': fila.get('Category1'),
+                'total_productos': int(fila.get('TotalProducts') or 0),
+                'total_recetas': int(fila.get('TotalRecipes') or 0),
+            }
+            for fila in filas
+        ]
 
     def listar_productos_base_transformacion(self, linea: str) -> list[dict]:
         self.asegurar_tablas_modulo_carnico()
-        return self.fetchall(
+        filas = self.fetchall(
             """
             SELECT
-                P.Category2 AS producto_base,
+                P.Category2 AS ProductBase,
                 COALESCE(
                     MIN(CASE
                         WHEN UPPER(LTRIM(RTRIM(P.ProductName))) =
@@ -475,8 +496,8 @@ class BaseDatos(ComandosBaseDatos):
                         THEN P.ProductID
                     END),
                     MIN(P.ProductID)
-                ) AS product_id_base,
-                COUNT(*) AS total_resultantes
+                ) AS BaseProductID,
+                COUNT(*) AS TotalResults
             FROM dbo.orgProduct AS P
             INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS CatalogoModulo
                 ON CatalogoModulo.product_id = P.ProductID
@@ -489,19 +510,27 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (str(linea).strip(),),
         )
+        return [
+            {
+                'producto_base': fila.get('ProductBase'),
+                'product_id_base': fila.get('BaseProductID'),
+                'total_resultantes': fila.get('TotalResults'),
+            }
+            for fila in filas
+        ]
 
     def listar_transformaciones_precargadas(self, linea: str) -> list[dict]:
         self.asegurar_tablas_modulo_carnico()
         self.asegurar_proveedor_transformaciones_usuario()
-        return self.fetchall(
+        filas = self.fetchall(
             """
             SELECT
-                T.id_transformacion_usuario AS transformacion_id,
-                T.nombre_transformacion,
-                T.producto_origen AS producto_base_id,
-                P.ProductName AS producto_base,
-                P.Category1 AS linea,
-                ISNULL(E.OfficialName, '') AS proveedor
+                T.id_transformacion_usuario AS TransformationUserID,
+                T.nombre_transformacion AS TransformationName,
+                T.producto_origen AS BaseProductID,
+                P.ProductName AS BaseProductName,
+                P.Category1 AS ProductLine,
+                ISNULL(E.OfficialName, '') AS SupplierName
             FROM dbo.TransformacionesUsuario AS T
             INNER JOIN dbo.orgProduct AS P
                 ON P.ProductID = T.producto_origen
@@ -519,24 +548,35 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (str(linea).strip(),),
         )
+        return [
+            {
+                'transformacion_id': fila.get('TransformationUserID'),
+                'nombre_transformacion': fila.get('TransformationName'),
+                'producto_base_id': fila.get('BaseProductID'),
+                'producto_base': fila.get('BaseProductName'),
+                'linea': fila.get('ProductLine'),
+                'proveedor': fila.get('SupplierName'),
+            }
+            for fila in filas
+        ]
 
     def listar_transformaciones_disponibles(self) -> list[dict]:
         self.asegurar_tablas_modulo_carnico()
-        return self.fetchall(
-            """
+        filas = self.fetchall(
+            f"""
             SELECT
-                P.ProductID AS transformacion_id,
-                P.ProductName AS nombre_transformacion,
-                Base.ProductID AS producto_base_id,
-                P.Category2 AS producto_base,
-                P.Category1 AS linea,
+                P.ProductID AS ProductID,
+                P.ProductName AS ProductName,
+                Base.ProductID AS BaseProductID,
+                P.Category2 AS BaseProductName,
+                P.Category1 AS ProductLine,
                 CAST(CASE WHEN EXISTS
                 (
                     SELECT 1
-                    FROM dbo.zvwFormulasListasPCocinar AS Formula
+                    FROM {self._fuente_formulas} AS Formula
                     WHERE Formula.ProductID = P.ProductID
-                ) THEN 1 ELSE 0 END AS BIT) AS tiene_formula,
-                CAST(1 AS BIT) AS origen_catalogo
+                ) THEN 1 ELSE 0 END AS BIT) AS HasFormula,
+                CAST(1 AS BIT) AS IsCatalogSource
             FROM dbo.orgProduct AS P
             INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS CatalogoModulo
                 ON CatalogoModulo.product_id = P.ProductID
@@ -569,6 +609,18 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (),
         )
+        return [
+            {
+                'transformacion_id': fila.get('ProductID'),
+                'nombre_transformacion': fila.get('ProductName'),
+                'producto_base_id': fila.get('BaseProductID'),
+                'producto_base': fila.get('BaseProductName'),
+                'linea': fila.get('ProductLine'),
+                'tiene_formula': bool(fila.get('HasFormula')),
+                'origen_catalogo': bool(fila.get('IsCatalogSource')),
+            }
+            for fila in filas
+        ]
 
     @staticmethod
     def _palabras_clave_producto(nombre: str) -> set[str]:
@@ -582,7 +634,10 @@ class BaseDatos(ComandosBaseDatos):
             'LOS', 'PARA', 'POR', 'Y', 'PZA', 'PIEZA', 'PIEZAS',
             'PAQUETE', 'CAJA', 'KG', 'KILO', 'KILOS',
         }
-        palabras = re.findall(r'[A-Z0-9]+', texto)
+        palabras = ''.join(
+            caracter if caracter.isalnum() else ' '
+            for caracter in texto
+        ).split()
         alias = {
             'ALA': 'ALA', 'ALAS': 'ALA', 'ALITA': 'ALA',
             'ALITAS': 'ALA', 'ALONE': 'ALA', 'ALONES': 'ALA',
@@ -608,7 +663,12 @@ class BaseDatos(ComandosBaseDatos):
             caracter for caracter in texto
             if not unicodedata.combining(caracter)
         )
-        return ' '.join(re.findall(r'[A-Z0-9]+', texto))
+        return ' '.join(
+            ''.join(
+                caracter if caracter.isalnum() else ' '
+                for caracter in texto
+            ).split()
+        )
 
     @classmethod
     def _semejanza_nombre_producto(cls, esperado: str, candidato: str) -> float:
@@ -618,9 +678,23 @@ class BaseDatos(ComandosBaseDatos):
             return 0.0
         palabras_esperadas = cls._palabras_clave_producto(nombre_esperado)
         palabras_candidatas = cls._palabras_clave_producto(nombre_candidato)
-        coincidencia_texto = SequenceMatcher(
-            None, nombre_esperado, nombre_candidato
-        ).ratio()
+        if nombre_esperado == nombre_candidato:
+            coincidencia_texto = 1.0
+        elif (
+                nombre_esperado in nombre_candidato
+                or nombre_candidato in nombre_esperado
+        ):
+            coincidencia_texto = 0.85
+        else:
+            limite = min(len(nombre_esperado), len(nombre_candidato))
+            comunes = 0
+            for posicion in range(limite):
+                if nombre_esperado[posicion] != nombre_candidato[posicion]:
+                    break
+                comunes += 1
+            coincidencia_texto = comunes / max(
+                len(nombre_esperado), len(nombre_candidato)
+            )
         coincidencia_palabras = (
             len(palabras_esperadas & palabras_candidatas) /
             len(palabras_esperadas | palabras_candidatas)
@@ -635,9 +709,9 @@ class BaseDatos(ComandosBaseDatos):
             linea: str,
     ) -> int:
         formula_directa = self.fetchone(
-            """
+            f"""
             SELECT TOP 1 ProductID
-            FROM dbo.zvwFormulasListasPCocinar
+            FROM {self._fuente_formulas}
             WHERE ProductID = ?
             """,
             (int(producto_resultante_id),),
@@ -650,13 +724,13 @@ class BaseDatos(ComandosBaseDatos):
             return formula_directa
 
         candidatos = self.fetchall(
-            """
+            f"""
             SELECT DISTINCT F.ProductID, F.Producto
-            FROM dbo.zvwFormulasListasPCocinar AS F
+            FROM {self._fuente_formulas} AS F
             WHERE EXISTS
             (
                 SELECT 1
-                FROM dbo.zvwFormulasListasPCocinar AS ComponenteFormula
+                FROM {self._fuente_formulas} AS ComponenteFormula
                 INNER JOIN dbo.orgProduct AS Componente
                     ON Componente.ProductID = ComponenteFormula.ComponenteID
                    AND Componente.DiscontinuedOn IS NULL
@@ -709,7 +783,7 @@ class BaseDatos(ComandosBaseDatos):
             self, producto_resultante_id: int
     ) -> dict | None:
         disponibles = self.fetchall(
-            """
+            f"""
             SELECT TOP 1
                 P.ProductID AS transformacion_id,
                 P.ProductName AS nombre_transformacion,
@@ -727,7 +801,7 @@ class BaseDatos(ComandosBaseDatos):
                     F.Componente,
                     C.Category1,
                     F.CantidadComp
-                FROM dbo.zvwFormulasListasPCocinar AS F
+                FROM {self._fuente_formulas} AS F
                 INNER JOIN dbo.orgProduct AS C
                     ON C.ProductID = F.ComponenteID
                    AND C.DiscontinuedOn IS NULL
@@ -747,7 +821,7 @@ class BaseDatos(ComandosBaseDatos):
               AND EXISTS
               (
                   SELECT 1
-                  FROM dbo.zvwFormulasListasPCocinar AS Formula
+                  FROM {self._fuente_formulas} AS Formula
                   WHERE Formula.ProductID = P.ProductID
               )
             """,
@@ -896,13 +970,13 @@ class BaseDatos(ComandosBaseDatos):
             detalle['porcentaje_merma'] = (
                 AJUSTES_MODULO.merma_tecnica_porcentaje
             )
-        detalle['resultantes'] = self.fetchall(
+        filas_resultantes = self.fetchall(
             """
             SELECT
-                D.producto_resultante AS product_id,
-                P.ProductName AS producto_resultante,
-                D.cantidad_resultante AS cantidad,
-                D.unidad
+                D.producto_resultante AS ProductID,
+                P.ProductName AS ProductName,
+                D.cantidad_resultante AS Quantity,
+                D.unidad AS Unit
             FROM dbo.TransformacionesUsuarioDetalle AS D
             INNER JOIN dbo.orgProduct AS P
                 ON P.ProductID = D.producto_resultante
@@ -912,16 +986,25 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (int(transformacion_id),),
         )
-        detalle['componentes'] = self.fetchall(
+        detalle['resultantes'] = [
+            {
+                'product_id': fila.get('ProductID'),
+                'producto_resultante': fila.get('ProductName'),
+                'cantidad': fila.get('Quantity'),
+                'unidad': fila.get('Unit'),
+            }
+            for fila in filas_resultantes
+        ]
+        filas_componentes = self.fetchall(
             """
             SELECT
-                C.producto_componente AS product_id,
-                P.ProductName AS producto,
-                C.cantidad,
-                C.unidad,
-                C.es_producto_base,
-                C.tipo_componente,
-                C.orden
+                C.producto_componente AS ProductID,
+                P.ProductName AS ProductName,
+                C.cantidad AS Quantity,
+                C.unidad AS Unit,
+                C.es_producto_base AS IsBaseProduct,
+                C.tipo_componente AS ComponentType,
+                C.orden AS SortOrder
             FROM dbo.TransformacionesUsuarioComponente AS C
             INNER JOIN dbo.orgProduct AS P
                 ON P.ProductID = C.producto_componente
@@ -931,6 +1014,18 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (int(transformacion_id),),
         )
+        detalle['componentes'] = [
+            {
+                'product_id': fila.get('ProductID'),
+                'producto': fila.get('ProductName'),
+                'cantidad': fila.get('Quantity'),
+                'unidad': fila.get('Unit'),
+                'es_producto_base': fila.get('IsBaseProduct'),
+                'tipo_componente': fila.get('ComponentType'),
+                'orden': fila.get('SortOrder'),
+            }
+            for fila in filas_componentes
+        ]
         if not detalle['resultantes']:
             return None
         return detalle
@@ -940,12 +1035,12 @@ class BaseDatos(ComandosBaseDatos):
             linea: str,
             producto_base: str,
     ) -> list[dict]:
-        return self.fetchall(
+        filas = self.fetchall(
             """
             SELECT
-                ProductID AS product_id,
-                ProductName AS producto_resultante,
-                Unit AS unidad
+                ProductID AS ProductID,
+                ProductName AS ProductName,
+                Unit AS Unit
             FROM dbo.orgProduct
             WHERE DiscontinuedOn IS NULL
               AND UPPER(LTRIM(RTRIM(ISNULL(Category1, '')))) =
@@ -956,6 +1051,14 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (str(linea).strip(), str(producto_base).strip()),
         )
+        return [
+            {
+                'product_id': fila.get('ProductID'),
+                'producto_resultante': fila.get('ProductName'),
+                'unidad': fila.get('Unit'),
+            }
+            for fila in filas
+        ]
 
     def sugerir_documento_por_producto(
             self,
@@ -1096,8 +1199,28 @@ class BaseDatos(ComandosBaseDatos):
             tipo_movimiento_entrada_id: int,
             insumos: list[dict] | None = None,
     ) -> dict | None:
+        insumos_validos = [
+            (
+                self._convertir_entero(insumo.get('producto_id')),
+                float(insumo.get('cantidad') or 0),
+            )
+            for insumo in (insumos or [])
+            if self._convertir_entero(insumo.get('producto_id')) > 0
+            and float(insumo.get('cantidad') or 0) > 0
+        ]
+        valores_insumos = ', '.join('(?, ?)' for _ in insumos_validos)
+        carga_insumos = (
+            f'INSERT INTO @Insumos (producto_id, cantidad) VALUES '
+            f'{valores_insumos};'
+            if valores_insumos else ''
+        )
+        parametros_insumos = tuple(
+            valor
+            for insumo in insumos_validos
+            for valor in insumo
+        )
         relation_id = self.fetchone(
-            """
+            f"""
             SET NOCOUNT ON;
             BEGIN TRY
                 BEGIN TRANSACTION;
@@ -1115,7 +1238,12 @@ class BaseDatos(ComandosBaseDatos):
                 DECLARE @Entrada TABLE (Documento INT);
                 DECLARE @ItemSalida TABLE (DocumentItemID BIGINT);
                 DECLARE @ItemEntrada TABLE (DocumentItemID BIGINT);
-                DECLARE @Insumos NVARCHAR(MAX) = ?;
+                DECLARE @Insumos TABLE
+                (
+                    producto_id INT NOT NULL,
+                    cantidad FLOAT NOT NULL
+                );
+                {carga_insumos}
                 DECLARE @SalidaID INT;
                 DECLARE @EntradaID INT;
                 DECLARE @RelacionID INT;
@@ -1144,12 +1272,7 @@ class BaseDatos(ComandosBaseDatos):
                 DECLARE @CantidadInsumo FLOAT;
                 DECLARE cursor_insumos CURSOR LOCAL FAST_FORWARD FOR
                     SELECT producto_id, cantidad
-                    FROM OPENJSON(@Insumos)
-                    WITH
-                    (
-                        producto_id INT '$.producto_id',
-                        cantidad FLOAT '$.cantidad'
-                    );
+                    FROM @Insumos;
                 OPEN cursor_insumos;
                 FETCH NEXT FROM cursor_insumos
                     INTO @InsumoID, @CantidadInsumo;
@@ -1252,8 +1375,7 @@ class BaseDatos(ComandosBaseDatos):
                 THROW;
             END CATCH;
             """,
-            (
-                json.dumps(insumos or [], ensure_ascii=False),
+            parametros_insumos + (
                 int(usuario_erp),
                 int(usuario_erp),
                 int(producto_base_id),
@@ -1327,29 +1449,28 @@ class BaseDatos(ComandosBaseDatos):
             fecha_hasta: str = '',
             transformacion: str = '',
     ) -> dict:
-        clave_cache = (
-            int(limite),
-            int(pagina),
-            fecha_desde.strip(),
-            fecha_hasta.strip(),
-            transformacion.strip().casefold(),
+        return self._consultar_historial_transformaciones(
+            limite=limite,
+            pagina=pagina,
+            fecha_desde=fecha_desde,
+            fecha_hasta=fecha_hasta,
+            transformacion=transformacion,
         )
-        with self._bloqueo_cache_historial:
-            pagina_cache = self._cache_paginas_historial.get(clave_cache)
-            if pagina_cache and monotonic() - pagina_cache[0] < 15:
-                return deepcopy(pagina_cache[1])
-            resultado = self._consultar_historial_transformaciones(
-                limite=limite,
-                pagina=pagina,
-                fecha_desde=fecha_desde,
-                fecha_hasta=fecha_hasta,
-                transformacion=transformacion,
-            )
-            self._cache_paginas_historial[clave_cache] = (
-                monotonic(),
-                resultado,
-            )
-            return deepcopy(resultado)
+
+    @staticmethod
+    def _quitar_rango_presentacion(nombre: object | None) -> str:
+        texto = BaseDatos._convertir_texto(nombre).strip()
+        if not texto.endswith(')') or '(' not in texto:
+            return texto
+        apertura = texto.rfind('(')
+        rango = texto[apertura + 1:-1].replace(' ', '')
+        partes = rango.replace('+', '-').split('-')
+        if not partes or any(not parte.isdigit() for parte in partes if parte):
+            return texto
+        prefijo = texto[:apertura].rstrip()
+        if prefijo.endswith('1'):
+            prefijo = prefijo[:-1].rstrip(' .')
+        return prefijo or texto
 
     def _consultar_historial_transformaciones(
             self,
@@ -1373,7 +1494,7 @@ class BaseDatos(ComandosBaseDatos):
                     R.MovementDate AS fecha_movimiento,
                     R.CreatedOn AS fecha_hora,
                     R.PhysicalUserID AS tablajero_id,
-                    R.ERPUserID AS usuario_id,
+                    R.ERPUserID AS usuario_erp_id,
                     ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '') AS folio_salida,
                     ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '') AS folio_entrada,
                     COUNT_BIG(*) OVER () AS total_registros
@@ -1427,8 +1548,8 @@ class BaseDatos(ComandosBaseDatos):
                 RF.folio_salida,
                 RF.folio_entrada,
                 RF.total_registros,
-                ISNULL(U.UserName, '') AS usuario,
-                ISNULL(Empleado.OfficialName, '') AS tablajero,
+                RF.tablajero_id,
+                RF.usuario_erp_id,
                 CASE
                     WHEN ISNULL(Partidas.total_partidas, 0) > 1
                      AND ISNULL(PartidasEntrada.total_partidas, 0) > 1
@@ -1461,15 +1582,6 @@ class BaseDatos(ComandosBaseDatos):
                     THEN 1 ELSE 0
                 END AS es_documento_lote
             FROM Pagina AS RF
-            LEFT JOIN dbo.engUser AS U
-                ON U.UserID = RF.usuario_id
-            OUTER APPLY
-            (
-                SELECT TOP 1 EMP.OfficialName
-                FROM dbo.zvwEmpleadosCayalMenu AS EMP
-                WHERE EMP.UserID = RF.tablajero_id
-                ORDER BY EMP.OfficialName
-            ) AS Empleado
             OUTER APPLY
             (
                 SELECT TOP 1 P.ProductName, P.Category1, DI.Quantity
@@ -1522,21 +1634,17 @@ class BaseDatos(ComandosBaseDatos):
                 desplazamiento, limite,
             ),
         )
-        patron_rango = re.compile(
-            r"\s*\.?\s*1\s*\(\s*\d+\s*(?:-\s*\d+|\+)\s*\)\s*$",
-            re.IGNORECASE,
-        )
         total_registros = int(
             filas[0].get('total_registros', 0) if filas else 0
         )
         for fila in filas:
             fila.pop('total_registros', None)
-            fila['producto_base'] = patron_rango.sub(
-                '', str(fila.get('producto_base') or '')
-            ).strip()
-            fila['producto_resultante'] = patron_rango.sub(
-                '', str(fila.get('producto_resultante') or '')
-            ).strip()
+            fila['producto_base'] = self._quitar_rango_presentacion(
+                fila.get('producto_base')
+            )
+            fila['producto_resultante'] = self._quitar_rango_presentacion(
+                fila.get('producto_resultante')
+            )
             total_partidas = int(
                 fila.pop('total_partidas_salida', 0) or 0
             )
@@ -1563,14 +1671,6 @@ class BaseDatos(ComandosBaseDatos):
             fecha_hasta: str = '',
             transformacion: str = '',
     ) -> dict[str, float | int]:
-        clave_cache = (
-            fecha_desde.strip(),
-            fecha_hasta.strip(),
-            transformacion.strip().casefold(),
-        )
-        resumen_cache = self._cache_resumen_historial.get(clave_cache)
-        if resumen_cache and monotonic() - resumen_cache[0] < 60:
-            return dict(resumen_cache[1])
         filas = self.fetchall(
             """
             WITH RelacionesFiltradas AS
@@ -1716,13 +1816,11 @@ class BaseDatos(ComandosBaseDatos):
                 'merma_acumulada': float(fila.get('merma_acumulada') or 0),
                 'rendimiento': float(fila.get('rendimiento') or 0),
             }
-        self._cache_resumen_historial[clave_cache] = (monotonic(), resumen)
         return dict(resumen)
 
-    def invalidar_cache_historial(self) -> None:
-        with self._bloqueo_cache_historial:
-            self._cache_resumen_historial.clear()
-            self._cache_paginas_historial.clear()
+    @staticmethod
+    def invalidar_cache_historial() -> None:
+        return None
 
     def listar_documentos_relacionados_exportacion(
             self,
@@ -1739,21 +1837,13 @@ class BaseDatos(ComandosBaseDatos):
                     R.CreatedOn AS fecha_hora,
                     ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '') AS folio_salida,
                     ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '') AS folio_entrada,
-                    ISNULL(U.UserName, '') AS usuario,
-                    ISNULL(Empleado.OfficialName, '') AS tablajero
+                    R.PhysicalUserID AS tablajero_id,
+                    R.ERPUserID AS usuario_erp_id
                 FROM dbo.docDocumentWarehouseRelation AS R
                 INNER JOIN dbo.docDocument AS S
                     ON S.DocumentID = R.SourceDocumentID AND S.ModuleID = 203
                 INNER JOIN dbo.docDocument AS E
                     ON E.DocumentID = R.DestinationDocumentID AND E.ModuleID = 202
-                LEFT JOIN dbo.engUser AS U ON U.UserID = R.ERPUserID
-                OUTER APPLY
-                (
-                    SELECT TOP 1 EMP.OfficialName
-                    FROM dbo.zvwEmpleadosCayalMenu AS EMP
-                    WHERE EMP.UserID = R.PhysicalUserID
-                    ORDER BY EMP.OfficialName
-                ) AS Empleado
                 WHERE S.DeletedOn IS NULL
                   AND E.DeletedOn IS NULL
                   AND TRY_CONVERT(INT, S.CustomCbo) = 2
@@ -1762,11 +1852,11 @@ class BaseDatos(ComandosBaseDatos):
             )
             SELECT
                 R.relacion_id, R.fecha_hora, R.folio_salida, R.folio_entrada,
-                R.usuario, R.tablajero,
+                R.tablajero_id, R.usuario_erp_id,
                 ? AS tipo_documento,
                 CASE WHEN ? = 'SALIDA' THEN R.folio_salida ELSE R.folio_entrada END
                     AS folio_documento,
-                DI.DocumentItemID AS partida_id,
+                DI.DocumentItemID AS PartidaID,
                 ISNULL(P.ProductName, '') AS producto,
                 ISNULL(DI.Quantity, 0) AS cantidad
             FROM Relaciones AS R
@@ -1785,14 +1875,19 @@ class BaseDatos(ComandosBaseDatos):
             key=lambda fila: (
                 fila.get('fecha_hora'),
                 int(fila.get('relacion_id') or 0),
-                -orden.get(str(fila.get('tipo_documento')), 9),
-                -int(fila.get('partida_id') or 0),
+                -orden.get(self._convertir_texto(fila.get('tipo_documento')), 9),
+                -int(fila.get('PartidaID') or 0),
             ),
             reverse=True,
         )
-        for fila in registros:
-            fila.pop('partida_id', None)
-        return registros
+        return [
+            {
+                clave: valor
+                for clave, valor in fila.items()
+                if clave != 'PartidaID'
+            }
+            for fila in registros
+        ]
 
     def obtener_detalle_historial_transformacion(
             self,
@@ -1807,22 +1902,13 @@ class BaseDatos(ComandosBaseDatos):
                 ISNULL(S.FolioPrefix, '') + ISNULL(S.Folio, '') AS folio_salida,
                 ISNULL(E.FolioPrefix, '') + ISNULL(E.Folio, '') AS folio_entrada,
                 R.CreatedOn AS fecha_hora,
-                ISNULL(U.UserName, '') AS usuario,
-                ISNULL(Empleado.OfficialName, '') AS tablajero
+                R.PhysicalUserID AS tablajero_id,
+                R.ERPUserID AS usuario_erp_id
             FROM dbo.docDocumentWarehouseRelation AS R
             INNER JOIN dbo.docDocument AS S
                 ON S.DocumentID = R.SourceDocumentID
             INNER JOIN dbo.docDocument AS E
                 ON E.DocumentID = R.DestinationDocumentID
-            LEFT JOIN dbo.engUser AS U
-                ON U.UserID = R.ERPUserID
-            OUTER APPLY
-            (
-                SELECT TOP 1 EMP.OfficialName
-                FROM dbo.zvwEmpleadosCayalMenu AS EMP
-                WHERE EMP.UserID = R.PhysicalUserID
-                ORDER BY EMP.OfficialName
-            ) AS Empleado
             WHERE R.DocumentWarehouseRelationID = ?
               AND S.DeletedOn IS NULL
               AND E.DeletedOn IS NULL
@@ -2148,13 +2234,13 @@ class BaseDatos(ComandosBaseDatos):
             (str(folio).strip(), module_id, module_id),
         )
 
-        return int(valor or 0)
+        return self._convertir_entero(valor)
 
     # -------------------------- MODULO CARNICO -------------------------
     def asegurar_tablas_modulo_carnico(self) -> None:
         if self._tablas_modulo_verificadas:
             return
-        with self._bloqueo_estructura:
+        if not self._tablas_modulo_verificadas:
             if self._tablas_modulo_verificadas:
                 return
             self.command(
@@ -2295,23 +2381,22 @@ class BaseDatos(ComandosBaseDatos):
             detalle: str,
             productos,
     ) -> None:
+        del productos
         self.command(
             """
             INSERT INTO dbo.ModuloCarnicoProductoBitacora (
                 accion,
                 usuario_id,
                 usuario_confirmacion_nombre,
-                detalle,
-                productos_json
+                detalle
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?)
             """,
             (
                 accion,
                 usuario_id,
                 usuario_confirmacion_nombre,
                 detalle,
-                json.dumps(productos, ensure_ascii=False),
             ),
         )
 
@@ -2490,7 +2575,7 @@ class BaseDatos(ComandosBaseDatos):
                 datos.observaciones,
             ),
         )
-        return int(registro_id or 0)
+        return self._convertir_entero(registro_id)
 
     def buscar_transformaciones_carnicas(
             self,
@@ -2545,7 +2630,7 @@ class BaseDatos(ComandosBaseDatos):
     def asegurar_tablas_relacion_documentos(self) -> None:
         if self._tablas_relacion_verificadas:
             return
-        with self._bloqueo_estructura:
+        if not self._tablas_relacion_verificadas:
             if self._tablas_relacion_verificadas:
                 return
             self.command(
@@ -2600,174 +2685,49 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (nombre, categoria),
         )
-        return int(valor or 0)
+        return self._convertir_entero(valor)
 
     def homologar_tipo_movimiento_documento(
             self,
             document_id: int,
     ) -> None:
-        self.command(
-            r"""
-            DECLARE @DocumentID INT = ?;
-            DECLARE @ModuleID INT;
-            DECLARE @Custom1 NVARCHAR(125);
-            DECLARE @Custom1Normalizado NVARCHAR(125);
-
-            SELECT
-                @ModuleID = ModuleID,
-                @Custom1 = LTRIM(
-                    RTRIM(
-                        ISNULL(Custom1, '')
-                    )
-                )
+        documentos = self.fetchall(
+            """
+            SELECT TOP (1)
+                ModuleID,
+                TRY_CONVERT(INT, CustomCbo) AS MovementTypeID,
+                NULLIF(LTRIM(RTRIM(ISNULL(Comments, ''))), '') AS Comments
             FROM dbo.docDocument
-            WHERE DocumentID = @DocumentID;
-
-            SET @Custom1Normalizado = UPPER(@Custom1);
-            SET @Custom1Normalizado =
-                REPLACE(@Custom1Normalizado, ' ', '');
-            SET @Custom1Normalizado =
-                REPLACE(@Custom1Normalizado, '-', '');
-            SET @Custom1Normalizado =
-                REPLACE(@Custom1Normalizado, '_', '');
-            SET @Custom1Normalizado =
-                REPLACE(@Custom1Normalizado, '.', '');
-            SET @Custom1Normalizado =
-                REPLACE(@Custom1Normalizado, '/', '');
-            SET @Custom1Normalizado =
-                REPLACE(@Custom1Normalizado, '\', '');
-            SET @Custom1Normalizado =
-                REPLACE(@Custom1Normalizado, CHAR(9), '');
-            SET @Custom1Normalizado =
-                REPLACE(@Custom1Normalizado, CHAR(10), '');
-            SET @Custom1Normalizado =
-                REPLACE(@Custom1Normalizado, CHAR(13), '');
-
-            IF ISNULL(@Custom1Normalizado, '') = ''
-                RETURN;
-
-            DECLARE @EntradaDocumentID INT = 0;
-            DECLARE @SalidaDocumentID INT = 0;
-
-            IF @ModuleID = 202
-            BEGIN
-                SET @EntradaDocumentID = @DocumentID;
-
-                SELECT TOP 1
-                    @SalidaDocumentID = S.DocumentID
-                FROM dbo.docDocument AS S
-                WHERE S.ModuleID = 203
-                  AND S.DeletedOn IS NULL
-                  AND S.CancelledOn IS NULL
-                  AND UPPER(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                            ISNULL(S.FolioPrefix, '') +
-                            ISNULL(S.Folio, ''),
-                            ' ', ''),
-                            '-', ''),
-                            '_', ''),
-                            '.', ''),
-                            '/', ''),
-                            '\', ''),
-                            CHAR(9), ''),
-                            CHAR(10), ''),
-                            CHAR(13), '')
-                      ) = @Custom1Normalizado
-                ORDER BY S.DocumentID DESC;
-            END
-            ELSE IF @ModuleID = 203
-            BEGIN
-                SET @SalidaDocumentID = @DocumentID;
-
-                SELECT TOP 1
-                    @EntradaDocumentID = E.DocumentID
-                FROM dbo.docDocument AS E
-                WHERE E.ModuleID = 202
-                  AND E.DeletedOn IS NULL
-                  AND E.CancelledOn IS NULL
-                  AND UPPER(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                        REPLACE(
-                            ISNULL(E.FolioPrefix, '') +
-                            ISNULL(E.Folio, ''),
-                            ' ', ''),
-                            '-', ''),
-                            '_', ''),
-                            '.', ''),
-                            '/', ''),
-                            '\', ''),
-                            CHAR(9), ''),
-                            CHAR(10), ''),
-                            CHAR(13), '')
-                      ) = @Custom1Normalizado
-                ORDER BY E.DocumentID DESC;
-            END
-            ELSE
-            BEGIN
-                RETURN;
-            END;
-
-            IF ISNULL(@EntradaDocumentID, 0) = 0
-               OR ISNULL(@SalidaDocumentID, 0) = 0
-                RETURN;
-
-            DECLARE @EntradaFolio NVARCHAR(125);
-            DECLARE @SalidaFolio NVARCHAR(125);
-
-            SELECT
-                @EntradaFolio =
-                    ISNULL(FolioPrefix, '') +
-                    ISNULL(Folio, '')
-            FROM dbo.docDocument
-            WHERE DocumentID = @EntradaDocumentID
-              AND ModuleID = 202;
-
-            SELECT
-                @SalidaFolio =
-                    ISNULL(FolioPrefix, '') +
-                    ISNULL(Folio, '')
-            FROM dbo.docDocument
-            WHERE DocumentID = @SalidaDocumentID
-              AND ModuleID = 203;
-
-            UPDATE dbo.docDocument
-            SET
-                SourceDocumentID = @SalidaDocumentID,
-                DestinationDocumentID = 0,
-                Custom1 = @SalidaFolio
-            WHERE DocumentID = @EntradaDocumentID
-              AND ModuleID = 202;
-            UPDATE dbo.docDocument
-            SET
-                SourceDocumentID = 0,
-                DestinationDocumentID = @EntradaDocumentID,
-                Custom1 = @EntradaFolio
-            WHERE DocumentID = @SalidaDocumentID
-              AND ModuleID = 203;
+            WHERE DocumentID = ?
+              AND DeletedOn IS NULL
+              AND CancelledOn IS NULL
             """,
             (int(document_id),),
+        )
+        if not documentos:
+            return
+
+        documento = documentos[0]
+        modulo = int(documento.get('ModuleID') or 0)
+        numero_movimiento = int(documento.get('MovementTypeID') or 0)
+        if modulo not in (self.MODULO_ENTRADA, self.MODULO_SALIDA):
+            return
+        if numero_movimiento <= 0:
+            return
+
+        tipo = 'entrada' if modulo == self.MODULO_ENTRADA else 'salida'
+        super().clasificar_movimiento_almacen(
+            int(document_id),
+            tipo,
+            numero_movimiento,
+            documento.get('Comments'),
         )
 
     # ---------------- CONFIGURACION DE TRANSFORMACIONES ----------------
     def asegurar_proveedor_transformaciones_usuario(self) -> None:
         if self._tablas_configuracion_verificadas:
             return
-        with self._bloqueo_estructura:
+        if not self._tablas_configuracion_verificadas:
             if self._tablas_configuracion_verificadas:
                 return
             self.command(
@@ -2815,7 +2775,13 @@ class BaseDatos(ComandosBaseDatos):
             valores_nuevos=None,
     ) -> int:
         self.asegurar_proveedor_transformaciones_usuario()
-        return int(self.fetchone(
+        valores_anteriores_texto = (
+            valores_anteriores if isinstance(valores_anteriores, str) else None
+        )
+        valores_nuevos_texto = (
+            valores_nuevos if isinstance(valores_nuevos, str) else None
+        )
+        return self._convertir_entero(self.fetchone(
             """
             INSERT dbo.ModuloCarnicoConfiguracionAuditoria (
                 configuracion_id, configuracion_nombre, accion,
@@ -2832,17 +2798,10 @@ class BaseDatos(ComandosBaseDatos):
                 usuario_id,
                 usuario_nombre,
                 motivo,
-                (
-                    json.dumps(valores_anteriores, ensure_ascii=False)
-                    if valores_anteriores is not None else None
-                ),
-                (
-                    json.dumps(valores_nuevos, ensure_ascii=False)
-                    if valores_nuevos is not None else None
-                ),
+                valores_anteriores_texto,
+                valores_nuevos_texto,
             ),
-        ) or 0)
-
+        ))
     def listar_auditoria_configuraciones(
             self,
             limite: int = 100,
@@ -2859,38 +2818,44 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (int(limite),),
         )
-        for registro in registros:
-            for campo in (
-                    'valores_anteriores_json',
-                    'valores_nuevos_json',
-            ):
-                texto = registro.pop(campo, None)
-                try:
-                    registro[campo.removesuffix('_json')] = (
-                        json.loads(texto) if texto else None
-                    )
-                except (TypeError, ValueError):
-                    registro[campo.removesuffix('_json')] = None
-        return registros
+        return [
+            {
+                **{
+                    clave: valor
+                    for clave, valor in registro.items()
+                    if clave not in {
+                        'valores_anteriores_json',
+                        'valores_nuevos_json',
+                    }
+                },
+                'valores_anteriores': registro.get(
+                    'valores_anteriores_json'
+                ),
+                'valores_nuevos': registro.get('valores_nuevos_json'),
+            }
+            for registro in registros
+        ]
 
     def buscar_productos_base_configuracion(
             self, linea: str, termino: str = ''
     ) -> list[dict]:
         self.asegurar_tablas_modulo_carnico()
-        texto = str(termino or '').strip()
-        parametros = (str(linea).strip(), texto, texto)
+        linea_limpia = self._nombre_producto_normalizado(linea)
+        texto = ' '.join(str(termino or '').strip().split())
+        texto_busqueda = f'{texto}%'
+        parametros = (linea_limpia, texto, texto_busqueda)
         configuraciones = self.fetchall(
             """
             SELECT
-                -T.id_transformacion_usuario AS product_id,
-                T.nombre_transformacion AS producto,
-                CAST('TRANSFORMACION' AS NVARCHAR(50)) AS unidad,
-                T.fecha_creacion,
+                -T.id_transformacion_usuario AS ProductID,
+                T.nombre_transformacion AS ProductName,
+                CAST('TRANSFORMACION' AS NVARCHAR(50)) AS Unit,
+                T.fecha_creacion AS CreatedAt,
                 CAST(CASE WHEN T.fecha_creacion >= DATEADD(DAY, -30, GETDATE())
-                     THEN 1 ELSE 0 END AS BIT) AS es_reciente,
-                CAST(1 AS BIT) AS tiene_receta,
-                CAST(1 AS BIT) AS es_configuracion,
-                T.id_transformacion_usuario AS transformacion_id
+                     THEN 1 ELSE 0 END AS BIT) AS IsRecent,
+                CAST(1 AS BIT) AS HasRecipe,
+                CAST(1 AS BIT) AS IsConfiguration,
+                T.id_transformacion_usuario AS TransformationUserID
             FROM dbo.TransformacionesUsuario AS T
             INNER JOIN dbo.orgProduct AS Base
                 ON Base.ProductID = T.producto_origen
@@ -2898,41 +2863,49 @@ class BaseDatos(ComandosBaseDatos):
                 ON CatalogoModulo.product_id = Base.ProductID
                AND CatalogoModulo.activo = 1
             WHERE T.activa = 1
-              AND UPPER(LTRIM(RTRIM(ISNULL(Base.Category1, '')))) =
-                  UPPER(LTRIM(RTRIM(?)))
-              AND (? = '' OR T.nombre_transformacion LIKE '%' + ? + '%')
-            ORDER BY T.nombre_transformacion
+              AND Base.Category1 = ?
+              AND (? = '' OR T.nombre_transformacion LIKE ?)
             """,
             parametros,
         )
         productos = self.fetchall(
-            """
+            f"""
             SELECT
-                P.ProductID AS product_id,
-                P.ProductName AS producto,
-                CAST(ISNULL(P.Unit, 'KILO') AS NVARCHAR(50)) AS unidad,
-                P.CreatedOn AS fecha_creacion,
+                P.ProductID AS ProductID,
+                P.ProductName AS ProductName,
+                CAST(ISNULL(P.Unit, 'KILO') AS NVARCHAR(50)) AS Unit,
+                P.CreatedOn AS CreatedAt,
                 CAST(CASE WHEN P.CreatedOn >= DATEADD(DAY, -30, GETDATE())
-                     THEN 1 ELSE 0 END AS BIT) AS es_reciente,
+                     THEN 1 ELSE 0 END AS BIT) AS IsRecent,
                 CAST(CASE WHEN EXISTS
                 (
-                    SELECT 1 FROM dbo.zvwFormulasListasPCocinar AS F
+                    SELECT 1 FROM {self._fuente_formulas} AS F
                     WHERE F.ComponenteID = P.ProductID
-                ) THEN 1 ELSE 0 END AS BIT) AS tiene_receta,
-                CAST(0 AS BIT) AS es_configuracion,
-                CAST(NULL AS INT) AS transformacion_id
+                ) THEN 1 ELSE 0 END AS BIT) AS HasRecipe,
+                CAST(0 AS BIT) AS IsConfiguration,
+                CAST(NULL AS INT) AS TransformationUserID
             FROM dbo.orgProduct AS P
             INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS CatalogoModulo
                 ON CatalogoModulo.product_id = P.ProductID
                AND CatalogoModulo.activo = 1
-            WHERE UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
-                  UPPER(LTRIM(RTRIM(?)))
-              AND (? = '' OR P.ProductName LIKE '%' + ? + '%')
-            ORDER BY P.ProductName
+            WHERE P.Category1 = ?
+              AND (? = '' OR P.ProductName LIKE ?)
             """,
             parametros,
         )
-        return (configuraciones + productos)[:200]
+        return [
+            {
+                'product_id': int(fila.get('ProductID') or 0),
+                'producto': self._convertir_texto(fila.get('ProductName')),
+                'unidad': self._convertir_texto(fila.get('Unit')),
+                'fecha_creacion': fila.get('CreatedAt'),
+                'es_reciente': bool(fila.get('IsRecent')),
+                'tiene_receta': bool(fila.get('HasRecipe')),
+                'es_configuracion': bool(fila.get('IsConfiguration')),
+                'transformacion_id': fila.get('TransformationUserID'),
+            }
+            for fila in (configuraciones + productos)[:200]
+        ]
 
     def ocultar_producto_catalogo(
             self,
@@ -2966,13 +2939,12 @@ class BaseDatos(ComandosBaseDatos):
                 SET activo = 0,
                     usuario_actualizacion = ?,
                     fecha_actualizacion = SYSDATETIME()
+                OUTPUT INSERTED.product_id
                 WHERE product_id = ?
                   AND activo = 1;
-
-                SELECT CASE WHEN @@ROWCOUNT > 0 THEN ? ELSE NULL END;
                 """,
                 (
-                    int(usuario_id), int(producto_id), int(producto_id),
+                    int(usuario_id), int(producto_id),
                 ),
             )
             if ocultado is None:
@@ -2998,58 +2970,72 @@ class BaseDatos(ComandosBaseDatos):
     def buscar_productos_resultantes_configuracion(
             self, linea: str, termino: str = ''
     ) -> list[dict]:
+        linea_limpia = self._nombre_producto_normalizado(linea)
         texto = str(termino or '').strip()
-        return self.fetchall(
-            """
-            SELECT TOP (100)
-                F.ProductID AS product_id,
-                MAX(F.Producto) AS producto,
-                MAX(ISNULL(R.Unit, 'KILO')) AS unidad
-            FROM dbo.zvwFormulasListasPCocinar AS F
+        filas = self.fetchall(
+            f"""
+            SELECT DISTINCT TOP (100)
+                F.ProductID AS ProductID,
+                F.Producto AS ProductName,
+                ISNULL(R.Unit, 'KILO') AS Unit
+            FROM {self._fuente_formulas} AS F
             INNER JOIN dbo.orgProduct AS C
                 ON C.ProductID = F.ComponenteID
                AND C.DiscontinuedOn IS NULL
-            LEFT JOIN dbo.orgProduct AS R ON R.ProductID = F.ProductID
-            WHERE UPPER(LTRIM(RTRIM(ISNULL(C.Category1, '')))) =
-                  UPPER(LTRIM(RTRIM(?)))
-              AND (? = '' OR F.Producto LIKE '%' + ? + '%')
-            GROUP BY F.ProductID
-            ORDER BY MAX(F.Producto)
+            INNER JOIN dbo.orgProduct AS R
+                ON R.ProductID = F.ProductID
+               AND R.DiscontinuedOn IS NULL
+            WHERE C.Category1 = ?
+              AND (? = '' OR F.Producto LIKE ?)
             """,
-            (str(linea).strip(), texto, texto),
+            (linea_limpia, texto, f'{texto}%'),
         )
+        return [
+            {
+                'product_id': int(fila.get('ProductID') or 0),
+                'producto': self._convertir_texto(fila.get('ProductName')),
+                'unidad': self._convertir_texto(fila.get('Unit')) or 'KILO',
+            }
+            for fila in filas
+        ]
 
     def buscar_base_sugerida_configuracion(
             self, linea: str, nombre_transformacion: str
     ) -> dict | None:
         nombre = str(nombre_transformacion or '').strip()
+        linea_normalizada = self._nombre_producto_normalizado(linea)
         if len(nombre) < 3:
             return None
         formula_exacta = self.fetchall(
-            """
+            f"""
             SELECT TOP 1
-                F.ProductID AS producto_resultante_id,
-                F.Producto AS producto_resultante,
-                F.ComponenteID AS producto_base_id,
-                F.Componente AS producto_base,
-                ISNULL(P.Unit, 'KILO') AS unidad
-            FROM dbo.zvwFormulasListasPCocinar AS F
+                F.ProductID AS ResultProductID,
+                F.Producto AS ResultProduct,
+                F.ComponenteID AS BaseProductID,
+                F.Componente AS BaseProduct,
+                ISNULL(P.Unit, 'KILO') AS Unit
+            FROM {self._fuente_formulas} AS F
             INNER JOIN dbo.orgProduct AS P
                 ON P.ProductID = F.ComponenteID
                AND P.DiscontinuedOn IS NULL
-            WHERE UPPER(LTRIM(RTRIM(F.Producto))) =
-                  UPPER(LTRIM(RTRIM(?)))
-              AND UPPER(LTRIM(RTRIM(ISNULL(P.Category1, '')))) =
-                  UPPER(LTRIM(RTRIM(?)))
+            WHERE F.Producto = ?
+              AND P.Category1 = ?
             ORDER BY
                 CAST(F.CantidadComp AS DECIMAL(18,6)) DESC,
                 F.IDComp,
                 F.ComponenteID
             """,
-            (nombre, str(linea).strip()),
+            (nombre, linea_normalizada),
         )
         if formula_exacta:
-            return formula_exacta[0]
+            fila = formula_exacta[0]
+            return {
+                'producto_resultante_id': fila.get('ResultProductID'),
+                'producto_resultante': fila.get('ResultProduct'),
+                'producto_base_id': fila.get('BaseProductID'),
+                'producto_base': fila.get('BaseProduct'),
+                'unidad': fila.get('Unit') or 'KILO',
+            }
 
         # Category1 define la línea, Category2 el producto padre y
         # ProductName el producto resultante. Primero localizamos el resultado
@@ -3057,14 +3043,13 @@ class BaseDatos(ComandosBaseDatos):
         productos_linea = self.fetchall(
             """
             SELECT ProductID, ProductName, Category2,
-                   ISNULL(Unit, 'KILO') AS unidad
+                   ISNULL(Unit, 'KILO') AS Unit
             FROM dbo.orgProduct
             WHERE DiscontinuedOn IS NULL
-              AND UPPER(LTRIM(RTRIM(ISNULL(Category1, '')))) =
-                  UPPER(LTRIM(RTRIM(?)))
+               AND Category1 = ?
               AND NULLIF(LTRIM(RTRIM(Category2)), '') IS NOT NULL
             """,
-            (str(linea).strip(),),
+            (linea_normalizada,),
         )
         resultados_ordenados = sorted(
             (
@@ -3123,17 +3108,17 @@ class BaseDatos(ComandosBaseDatos):
                         str(base.get('ProductID') or 0)
                     ),
                     'producto_base': base['ProductName'],
-                    'unidad': base.get('unidad') or 'KILO',
+                    'unidad': base.get('Unit') or 'KILO',
                 }
 
         filas = self.fetchall(
             """
             SELECT TOP 1
-                Resultado.ProductID AS producto_resultante_id,
-                Resultado.ProductName AS producto_resultante,
-                Base.ProductID AS producto_base_id,
-                Base.ProductName AS producto_base,
-                ISNULL(Base.Unit, 'KILO') AS unidad
+                Resultado.ProductID AS ResultProductID,
+                Resultado.ProductName AS ResultProductName,
+                Base.ProductID AS BaseProductID,
+                Base.ProductName AS BaseProductName,
+                ISNULL(Base.Unit, 'KILO') AS Unit
             FROM dbo.orgProduct AS Resultado
             CROSS APPLY
             (
@@ -3174,7 +3159,14 @@ class BaseDatos(ComandosBaseDatos):
             (str(linea).strip(), nombre, nombre, nombre),
         )
         if filas:
-            return filas[0]
+            fila = filas[0]
+            return {
+                'producto_resultante_id': fila.get('ResultProductID'),
+                'producto_resultante': fila.get('ResultProductName'),
+                'producto_base_id': fila.get('BaseProductID'),
+                'producto_base': fila.get('BaseProductName'),
+                'unidad': fila.get('Unit') or 'KILO',
+            }
 
         palabras_buscadas = self._palabras_clave_producto(nombre)
         candidatos = self.fetchall(
@@ -3183,7 +3175,7 @@ class BaseDatos(ComandosBaseDatos):
                 ProductID,
                 ProductName,
                 Category2,
-                ISNULL(Unit, 'KILO') AS unidad
+                ISNULL(Unit, 'KILO') AS Unit
             FROM dbo.orgProduct
             WHERE DiscontinuedOn IS NULL
               AND UPPER(LTRIM(RTRIM(ISNULL(Category1, '')))) =
@@ -3291,70 +3283,82 @@ class BaseDatos(ComandosBaseDatos):
         }
 
     def buscar_componentes_configuracion(self, linea: str) -> list[dict]:
-        linea_normalizada = str(linea).strip().upper()
+        linea_normalizada = self._nombre_producto_normalizado(linea)
         productos_linea = self.fetchall(
             """
             SELECT TOP (500)
-                P.ProductID AS product_id,
-                P.ProductName AS producto,
-                ISNULL(P.Unit, 'KILO') AS unidad,
-                CAST(0 AS DECIMAL(18,8)) AS cantidad_por_kilo
+                P.ProductID AS ProductID,
+                P.ProductName AS ProductName,
+                ISNULL(P.Unit, 'KILO') AS Unit,
+                CAST(0 AS DECIMAL(18,8)) AS QuantityPerKilo
             FROM dbo.orgProduct AS P
             WHERE P.DiscontinuedOn IS NULL
               AND P.Category1 = ?
-            ORDER BY P.ProductName
             """,
             (linea_normalizada,),
         )
         productos_formula = self.fetchall(
-            """
+            f"""
             WITH FormulaEvaluada AS
             (
                 SELECT
                     F.ProductID,
                     F.ComponenteID,
-                    CAST(F.CantidadComp AS DECIMAL(18,8)) AS cantidad,
-                    MAX(CASE WHEN Base.Category1 = ?
-                        THEN CAST(F.CantidadComp AS DECIMAL(18,8))
-                    END) OVER (PARTITION BY F.ProductID) AS cantidad_base
-                FROM dbo.zvwFormulasListasPCocinar AS F
-                INNER JOIN dbo.orgProduct AS Base
-                    ON Base.ProductID = F.ComponenteID
-                   AND Base.DiscontinuedOn IS NULL
+                    CAST(F.CantidadComp AS DECIMAL(18,8)) AS Quantity,
+                    FormulaBase.BaseQuantity
+                FROM {self._fuente_formulas} AS F
+                CROSS APPLY
+                (
+                    SELECT TOP (1)
+                        CAST(BF.CantidadComp AS DECIMAL(18,8)) AS BaseQuantity
+                    FROM {self._fuente_formulas} AS BF
+                    INNER JOIN dbo.orgProduct AS Base
+                        ON Base.ProductID = BF.ComponenteID
+                       AND Base.DiscontinuedOn IS NULL
+                    WHERE BF.ProductID = F.ProductID
+                      AND Base.Category1 = ?
+                    ORDER BY BF.IDComp
+                ) AS FormulaBase
             ),
             Proporciones AS
             (
                 SELECT
-                    ComponenteID AS producto_id,
+                    ComponenteID AS ProductID,
                     CAST(AVG(
-                        cantidad / NULLIF(cantidad_base, 0)
-                    ) AS DECIMAL(18,8)) AS cantidad_por_kilo
+                        Quantity / NULLIF(BaseQuantity, 0)
+                    ) AS DECIMAL(18,8)) AS QuantityPerKilo
                 FROM FormulaEvaluada
-                WHERE cantidad > 0 AND cantidad_base > 0
+                WHERE Quantity > 0 AND BaseQuantity > 0
                 GROUP BY ComponenteID
             )
             SELECT TOP (500)
-                P.ProductID AS product_id,
-                P.ProductName AS producto,
-                ISNULL(P.Unit, 'KILO') AS unidad,
-                ISNULL(Proporcion.cantidad_por_kilo, 0) AS cantidad_por_kilo
+                P.ProductID AS ProductID,
+                P.ProductName AS ProductName,
+                ISNULL(P.Unit, 'KILO') AS Unit,
+                ISNULL(Proporcion.QuantityPerKilo, 0) AS QuantityPerKilo
             FROM dbo.orgProduct AS P
             INNER JOIN Proporciones AS Proporcion
-                ON Proporcion.producto_id = P.ProductID
+                ON Proporcion.ProductID = P.ProductID
             WHERE P.DiscontinuedOn IS NULL
-            ORDER BY P.ProductName
             """,
             (linea_normalizada,),
         )
-        por_producto = {
-            int(producto['product_id']): producto
-            for producto in productos_linea
-        }
-        for producto in productos_formula:
-            por_producto[int(producto['product_id'])] = producto
+        por_producto = {}
+        for fila in productos_linea + productos_formula:
+            producto = {
+                'product_id': int(fila.get('ProductID') or 0),
+                'producto': self._convertir_texto(fila.get('ProductName')),
+                'unidad': self._convertir_texto(fila.get('Unit')) or 'KILO',
+                'cantidad_por_kilo': float(
+                    fila.get('QuantityPerKilo') or 0
+                ),
+            }
+            por_producto[producto['product_id']] = producto
         return sorted(
             por_producto.values(),
-            key=lambda producto: str(producto.get('producto') or ''),
+            key=lambda elemento: self._convertir_texto(
+                elemento.get('producto')
+            ),
         )[:500]
 
     def buscar_formula_producto_configuracion(
@@ -3362,9 +3366,9 @@ class BaseDatos(ComandosBaseDatos):
     ) -> list[dict]:
         formula_id = int(producto_id)
         tiene_formula_directa = self.fetchone(
-            """
+            f"""
             SELECT TOP 1 ProductID
-            FROM dbo.zvwFormulasListasPCocinar
+            FROM {self._fuente_formulas}
             WHERE ProductID = ?
             """,
             (formula_id,),
@@ -3388,15 +3392,15 @@ class BaseDatos(ComandosBaseDatos):
             if not formula_id:
                 return []
 
-        return self.fetchall(
-            """
+        filas = self.fetchall(
+            f"""
             SELECT
-                F.ComponenteID AS product_id,
-                F.Componente AS producto,
-                CAST(F.CantidadComp AS DECIMAL(18,6)) AS cantidad,
-                ISNULL(P.Unit, 'KILO') AS unidad,
-                ISNULL(P.Category1, '') AS linea
-            FROM dbo.zvwFormulasListasPCocinar AS F
+                F.ComponenteID AS ProductID,
+                F.Componente AS ProductName,
+                CAST(F.CantidadComp AS DECIMAL(18,6)) AS Quantity,
+                ISNULL(P.Unit, 'KILO') AS Unit,
+                ISNULL(P.Category1, '') AS ProductLine
+            FROM {self._fuente_formulas} AS F
             INNER JOIN dbo.orgProduct AS P
                 ON P.ProductID = F.ComponenteID
                AND P.DiscontinuedOn IS NULL
@@ -3405,16 +3409,26 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (formula_id,),
         )
+        return [
+            {
+                'product_id': int(fila.get('ProductID') or 0),
+                'producto': self._convertir_texto(fila.get('ProductName')),
+                'cantidad': float(fila.get('Quantity') or 0),
+                'unidad': self._convertir_texto(fila.get('Unit')) or 'KILO',
+                'linea': self._convertir_texto(fila.get('ProductLine')),
+            }
+            for fila in filas
+        ]
 
     def buscar_formulas_relacionadas_configuracion(
             self, producto_id: int
     ) -> list[dict]:
         formulas = self.fetchall(
-            """
+            f"""
             SELECT DISTINCT
-                F.ProductID AS formula_id,
-                F.Producto AS formula
-            FROM dbo.zvwFormulasListasPCocinar AS F
+                F.ProductID AS FormulaID,
+                F.Producto AS FormulaName
+            FROM {self._fuente_formulas} AS F
             INNER JOIN dbo.orgProduct AS Resultado
                 ON Resultado.ProductID = F.ProductID
                AND Resultado.DiscontinuedOn IS NULL
@@ -3423,6 +3437,13 @@ class BaseDatos(ComandosBaseDatos):
             """,
             (int(producto_id),),
         )
+        formulas = [
+            {
+                'formula_id': int(fila.get('FormulaID') or 0),
+                'formula': self._convertir_texto(fila.get('FormulaName')),
+            }
+            for fila in formulas
+        ]
         if not formulas:
             producto = self.fetchall(
                 """
@@ -3443,9 +3464,9 @@ class BaseDatos(ComandosBaseDatos):
                 )
                 if formula_id:
                     nombre_formula = self.fetchone(
-                        """
+                        f"""
                         SELECT TOP 1 Producto
-                        FROM dbo.zvwFormulasListasPCocinar
+                        FROM {self._fuente_formulas}
                         WHERE ProductID = ?
                         """,
                         (int(formula_id),),
@@ -3468,6 +3489,22 @@ class BaseDatos(ComandosBaseDatos):
             for formula in formulas
         ]
 
+    def listar_componentes_formulas_configuracion(
+            self, producto_id: int
+    ) -> list[dict]:
+        """Devuelve los insumos de cada fórmula para el contrato de la API."""
+        return [
+            {
+                **componente,
+                'formula_id': int(formula['formula_id']),
+                'formula': self._convertir_texto(formula['formula']),
+            }
+            for formula in self.buscar_formulas_relacionadas_configuracion(
+                producto_id
+            )
+            for componente in formula['componentes']
+        ]
+
     def eliminar_configuraciones_incompletas(
             self,
             transformaciones_ids: list[int],
@@ -3480,31 +3517,24 @@ class BaseDatos(ComandosBaseDatos):
         })
         if not ids:
             return
-        ids_json = json.dumps(ids)
+        marcadores = ', '.join('?' for _ in ids)
+        parametros = tuple(ids) * 4
         self.fetchone(
-            """
+            f"""
             BEGIN TRANSACTION;
             BEGIN TRY
                 DELETE A
                 FROM dbo.ModuloCarnicoConfiguracionAuditoria AS A
-                WHERE A.configuracion_id IN (
-                    SELECT TRY_CONVERT(INT, [value]) FROM OPENJSON(?)
-                );
+                WHERE A.configuracion_id IN ({marcadores});
                 DELETE C
                 FROM dbo.TransformacionesUsuarioComponente AS C
-                WHERE C.id_transformacion_usuario IN (
-                    SELECT TRY_CONVERT(INT, [value]) FROM OPENJSON(?)
-                );
+                WHERE C.id_transformacion_usuario IN ({marcadores});
                 DELETE D
                 FROM dbo.TransformacionesUsuarioDetalle AS D
-                WHERE D.id_transformacion_usuario IN (
-                    SELECT TRY_CONVERT(INT, [value]) FROM OPENJSON(?)
-                );
+                WHERE D.id_transformacion_usuario IN ({marcadores});
                 DELETE T
                 FROM dbo.TransformacionesUsuario AS T
-                WHERE T.id_transformacion_usuario IN (
-                    SELECT TRY_CONVERT(INT, [value]) FROM OPENJSON(?)
-                );
+                WHERE T.id_transformacion_usuario IN ({marcadores});
                 COMMIT TRANSACTION;
                 SELECT 1;
             END TRY
@@ -3513,7 +3543,7 @@ class BaseDatos(ComandosBaseDatos):
                 THROW;
             END CATCH
             """,
-            (ids_json, ids_json, ids_json, ids_json),
+            parametros,
         )
     def crear_configuracion_transformacion(
             self,
@@ -3522,24 +3552,22 @@ class BaseDatos(ComandosBaseDatos):
             usuario_nombre: str = 'Usuario',
     ) -> int:
         self.asegurar_proveedor_transformaciones_usuario()
+        linea_normalizada = self._nombre_producto_normalizado(datos.linea)
+        nombre_normalizado = str(datos.nombre or '').strip()
         producto_resultante_id = self.fetchone(
-            """
+            f"""
             SELECT TOP 1 F.ProductID
-            FROM dbo.zvwFormulasListasPCocinar AS F
+            FROM {self._fuente_formulas} AS F
                 INNER JOIN dbo.orgProduct AS Componente
                     ON Componente.ProductID = F.ComponenteID
                    AND Componente.DiscontinuedOn IS NULL
                 INNER JOIN dbo.orgProduct AS Resultado
                     ON Resultado.ProductID = F.ProductID
                    AND Resultado.DiscontinuedOn IS NULL
-                WHERE UPPER(LTRIM(RTRIM(ISNULL(Componente.Category1, '')))) =
-                      UPPER(LTRIM(RTRIM(?)))
-                  AND UPPER(LTRIM(RTRIM(F.Producto))) =
-                      UPPER(LTRIM(RTRIM(?)))
-            GROUP BY F.ProductID
-            ORDER BY F.ProductID
+                WHERE Componente.Category1 = ?
+                  AND F.Producto = ?
             """,
-            (datos.linea, datos.nombre),
+            (linea_normalizada, nombre_normalizado),
         )
         if not producto_resultante_id:
             producto_resultante_id = self.fetchone(
@@ -3559,6 +3587,7 @@ class BaseDatos(ComandosBaseDatos):
             int(componente.producto_id)
             for componente in datos.componentes
         ]
+        marcadores_componentes = ', '.join('?' for _ in componentes_ids)
         marcados_base = [
             componente
             for componente in datos.componentes
@@ -3566,15 +3595,13 @@ class BaseDatos(ComandosBaseDatos):
         ]
         producto_base_id = int(marcados_base[0].producto_id)
         productos_validos = self.fetchall(
-            """
+            f"""
             SELECT ProductID, ISNULL(Category1, '') AS Category1
             FROM dbo.orgProduct
             WHERE DiscontinuedOn IS NULL
-              AND ProductID IN (
-                  SELECT TRY_CONVERT(INT, [value]) FROM OPENJSON(?)
-              )
+              AND ProductID IN ({marcadores_componentes})
             """,
-            (json.dumps(componentes_ids),),
+            tuple(componentes_ids),
         )
         if len(productos_validos) != len(componentes_ids):
             raise ValueError('Uno de los insumos no existe o está inactivo en el sistema.')
@@ -3597,8 +3624,9 @@ class BaseDatos(ComandosBaseDatos):
                 sugerencia.get('producto_resultante_id')
                 if sugerencia else None
             )
-        producto_resultante_id = int(
-            str(producto_resultante_id or producto_base_id)
+        producto_resultante_id = self._convertir_entero(
+            producto_resultante_id,
+            producto_base_id,
         )
         if self.fetchone(
                 """SELECT TOP 1 T.id_transformacion_usuario
@@ -3626,13 +3654,27 @@ class BaseDatos(ComandosBaseDatos):
             }
             for orden, componente in enumerate(datos.componentes, start=1)
         ]
+        valores_componentes = ', '.join(
+            '(?, ?, ?, ?, ?)' for _ in componentes
+        )
+        parametros_componentes = tuple(
+            valor
+            for componente in componentes
+            for valor in (
+                componente['product_id'],
+                componente['cantidad'],
+                componente['unidad'],
+                int(componente['es_base']),
+                componente['orden'],
+            )
+        )
         cantidad_resultante = round(
             float(datos.cantidad_base) *
             (1 - float(datos.porcentaje_merma) / 100),
             3,
         )
-        transformacion_id = int(self.fetchone(
-            """
+        transformacion_id = self._convertir_entero(self.fetchone(
+            f"""
             BEGIN TRANSACTION;
             BEGIN TRY
                 INSERT dbo.TransformacionesUsuario
@@ -3651,9 +3693,8 @@ class BaseDatos(ComandosBaseDatos):
                      participa_balance, orden, activa)
                 SELECT @id, product_id, cantidad, unidad, es_base,
                        IIF(es_base=1,'PRODUCTO_BASE','INSUMO'), es_base, orden, 1
-                FROM OPENJSON(?) WITH
-                    (product_id INT, cantidad DECIMAL(18,6), unidad NVARCHAR(50),
-                     es_base BIT, orden INT);
+                 FROM (VALUES {valores_componentes}) AS Componentes
+                     (product_id, cantidad, unidad, es_base, orden);
                 COMMIT TRANSACTION;
                 SELECT @id;
             END TRY
@@ -3669,9 +3710,8 @@ class BaseDatos(ComandosBaseDatos):
                 None, int(usuario_id), datos.observaciones,
                 producto_resultante_id,
                 cantidad_resultante,
-                json.dumps(componentes, ensure_ascii=False),
-            ),
-        ) or 0)
+            ) + parametros_componentes,
+        ))
         try:
             self.registrar_auditoria_configuracion(
                 configuracion_id=transformacion_id,
@@ -3694,6 +3734,5 @@ class BaseDatos(ComandosBaseDatos):
         return transformacion_id
 
 
-@cache
 def obtener_base_datos() -> BaseDatos:
     return BaseDatos()
