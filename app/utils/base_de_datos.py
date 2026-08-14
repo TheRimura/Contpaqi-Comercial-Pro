@@ -3037,9 +3037,6 @@ class BaseDatos(ComandosBaseDatos):
                 'unidad': fila.get('Unit') or 'KILO',
             }
 
-        # Category1 define la línea, Category2 el producto padre y
-        # ProductName el producto resultante. Primero localizamos el resultado
-        # tolerando errores pequeños de captura y después resolvemos su padre.
         productos_linea = self.fetchall(
             """
             SELECT ProductID, ProductName, Category2,
@@ -3492,7 +3489,6 @@ class BaseDatos(ComandosBaseDatos):
     def listar_componentes_formulas_configuracion(
             self, producto_id: int
     ) -> list[dict]:
-        """Devuelve los insumos de cada fórmula para el contrato de la API."""
         return [
             {
                 **componente,
