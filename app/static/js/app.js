@@ -1890,7 +1890,7 @@ function actualizarResumenHistorial(resumenServidor = null) {
     const mermaAcumulada = separarPesoHistorial(merma);
     const valores = {
         "historial-kpi-transformaciones": String(
-            resumenServidor?.transformacion_id ?? totalRegistrosHistorial
+            resumenServidor?.transformaciones ?? totalRegistrosHistorial
         ),
         "historial-kpi-kilos": pesoProcesado.valor,
         "historial-kpi-kilos-unidad": pesoProcesado.unidad,
@@ -2669,14 +2669,13 @@ async function cargarTransformacionPrecargada() {
             ? detalle["resultantes"]
             : [];
         if (!resultantes.length) {
-            new Error("La transformación no tiene productos resultantes configurados.");
-        } else {
-            llenarSelect("resultante-transformacion", resultantes, "product_id", "producto_resultante", "Producto resultante");
-            document.getElementById("resultante-transformacion").value = String(resultantes[0]["product_id"]);
-            actualizarMermaTransformacion();
-            calcularInsumosTransformacion();
-            limpiarMensaje();
+            throw new Error("La transformación no tiene productos resultantes configurados.");
         }
+        llenarSelect("resultante-transformacion", resultantes, "product_id", "producto_resultante", "Producto resultante");
+        document.getElementById("resultante-transformacion").value = String(resultantes[0]["product_id"]);
+        actualizarMermaTransformacion();
+        calcularInsumosTransformacion();
+        limpiarMensaje();
     } catch (error) { mostrarMensaje(error.message); }
 }
 
@@ -3112,7 +3111,7 @@ async function seleccionarTransformacionAlternativa(seleccionada) {
             ? detalle["resultantes"]
             : [];
         if (!resultantes.length) {
-             new Error("La transformación no tiene productos resultantes configurados.");
+            throw new Error("La transformación no tiene productos resultantes configurados.");
         }
         llenarSelect(
             "resultante-transformacion", resultantes,
