@@ -269,8 +269,6 @@ BEGIN TRY
               WHERE C.product_id = O.product_id
           );
     END;
-
-
     COMMIT TRANSACTION;
 END TRY
 BEGIN CATCH

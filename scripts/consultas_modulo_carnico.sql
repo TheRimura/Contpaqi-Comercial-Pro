@@ -207,3 +207,44 @@ FROM dbo.ModuloCarnicoConfiguracionAuditoria AS A
 ORDER BY
     A.fecha DESC,
     A.id_auditoria DESC;
+
+/* ==============================================================
+   7. CONTROL DE PARCHES
+   ============================================================== */
+SELECT
+    P.parches_accion AS PARCHES
+    CONVERT (DATETIME2(0), A.fecha) AS Fecha,
+    A.usuario_nombre AS Usuario,
+    A.accion AS Accion,
+    A.configuracion_parche AS Configuracion
+    P.parches_nuevos_json AS PARCHES
+    FROM dbo.Parchesdeactualizaciones
+    ORDER BY
+        A.fecha DESC;
+        A.parches_actualizaciones DESC;
+
+/* ==============================================================
+   8. HISTORIAL
+   ============================================================== */
+SELECT
+     R.DocumentWarehouseRelationID AS relacion_id
+     R.SourceDocumentID AS documento_salia_id
+     R.DestinationDocumentID AS documento_entrada_id
+     R.CreatedOn AS fecha_hora
+     CONVERT (DATETIME2(0), A.fecha) AS Fecha
+     A.usuario_nombre AS Usuario
+     FROM dbo.docDocumentWarehouseRelation AS R
+     ORDER BY
+        A.fecha DESC;
+        A.historial DESC;
+
+ /* =============================================================
+    9. CATALOGO
+    ============================================================= */
+ SELECT
+    dbo.ModuloCarnicoProductoConfigurado
+    SET activo = 0,
+     P.productName AS ProductName
+     WHERE product_id
+        AND activo = 1
+        ORDER BY M.fecha_actualizacion DESC; M.id_producto_carnico
