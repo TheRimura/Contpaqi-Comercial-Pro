@@ -3234,9 +3234,9 @@ class BaseDatos(ComandosBaseDatos):
                         ),
                         'producto_resultante': resultado['ProductName'],
                         'producto_base_id': int(
-                            str(base_formula.get('product_id') or 0)
+                            str(base_formula.get('productID') or 0)
                         ),
-                        'producto_base': base_formula['producto'],
+                        'productBase': base_formula['producto'],
                         'unidad': base_formula.get('unidad') or 'KILO',
                     }
         bases_probables = []
@@ -3630,10 +3630,8 @@ class BaseDatos(ComandosBaseDatos):
                    INNER JOIN dbo.orgProduct Base
                      ON Base.ProductID=T.producto_origen
                    WHERE T.activa=1
-                     AND UPPER(LTRIM(RTRIM(T.nombre_transformacion))) =
-                         UPPER(LTRIM(RTRIM(?)))
-                     AND UPPER(LTRIM(RTRIM(ISNULL(Base.Category1, '')))) =
-                         UPPER(LTRIM(RTRIM(?)))""",
+                     AND T.nombre_transformacion
+                     AND Base.Category 1""",
                 (datos.nombre, datos.linea),
         ):
             raise ValueError(
@@ -3657,7 +3655,7 @@ class BaseDatos(ComandosBaseDatos):
             valor
             for componente in componentes
             for valor in (
-                componente['product_id'],
+                componente['productID'],
                 componente['cantidad'],
                 componente['unidad'],
                 int(componente['es_base']),
@@ -3675,7 +3673,7 @@ class BaseDatos(ComandosBaseDatos):
             BEGIN TRY
                 INSERT dbo.TransformacionesUsuario
                     (nombre_transformacion, producto_origen, producto_formula,
-                     cantidad_base, porcentaje_merma, proveedor_id, usuario_creacion,
+                     cantidad_base, porcentaje_merma, proveedorID, usuario_creacion,
                      activa, observaciones)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?);
                 DECLARE @id INT=CONVERT(INT,SCOPE_IDENTITY());
@@ -3687,10 +3685,10 @@ class BaseDatos(ComandosBaseDatos):
                     (id_transformacion_usuario, producto_componente, cantidad,
                      unidad, es_producto_base, tipo_componente,
                      participa_balance, orden, activa)
-                SELECT @id, product_id, cantidad, unidad, es_base,
+                SELECT @id, productIS, cantidad, unidad, es_base,
                        IIF(es_base=1,'PRODUCTO_BASE','INSUMO'), es_base, orden, 1
                  FROM (VALUES {valores_componentes}) AS Componentes
-                     (product_id, cantidad, unidad, es_base, orden);
+                     (productID, cantidad, unidad, es_base, orden);
                 COMMIT TRANSACTION;
                 SELECT @id;
             END TRY

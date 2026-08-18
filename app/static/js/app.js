@@ -2632,17 +2632,17 @@ async function cargarBasesTransformacion() {
     document.getElementById("documento-salida").value = "";
     document.getElementById("documento-entrada").value = "";
     detalleTransformacionSeleccionada = null;
-    llenarSelect("base-transformacion", [], "product_id_base", "producto_base", "Se completa automáticamente");
-    llenarSelect("resultante-transformacion", [], "product_id", "producto_resultante", "Selecciona un producto resultante");
+    llenarSelect("BaseTransformacion", [], "ProductIDBase", "ProducBase", "Se completa automáticamente");
+    llenarSelect("resultante-transformacion", [], "ProductID", "producto_resultante", "Selecciona un producto resultante");
     calcularInsumosTransformacion();
     if (!linea) {
-        llenarSelect("transformacion-precargada", [], "transformacion_id", "nombre_transformacion", "Selecciona una transformación");
+        llenarSelect("TransformacionesPrecargadas", [], "TransformacionesID", "NombreTransformacion", "Selecciona una transformación");
         selector.disabled = true;
         return;
     }
     try {
         const transformaciones = await solicitarJson(`${API_RELACIONES}/transformacion/precargadas?linea=${encodeURIComponent(linea)}`);
-        llenarSelect("transformacion-precargada", transformaciones, "transformacion_id", "nombre_transformacion", "Selecciona una transformación");
+        llenarSelect("TransformacionesPrecargadas", transformaciones, "TransformacionesID", "NombreTransformaciones", "Selecciona una transformación");
         selector.disabled = false;
         if (!transformaciones.length) {
             mostrarMensaje("Esta línea aún no tiene transformaciones precargadas en Configuración.");
@@ -2652,18 +2652,18 @@ async function cargarBasesTransformacion() {
 
 async function cargarTransformacionPrecargada() {
     limpiarVistaPreviaTransformacion();
-    const transformacionId = Number(document.getElementById("transformacion-precargada").value || 0);
+    const transformacionId = Number(document.getElementById("TransformacionesPrecargadas").value || 0);
     detalleTransformacionSeleccionada = null;
     if (!transformacionId) {
-        llenarSelect("base-transformacion", [], "product_id_base", "producto_base", "Se completa automáticamente");
-        llenarSelect("resultante-transformacion", [], "product_id", "producto_resultante", "Se completa automáticamente");
+        llenarSelect("base-transformacion", [], "product_id_base", "ProductBase", "Se completa automáticamente");
+        llenarSelect("resultante-transformacion", [], "ProductID", "producto_resultante", "Se completa automáticamente");
         calcularInsumosTransformacion();
         return;
     }
     try {
         const detalle = await solicitarJson(`${API_RELACIONES}/transformacion/precargadas/${transformacionId}`);
         detalleTransformacionSeleccionada = detalle;
-        llenarSelect("base-transformacion", [{ product_id_base: detalle.producto_base_id, producto_base: detalle.producto_base }], "product_id_base", "producto_base", "Producto base");
+        llenarSelect("base-transformacion", [{ product_id_base: detalle.producto_base_id, producto_base: detalle.producto_base }], "product_id_base", "ProductBase", "Product Bsae");
         document.getElementById("base-transformacion").value = String(detalle.producto_base_id);
         const resultantes = Array.isArray(detalle["resultantes"])
             ? detalle["resultantes"]
@@ -2671,8 +2671,8 @@ async function cargarTransformacionPrecargada() {
         if (!resultantes.length) {
             throw new Error("La transformación no tiene productos resultantes configurados.");
         }
-        llenarSelect("resultante-transformacion", resultantes, "product_id", "producto_resultante", "Producto resultante");
-        document.getElementById("resultante-transformacion").value = String(resultantes[0]["product_id"]);
+        llenarSelect("resultante-transformacion", resultantes, "ProductID", "producto_resultante", "Producto resultante");
+        document.getElementById("resultante-transformacion").value = String(resultantes[0]["ProductID"]);
         actualizarMermaTransformacion();
         calcularInsumosTransformacion();
         limpiarMensaje();
@@ -2822,7 +2822,7 @@ async function cargarDatos() {
 async function solicitarTipoMovimiento() {
     const boton = document.getElementById("boton-iniciar-captura");
     boton.disabled = true;
-    boton.textContent = "Preparando...";
+    boton.textContent = "Capturando...";
     try {
         if (!datosCargados) await cargarDatos();
         if (!datosCargados) return;
