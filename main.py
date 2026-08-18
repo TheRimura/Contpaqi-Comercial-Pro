@@ -35,8 +35,7 @@ STATIC_DIR = APP_DIR / 'static'
 
 @asynccontextmanager
 async def ciclo_vida_aplicacion(aplicacion: FastAPI):
-    # El servidor web solo valida. Las migraciones se ejecutan de forma
-    # explícita con scripts/inicializar_base_datos.py.
+
     reporte = inicializar_base_datos_modulo(aplicar_cambios=False)
     aplicacion.state.inicializacion_base_datos = reporte
     print(
@@ -45,8 +44,7 @@ async def ciclo_vida_aplicacion(aplicacion: FastAPI):
         f"Tablas creadas: {len(reporte.tablas_creadas)}; "
         f"reutilizadas: {len(reporte.tablas_reutilizadas)}."
     )
-    # SQL Server compila este plan la primera vez. Se precalienta durante el
-    # arranque para que el operador no pague ese costo al abrir Historial.
+
     hoy = date.today()
     inicio_mes = hoy.replace(day=1)
     base_datos = obtener_base_datos()
