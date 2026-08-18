@@ -447,7 +447,7 @@ class BaseDatos(ComandosBaseDatos):
                 SELECT P.ProductID, P.Category1
                 FROM dbo.orgProduct AS P
                 INNER JOIN dbo.ModuloCarnicoProductoConfigurado AS M
-                    ON M.product_id = P.ProductID
+                    ON M.ProductID = P.ProductID
                    AND M.activo = 1
                 WHERE P.Category1 IN ('CERDO', 'POLLO', 'RES LOCAL')
             ),
@@ -512,8 +512,8 @@ class BaseDatos(ComandosBaseDatos):
         )
         return [
             {
-                'producto_base': fila.get('ProductBase'),
-                'product_id_base': fila.get('BaseProductID'),
+                'ProductBase': fila.get('ProductBase'),
+                'ProductBaseID': fila.get('BaseProductID'),
                 'total_resultantes': fila.get('TotalResults'),
             }
             for fila in filas
@@ -611,7 +611,7 @@ class BaseDatos(ComandosBaseDatos):
         )
         return [
             {
-                'transformacion_id': fila.get('ProductID'),
+                'transformacionID': fila.get('ProductID'),
                 'nombre_transformacion': fila.get('ProductName'),
                 'producto_base_id': fila.get('BaseProductID'),
                 'producto_base': fila.get('BaseProductName'),
@@ -785,7 +785,7 @@ class BaseDatos(ComandosBaseDatos):
         disponibles = self.fetchall(
             f"""
             SELECT TOP 1
-                P.ProductID AS transformacion_id,
+                P.ProductID AS transformacionID ,
                 P.ProductName AS nombre_transformacion,
                 P.ProductID AS producto_resultante_id,
                 P.ProductName AS producto_resultante,
@@ -896,7 +896,7 @@ class BaseDatos(ComandosBaseDatos):
                 componentes_de_linea,
                 key=lambda componente: float(componente.get('cantidad') or 0),
             )
-            registro['producto_base_id'] = int(componente_base['product_id'])
+            registro['producto_base_id'] = int(componente_base['ProductID'])
             registro['producto_base'] = componente_base['producto']
         componentes = []
         base_en_formula = False
@@ -904,7 +904,7 @@ class BaseDatos(ComandosBaseDatos):
             es_base = int(componente['product_id']) == int(registro['producto_base_id'])
             base_en_formula = base_en_formula or es_base
             componentes.append({
-                'product_id': int(componente['product_id']),
+                'ProductID': int(componente['ProductID']),
                 'producto': componente['producto'],
                 'cantidad': float(componente['cantidad']),
                 'unidad': componente.get('unidad') or 'KILO',
@@ -923,7 +923,7 @@ class BaseDatos(ComandosBaseDatos):
                 'orden': 0,
             })
         return {
-            'transformacion_id': int(registro['transformacion_id']),
+            'transformacionID ': int(registro['transformacionID']),
             'nombre_transformacion': registro['nombre_transformacion'],
             'producto_base_id': int(registro['producto_base_id']),
             'producto_base': registro['producto_base'],
@@ -931,7 +931,7 @@ class BaseDatos(ComandosBaseDatos):
             'porcentaje_merma': AJUSTES_MODULO.merma_tecnica_porcentaje,
             'origen_catalogo': True,
             'resultantes': [{
-                'product_id': int(registro['producto_resultante_id']),
+                'ProductID': int(registro['producto_resultante_id']),
                 'producto_resultante': registro['producto_resultante'],
                 'cantidad': AJUSTES_MODULO.factor_rendimiento,
                 'unidad': registro.get('unidad_resultante') or 'KILO',
@@ -946,7 +946,7 @@ class BaseDatos(ComandosBaseDatos):
         encabezados = self.fetchall(
             """
             SELECT TOP 1
-                T.id_transformacion_usuario AS transformacion_id,
+                T.id_transformacion_usuario AS transformacionID,
                 T.nombre_transformacion,
                 T.producto_origen AS producto_base_id,
                 P.ProductName AS producto_base,
@@ -2146,12 +2146,6 @@ class BaseDatos(ComandosBaseDatos):
             self,
             document_id: int,
     ) -> list[dict]:
-        """
-        Consulta directamente las partidas.
-
-        No llama a buscar_partidas_documento() del paquete para evitar que un
-        parámetro de un elemento sea enviado sin la coma de la tupla.
-        """
         partidas = self.fetchall(
             """
             SELECT

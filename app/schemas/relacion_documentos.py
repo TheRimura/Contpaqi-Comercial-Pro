@@ -150,3 +150,22 @@ class PartidaExportacion(ModeloRelacion):
     folio_documento: str
     producto: str
     cantidad: float = Field(ge=0)
+
+class PartidaExporta(ModeloRelacion):
+    relacion_id: int = Field(gt=0)
+    fecha_hora: datetime
+    folio_salida: str
+    folio_entrada: str
+    tablajeroID : int
+    usuario_erpID: int
+    tipo_documento: str
+    folio_documento: str
+    producto: str
+    cantidad :float = Field(ge=0)
+    producto_resultado: str
+    cantidad_resultado: float = Field(ge=0)
+    es_documento_lote: bool = False
+    total_partidas: int
+    total_insumos: int = Field(ge=0)
+
+

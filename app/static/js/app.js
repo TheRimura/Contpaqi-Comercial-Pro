@@ -2613,9 +2613,9 @@ async function prepararMovimientoSeleccionado() {
     limpiarVistaPreviaTransformacion();
     const lineas = await solicitarJson(`${API_RELACIONES}/transformacion/lineas`);
     llenarSelect("linea-transformacion", lineas, "Category1", "Category1", "Selecciona una línea");
-    llenarSelect("transformacion-precargada", [], "transformacion_id", "nombre_transformacion", "Selecciona una transformación");
+    llenarSelect("transformacion-precargada", [], "transformacion", "nombre_transformacion", "Selecciona una transformación");
     llenarSelect("base-transformacion", [], "product_id_base", "producto_base", "Selecciona un producto base");
-    llenarSelect("resultante-transformacion", [], "product_id", "producto_resultante", "Selecciona un producto resultante");
+    llenarSelect("resultante-transformacion", [], "productID", "producto_resultante", "Selecciona un producto resultante");
     document.getElementById("base-transformacion").disabled = true;
     document.getElementById("resultante-transformacion").disabled = true;
     document.getElementById("transformacion-precargada").disabled = true;
@@ -2663,7 +2663,7 @@ async function cargarTransformacionPrecargada() {
     try {
         const detalle = await solicitarJson(`${API_RELACIONES}/transformacion/precargadas/${transformacionId}`);
         detalleTransformacionSeleccionada = detalle;
-        llenarSelect("base-transformacion", [{ product_id_base: detalle.producto_base_id, producto_base: detalle.producto_base }], "product_id_base", "ProductBase", "Product Bsae");
+        llenarSelect("base-transformacion", [{ product_id_base: detalle.producto_base_id, producto_base: detalle.producto_base }], "product_id_base", "producto_base", "Producto_base");
         document.getElementById("base-transformacion").value = String(detalle.producto_base_id);
         const resultantes = Array.isArray(detalle["resultantes"])
             ? detalle["resultantes"]
@@ -2671,8 +2671,8 @@ async function cargarTransformacionPrecargada() {
         if (!resultantes.length) {
             throw new Error("La transformación no tiene productos resultantes configurados.");
         }
-        llenarSelect("resultante-transformacion", resultantes, "ProductID", "producto_resultante", "Producto resultante");
-        document.getElementById("resultante-transformacion").value = String(resultantes[0]["ProductID"]);
+        llenarSelect("resultante-transformacion", resultantes, "product_id", "producto_resultante", "Producto resultante");
+        document.getElementById("resultante-transformacion").value = String(resultantes[0]["product_id"]);
         actualizarMermaTransformacion();
         calcularInsumosTransformacion();
         limpiarMensaje();
@@ -3209,6 +3209,7 @@ function solicitarConfirmacionRegistro() {
         document.getElementById("confirmacion-merma").textContent =
             `${porcentajeMerma.toFixed(2)}%`;
         document.getElementById("confirmacion-folios").textContent = folios;
+        document.getElementById("confirmacion-linea").textContent = linea;
 
         const panelInsumos = document.getElementById("confirmacion-insumos-panel");
         const listaInsumos = document.getElementById("confirmacion-lista-insumos");

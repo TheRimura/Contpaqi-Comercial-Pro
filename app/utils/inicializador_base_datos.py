@@ -261,4 +261,5 @@ def inicializar_base_datos_modulo(
         tablas_creadas=creadas,
         tablas_reutilizadas=reutilizadas,
         dependencias_validadas=len(DEPENDENCIAS_NATIVAS_SSM),
+
     )
